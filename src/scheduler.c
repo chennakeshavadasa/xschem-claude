@@ -334,20 +334,28 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       draw();
     }
 
-    /* annotate_op [raw_file] [level]
+    /* annotate_op [raw_file] [level] [sim_type]
      *   Annotate operating point data into current schematic.
      *   use <schematic name>.raw or use supplied argument as raw file to open
      *   look for operating point data and annotate voltages/currents into schematic.
      *   The optional 'level' integer specifies the hierarchy level the raw file refers to.
      *   This is necessary if annotate_op is called from a sub schematic at a hierarchy
      *   level > 0 but simulation was done at top level (hierarchy 0, for example)
+     *   The sim_type optional parameter (specify also file name and level in this case) sets the 
+     *   simulation to look for (instead of default op, dc, tran fallbacks)
      */
     else if(!strcmp(argv[1], "annotate_op"))
     {
       int level = -1;
       int res = 0;
+      char sim_type[256] = "";
       char f[PATH_MAX + 100];
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+
+      if(argc > 4) {
+        my_snprintf(sim_type, S(sim_type),"%s", argv[4]);
+      }
+
       if(argc > 3) {
         level = atoi(argv[3]);
         if(level < 0 || level > xctx->currsch) {
@@ -368,13 +376,19 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
         res = extra_rawfile(3, xctx->raw->rawfile, xctx->raw->sim_type, -1.0, -1.0);
       }
       tcleval("array unset ngspice::ngspice_data");
-      res = extra_rawfile(1, f, "op", -1.0, -1.0);
-      if(res != 1) {
-        /* Xyce uses a 1-point DC transfer characteristic for operating point (OP) data */
-        res = extra_rawfile(1, f, "dc", -1.0, -1.0);
-      }
-      if(res != 1) { /* try to load a tran analysis (display 1stpoint as OP data in schematic) */
-        res = extra_rawfile(1, f, "tran", -1.0, -1.0);
+
+
+      if(sim_type[0]) {
+        res = extra_rawfile(1, f, sim_type, -1.0, -1.0);
+      } else {
+        res = extra_rawfile(1, f, "op", -1.0, -1.0);
+        if(res != 1) {
+          /* Xyce uses a 1-point DC transfer characteristic for operating point (OP) data */
+          res = extra_rawfile(1, f, "dc", -1.0, -1.0);
+        }
+        if(res != 1) { /* try to load a tran analysis (display 1stpoint as OP data in schematic) */
+          res = extra_rawfile(1, f, "tran", -1.0, -1.0);
+        }
       }
       if(res == 1) {
         if(level >= 0) {
