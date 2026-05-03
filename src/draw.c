@@ -3354,10 +3354,12 @@ void setup_graph_data(int i, int skip, Graph_ctx *gr)
    * tmp =  gr->w * 0.00044;
    * if(tmp < gr->txtsizelab) gr->txtsizelab = tmp;
    */
+  tmp = gr->posh;
+  if(tmp < gr->gh * 1.4) tmp = gr->gh * 1.4; /* limit value so wave labels don't grow too much in size */
   if(xctx->graph_flags & 2)
-    gr->digtxtsizelab = 0.000900 * fabs( gr->h / gr->posh * gr->gh );
+    gr->digtxtsizelab = 0.000900 * fabs( gr->h / tmp * gr->gh );
   else
-    gr->digtxtsizelab = 0.001200 * fabs( gr->h / gr->posh * gr->gh );
+    gr->digtxtsizelab = 0.001200 * fabs( gr->h / tmp * gr->gh );
   gr->txtsizelab *= gr->maglegend;
 
   /* x axis, y axis text sizes */
@@ -3622,6 +3624,7 @@ static void draw_graph_variables(int wcnt, int wave_color, int n_nodes, int swee
         my_snprintf(tmpstr, S(tmpstr), "%s", str_replace(tmpstr, "\\ ", " ", 0, -1));
         draw_string(wave_color, NOW, tmpstr, 2, 0, 0, 0,
           xt, DW_Y(yt), gr->digtxtsizelab * gr->magy, gr->digtxtsizelab * gr->magy);
+        dbg(1, "draw_graph_variables(): h=%g, posh=%g, gh=%g\n", gr->h, gr->posh, gr->gh);
         #if HAS_CAIRO == 1
         if(gr->hilight_wave == wcnt) {
           xctx->cairo_font =
