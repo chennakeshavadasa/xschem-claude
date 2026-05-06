@@ -553,7 +553,7 @@ int save(int confirm, int fast)
   if(!stat(name, &buf)) {
     /* ... and modification time on disk has changed since file loaded ... */
     if(xctx->time_last_modify && xctx->time_last_modify != buf.st_mtime) {
-      /* ... so force a save */
+      /* ... so force a save. save_schematic() will again ask to save if file has been written externally */
       force = 1;
       confirm = 0;
     }

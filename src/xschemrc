@@ -633,6 +633,14 @@
 # set open_in_new_window 1
 
 ###########################################################################
+#### CLOSE CONTEXT MENU
+###########################################################################
+#### If enabled the context menu will be closed when moving the mouse outside 
+#### of the context menu window. Otherwise a click in the drawing area is needed.
+#### default: enabled (1) 
+# set close_ctxmenu_on_leave 0
+
+###########################################################################
 #### ALTERNATE LOAD FILE BROWSER
 ###########################################################################
 #### uses a new file browser widget. Default: not enabled (0)

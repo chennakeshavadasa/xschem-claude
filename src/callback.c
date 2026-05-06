@@ -4126,7 +4126,8 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
 
    state &= ~(Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask ); /* ignore ButtonStates */
    if(!tabbed_interface && strcmp(win_path, xctx->current_win_path)) return;
-   dbg(1, "callback(): ButtonPress  ui_state=%d state=%d\n",xctx->ui_state,state);
+   dbg(1, "callback(): ButtonPress  ui_state=%d state=%d semaphore=%d\n",xctx->ui_state,state, xctx->semaphore);
+   dbg(1, "callback(): win_path=%s\n", win_path);
    if(waves_selected(event, key, state, button)) {
      waves_callback(event, mx, my, key, button, aux, state);
      return;
@@ -4196,6 +4197,11 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
 
    /* button1 click to select another instance while edit prop dialog open */
    else if(button==Button1 && xctx->semaphore >= 2) {
+     if(xctx->semaphore >= 3) { /* record clicked point coordinates when ctxmenu is shown */
+       xctx->mx_save = mx; xctx->my_save = my;
+       xctx->mx_double_save=xctx->mousex;
+       xctx->my_double_save=xctx->mousey;
+     }
      if(tcleval("winfo exists .dialog.f2.txt")[0] == '1') { /* proc enter_text */
        tcleval(".dialog.buttons.ok invoke");
        return;
@@ -4644,6 +4650,7 @@ static int handle_window_switching(int event, int tabbed_interface, const char *
           event, xctx->ui_state, win_path);
       /* This will switch context only when copying stuff across windows
        * this is the window *receiving* copied objects */
+      tcleval("destroy .ctxmenu");
       if( event == EnterNotify && !stat(sel_file, &buf) && (xctx->ui_state & STARTCOPY)) {
         dbg(1, "callback(): switching window context for copy : %s --> %s, semaphore=%d\n",
                 xctx->current_win_path, win_path, xctx->semaphore);

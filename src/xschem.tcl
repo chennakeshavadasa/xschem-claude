@@ -8677,7 +8677,7 @@ proc balloon_show {w arg pos} {
 }
 
 proc context_menu { } {
-
+  global close_ctxmenu_on_leave
   set tctx::retval 0
   if {[info tclversion] >= 8.5} {
     set font TkDefaultFont
@@ -8810,8 +8810,15 @@ proc context_menu { } {
     set x [expr {$x - ( $x + $wx - $sx )} ]
   }
   wm geometry .ctxmenu "+$x+$y";# move away from screen edges
-  bind .ctxmenu <Leave> {if { {%W} eq {.ctxmenu} } {destroy .ctxmenu}}
-  tkwait window .ctxmenu
+  if { $close_ctxmenu_on_leave } {
+    bind .ctxmenu <Leave> {if { {%W} eq {.ctxmenu} } {destroy .ctxmenu}}
+    tkwait window .ctxmenu
+  } else {
+    set prev [bind [xschem get top_path].drw <Button>]
+    bind [xschem get top_path].drw  <ButtonPress> "destroy .ctxmenu; $prev"
+    tkwait window .ctxmenu
+    bind [xschem get top_path].drw  <Button> $prev 
+  }
   # when context menu is destroyed an EnterNotify event is generated in the
   # main xschem window. We want to process this event before taking
   # actions based on $tctx::retval.
@@ -9707,6 +9714,7 @@ proc no_open_dialogs {} {
 ## "bespice_server_getdata" only one tcp listener per process
 ## "file_dialog_*" only one load_file_dialog window is allowed
 ## some file_chooser(...) vars
+## close_ctxmenu_on_leave
 
 set tctx::global_list {
  INITIALINSTDIR INITIALLOADDIR INITIALPROPDIR INITIALTEXTDIR PDK PDK_ROOT SKYWATER_MODELS
@@ -10029,7 +10037,7 @@ global env has_x OS autofocus_mainwindow
         if {\[winfo exists .ins\]} {
           set file_chooser(enter) 1 ;# so first time mouse enters file chooser current file will be shown
         }
-        destroy .ctxmenu
+        if {\$close_ctxmenu_on_leave} {destroy .ctxmenu}
         if {\$autofocus_mainwindow} {focus $topwin}
         xschem callback %W %T %x %y 0 0 0 0
       }
@@ -11473,6 +11481,9 @@ set_ne tabbed_interface 1
 ## File->Open will open in a new window/tab instead of replacing content in current one
 ## if enabled.
 set_ne open_in_new_window 0
+
+## if 1 context menu will be closed if mouse exits context menu window. Otherwise a click is needed
+set_ne close_ctxmenu_on_leave 1
 
 ## case insensitive symbol lookup (on case insensitive filesystems only!)
 set_ne case_insensitive 0
