@@ -1635,24 +1635,27 @@ static void create_new_window(int *window_count, const char *win_path, const cha
   Window win_id = 0LU;
   char toppath[WINDOW_PATH_SIZE];
   char prev_window[WINDOW_PATH_SIZE];
-  int i, n, confirm = 1;
+  int i, n, loaded = 0, confirm = 1;
 
   dbg(1, "new_schematic() create: fname=%s *window_count = %d\n", fname, *window_count);
 
   if(win_path && win_path[0]) confirm = 0;
   my_strncpy(prev_window,  xctx->current_win_path, S(prev_window));
-  if(confirm && fname && fname[0] && check_loaded(fname, toppath)) {
-    char msg[PATH_MAX+100];
-    my_snprintf(msg, S(msg),
-       "tk_messageBox -type okcancel -icon warning -parent [xschem get topwindow] "
-       "-message {Warning: %s already open.}", fname);
-    if(has_x) {
-      tcleval(msg);
-      if(strcmp(tclresult(), "ok")) return;
-    }
-    else {
-      dbg(0, "create_new_window: %s already open: %s\n", fname, toppath);
-      return;
+  if(fname && fname[0] && check_loaded(fname, toppath)) {
+    loaded = 1;
+    if(confirm) {
+      char msg[PATH_MAX+100];
+      my_snprintf(msg, S(msg),
+         "tk_messageBox -type okcancel -icon warning -parent [xschem get topwindow] "
+         "-message {Warning: %s already open.}", fname);
+      if(has_x) {
+        tcleval(msg);
+        if(strcmp(tclresult(), "ok")) return;
+      }
+      else {
+        dbg(0, "create_new_window: %s already open: %s\n", fname, toppath);
+        return;
+      }
     }
   }
   if(*window_count == 0) {
@@ -1717,12 +1720,19 @@ static void create_new_window(int *window_count, const char *win_path, const cha
   enable_layers();
   build_colors(0.0, 0.0);
   resetwin(1, 0, 1, 0, 0);  /* resetwin(create_pixmap, clear_pixmap, force, w, h) */
-  xctx->zoom=CADINITIALZOOM;
-  xctx->mooz=1/CADINITIALZOOM;
-  xctx->xorigin=CADINITIALX;
-  xctx->yorigin=CADINITIALY;
+  if(!loaded) {
+    xctx->zoom = CADINITIALZOOM;
+    xctx->mooz = 1 / CADINITIALZOOM;
+    xctx->xorigin = CADINITIALX;
+    xctx->yorigin = CADINITIALY;
+  } else {
+    xctx->zoom = old_xctx->zoom;
+    xctx->mooz =old_xctx->mooz;
+    xctx->xorigin =old_xctx->xorigin;
+    xctx->yorigin =old_xctx->yorigin;
+  }
   load_schematic(1, fname, 1, confirm);
-  if(dr) xctx->pending_fullzoom=1;
+  if(!loaded && dr) xctx->pending_fullzoom=1;
   tclvareval("set_bindings ", window_path[n], NULL);
   if(has_x) {
     tclvareval("set_geom ", toppath, " [xschem get current_name]", NULL);
@@ -1743,30 +1753,33 @@ static void create_new_window(int *window_count, const char *win_path, const cha
 /* non NULL and not empty noconfirm is used to avoid warning for duplicated filenames */
 static void create_new_tab(int *window_count, const char *noconfirm, const char *fname, int dr)
 {
-  int i, confirm = 1;
   char open_path[WINDOW_PATH_SIZE];
   char nn[WINDOW_PATH_SIZE];
   char win_path[WINDOW_PATH_SIZE];
   double save_lw = xctx->lw;
+  int i, loaded = 0, confirm = 1;
 
   dbg(1, "new_schematic() new_tab, creating...\n");
   if(noconfirm && noconfirm[0]) confirm = 0;
-  if(confirm && fname && fname[0] && check_loaded(fname, open_path)) {
-    char msg[PATH_MAX+100];
-    my_snprintf(msg, S(msg),
-       "tk_messageBox -type okcancel -icon warning -parent [xschem get topwindow] "
-       "-message {Warning: %s already open.}", fname);
-    if(has_x) {
-      tcleval(msg);
-      if(strcmp(tclresult(), "ok")) {
+  if(fname && fname[0] && check_loaded(fname, open_path)) {
+    loaded = 1;
+    if(confirm) {
+      char msg[PATH_MAX+100];
+      my_snprintf(msg, S(msg),
+         "tk_messageBox -type okcancel -icon warning -parent [xschem get topwindow] "
+         "-message {Warning: %s already open.}", fname);
+      if(has_x) {
+        tcleval(msg);
+        if(strcmp(tclresult(), "ok")) {
+          switch_tab(window_count, open_path, 1);
+          return;
+        }
+      }
+      else {
+        dbg(0, "create_new_tab: %s already open: %s\n", fname, open_path);
         switch_tab(window_count, open_path, 1);
         return;
       }
-    }
-    else {
-      dbg(0, "create_new_tab: %s already open: %s\n", fname, open_path);
-      switch_tab(window_count, open_path, 1);
-      return;
     }
   }
   if(*window_count == 0) {
@@ -1834,12 +1847,22 @@ static void create_new_tab(int *window_count, const char *noconfirm, const char 
   build_colors(0.0, 0.0);
   resetwin(1, 0, 1, 0, 0);  /* resetwin(create_pixmap, clear_pixmap, force, w, h) */
   tclvareval("housekeeping_ctx", NULL);
-  xctx->zoom=CADINITIALZOOM;
-  xctx->mooz=1/CADINITIALZOOM;
-  xctx->xorigin=CADINITIALX;
-  xctx->yorigin=CADINITIALY;
+  if(!loaded) {
+    xctx->zoom = CADINITIALZOOM;
+    xctx->mooz = 1 / CADINITIALZOOM;
+    xctx->xorigin = CADINITIALX;
+    xctx->yorigin = CADINITIALY;
+  } else {
+    xctx->zoom = old_xctx->zoom;
+    xctx->mooz =old_xctx->mooz;
+    xctx->xorigin =old_xctx->xorigin;
+    xctx->yorigin =old_xctx->yorigin;
+  }
   load_schematic(1,fname, 1, confirm);
-  if(dr) zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97); /* draw */
+  if(dr) {
+    if(!loaded) zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97); /* draw */
+    else draw();
+  }
   tcleval("tab_queue STORE");
   /* xctx->pending_fullzoom=1; */
 }
