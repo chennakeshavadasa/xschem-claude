@@ -242,6 +242,7 @@ void eval_expr_init_table(void)  /* puts arithmetic functions in table. */
 void eval_expr_clear_table(void)
 {
   symrec *ptr = sym_table;
+  if(ret) my_free(_ALLOC_ID_, &ret);
   while(ptr) {
     symrec *tmp = ptr;
     ptr = ptr->next;

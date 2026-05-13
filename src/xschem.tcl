@@ -4130,6 +4130,7 @@ proc open_sub_schematic {{inst {}} {inst_number 0}} {
   global search_schematic
   set rawfile {}
   set n_sel [xschem get lastsel]
+  set current_win_path [xschem get current_win_path] ;# .drw or .x1.drw or .x2.drw ...
 
   if { $inst eq {} && $n_sel == 0} {
     if {$search_schematic == 1} {
@@ -4153,18 +4154,22 @@ proc open_sub_schematic {{inst {}} {inst_number 0}} {
   if {[xschem raw loaded] >= 0} {
     set rawfile [xschem raw_query rawfile]
     set sim_type [xschem raw_query sim_type]
+    set raw_level [xschem get raw_level]
   }
   set res [xschem schematic_in_new_window force]
+  set new_window_path [xschem get last_created_window] ;# something like .x1.drw
+  xschem copy_hierarchy $current_win_path $new_window_path
   # if successfull descend into indicated sub-schematic
   if {$res} {
     xschem copy_hilights
-    xschem new_schematic switch [xschem get last_created_window]
+    xschem new_schematic switch $new_window_path
     if { $rawfile ne {}} {
       if {$sim_type eq {op}} {
         xschem annotate_op $rawfile
       } else {
         xschem raw_read $rawfile $sim_type
       }
+      xschem set raw_level $raw_level
     }
     xschem select instance $inst fast
     xschem descend
