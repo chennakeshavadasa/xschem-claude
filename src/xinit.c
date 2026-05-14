@@ -1629,6 +1629,9 @@ static int switch_tab(int *window_count, const char *win_path, int dr)
 }
 
 /* non NULL and not empty win_path is used to avoid warning for duplicated filenames */
+/* dr: 1 : draw
+       3 : draw without doing a fullzoom
+*/
 static void create_new_window(int *window_count, const char *win_path, const char *fname, int dr)
 {
   double save_lw = xctx->lw;
@@ -1720,7 +1723,7 @@ static void create_new_window(int *window_count, const char *win_path, const cha
   enable_layers();
   build_colors(0.0, 0.0);
   resetwin(1, 0, 1, 0, 0);  /* resetwin(create_pixmap, clear_pixmap, force, w, h) */
-  if(!loaded) {
+  if(!loaded && !(dr & 3)) {
     xctx->zoom = CADINITIALZOOM;
     xctx->mooz = 1 / CADINITIALZOOM;
     xctx->xorigin = CADINITIALX;
@@ -1732,7 +1735,7 @@ static void create_new_window(int *window_count, const char *win_path, const cha
     xctx->yorigin =old_xctx->yorigin;
   }
   load_schematic(1, fname, 1, confirm);
-  if(!loaded && dr) xctx->pending_fullzoom=1;
+  if(!loaded && (dr & 1) && !(dr & 3) ) xctx->pending_fullzoom=1;
   tclvareval("set_bindings ", window_path[n], NULL);
   if(has_x) {
     tclvareval("set_geom ", toppath, " [xschem get current_name]", NULL);
@@ -1751,6 +1754,9 @@ static void create_new_window(int *window_count, const char *win_path, const cha
 }
 
 /* non NULL and not empty noconfirm is used to avoid warning for duplicated filenames */
+/* dr: 1 : draw
+       3 : draw without doing a fullzoom
+*/
 static void create_new_tab(int *window_count, const char *noconfirm, const char *fname, int dr)
 {
   char open_path[WINDOW_PATH_SIZE];
@@ -1847,7 +1853,7 @@ static void create_new_tab(int *window_count, const char *noconfirm, const char 
   build_colors(0.0, 0.0);
   resetwin(1, 0, 1, 0, 0);  /* resetwin(create_pixmap, clear_pixmap, force, w, h) */
   tclvareval("housekeeping_ctx", NULL);
-  if(!loaded) {
+  if(!loaded && !(dr & 3)) {
     xctx->zoom = CADINITIALZOOM;
     xctx->mooz = 1 / CADINITIALZOOM;
     xctx->xorigin = CADINITIALX;
@@ -1859,8 +1865,8 @@ static void create_new_tab(int *window_count, const char *noconfirm, const char 
     xctx->yorigin =old_xctx->yorigin;
   }
   load_schematic(1,fname, 1, confirm);
-  if(dr) {
-    if(!loaded) zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97); /* draw */
+  if(dr & 1) {
+    if(!loaded && !(dr & 3) ) zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97); /* draw */
     else draw();
   }
   tcleval("tab_queue STORE");

@@ -3174,7 +3174,8 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
             dbg(1, "scheduler: undo_reset=%d\n", undo_reset);
 
             if(first_loaded) {
-              ret = new_schematic("create", "noconfirm", f, 1);
+              int dr = nofullzoom ? 3 : 1;
+              ret = new_schematic("create", "noconfirm", f, dr);
               if(undo_reset) {
                 tclvareval("update_recent_file {", f, "}", NULL);
               }
