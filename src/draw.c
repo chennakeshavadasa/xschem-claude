@@ -2607,7 +2607,11 @@ int graph_fullxzoom(int i, Graph_ctx *gr, int dataset)
     }
     my_strdup2(_ALLOC_ID_, &sim_type, get_tok_value(r->prop_ptr,"sim_type", 0));
     if((i == xctx->graph_master) && custom_rawfile[0]) {
-      extra_rawfile(autoload, custom_rawfile, sim_type[0] ? sim_type : xctx->raw->sim_type, -1.0, -1.0);
+      if(!extra_rawfile(autoload, custom_rawfile, sim_type[0] ? sim_type : xctx->raw->sim_type, -1.0, -1.0)) {
+        if(custom_rawfile) my_free(_ALLOC_ID_, &custom_rawfile);
+        if(sim_type) my_free(_ALLOC_ID_, &sim_type);
+        return 0;
+      }
     }
     idx = get_raw_index(find_nth(get_tok_value(r->prop_ptr, "sweep", 0), ", ", "\"", 0, 1), NULL);
     dbg(1, "graph_fullxzoom(): sweep idx=%d\n", idx);
@@ -2625,7 +2629,11 @@ int graph_fullxzoom(int i, Graph_ctx *gr, int dataset)
       my_strdup2(_ALLOC_ID_, &sim_type,
         get_tok_value(xctx->rect[GRIDLAYER][xctx->graph_master].prop_ptr,"sim_type", 0));
       if(custom_rawfile[0]) {
-        extra_rawfile(autoload, custom_rawfile, sim_type[0] ? sim_type : xctx->raw->sim_type, -1.0, -1.0);
+        if(!extra_rawfile(autoload, custom_rawfile, sim_type[0] ? sim_type : xctx->raw->sim_type, -1.0, -1.0)) {
+          if(custom_rawfile) my_free(_ALLOC_ID_, &custom_rawfile);
+          if(sim_type) my_free(_ALLOC_ID_, &sim_type);
+          return 0;
+        }
       }
     }
 
@@ -2721,7 +2729,13 @@ int graph_fullyzoom(xRect *r,  Graph_ctx *gr, int graph_dataset)
         char str_extra_idx[30];
 
         if(sch_waves_loaded() != -1 && custom_rawfile[0]) {
-          extra_rawfile(autoload, custom_rawfile, sim_type[0] ? sim_type : xctx->raw->sim_type, -1.0, -1.0);
+          if(!extra_rawfile(autoload, custom_rawfile, sim_type[0] ? sim_type : xctx->raw->sim_type, -1.0, -1.0)) {
+            my_free(_ALLOC_ID_, &node);
+            my_free(_ALLOC_ID_, &sweep);
+            my_free(_ALLOC_ID_, &custom_rawfile);
+            my_free(_ALLOC_ID_, &sim_type);
+            return 0;
+          }
         }
         raw = xctx->raw;
         my_strdup2(_ALLOC_ID_, &nd, find_nth(ntok, "%", "\"", 0, 2));
@@ -2739,7 +2753,13 @@ int graph_fullyzoom(xRect *r,  Graph_ctx *gr, int graph_dataset)
                   sim_type[0] ? sim_type : xctx->raw->sim_type);
             dbg(1, "node_rawfile=|%s| node_sim_type=|%s|\n", node_rawfile, node_sim_type);
             if(node_rawfile && node_rawfile[0]) {
-              extra_rawfile(autoload, node_rawfile, node_sim_type, -1.0, -1.0);
+              if(!extra_rawfile(autoload, node_rawfile, node_sim_type, -1.0, -1.0)) {
+                my_free(_ALLOC_ID_, &node);
+                my_free(_ALLOC_ID_, &sweep);
+                my_free(_ALLOC_ID_, &custom_rawfile);
+                my_free(_ALLOC_ID_, &sim_type);
+                return 0;
+              }
               raw = xctx->raw;
             }
             my_free(_ALLOC_ID_, &node_rawfile);

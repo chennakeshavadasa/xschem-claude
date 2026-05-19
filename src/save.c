@@ -2324,6 +2324,10 @@ double get_raw_value(int dataset, int idx, int point)
 {
   int i, ofs;
   ofs = 0;
+  if(xctx->raw == NULL) {
+    dbg(0, "get_raw_value(): no spice raw file loaded\n");
+    return 0.0;
+  }
   if(dataset >= xctx->raw->datasets) {
     dbg(0, "get_raw_value(): dataset(%d) >= datasets(%d)\n", dataset,  xctx->raw->datasets);
   }
