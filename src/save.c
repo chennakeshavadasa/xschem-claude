@@ -714,7 +714,7 @@ static int read_dataset(FILE *fd, Raw **rawptr, const char *type, int no_warning
       /* array of number of points of datasets (they are of varialbe length) */
       n = sscanf(line, "No. of Data Rows : %d", &npoints);
       if(n < 1) {
-        dbg(0, "read_dataset(): WAARNING: malformed raw file, aborting\n");
+        dbg(0, "read_dataset(): WARNING (No. of Data Rows): malformed raw file, aborting, line:\n%s\n", line);
         extra_rawfile(3, NULL, NULL, -1.0, -1.0);
         /* free_rawfile(rawptr, 0, 0); */
         exit_status = 0;
@@ -747,7 +747,7 @@ static int read_dataset(FILE *fd, Raw **rawptr, const char *type, int no_warning
       }
 
       if(n < 1) {
-        dbg(0, "read_dataset(): WAARNING: malformed raw file, aborting\n");
+        dbg(0, "read_dataset(): WARNING (No. Variables): malformed raw file, aborting, line:\n%s\n", line);
         extra_rawfile(3, NULL, NULL, -1.0, -1.0);
         /* free_rawfile(rawptr, 0, 0); */
         exit_status = 0;
@@ -761,7 +761,7 @@ static int read_dataset(FILE *fd, Raw **rawptr, const char *type, int no_warning
     else if(!done_points && !strncmp(line, "No. Points:", 11)) {
       n = sscanf(line, "No. Points: %d", &npoints);
       if(n < 1) {
-        dbg(0, "read_dataset(): WAARNING: malformed raw file, aborting\n");
+        dbg(0, "read_dataset(): WARNING (No. Points): malformed raw file, aborting, line:\n%s\n", line);
         extra_rawfile(3, NULL, NULL, -1.0, -1.0);
         /* free_rawfile(rawptr, 0, 0); */
         exit_status = 0;
@@ -784,7 +784,7 @@ static int read_dataset(FILE *fd, Raw **rawptr, const char *type, int no_warning
       my_realloc(_ALLOC_ID_, &varname, strlen(line) + 1) ;
       n = sscanf(line, "%*[\t]%d%*[\t]%[^\t]", &i, varname); /* read index and name of saved waveform */
       if(n < 2) {
-        dbg(0, "read_dataset(): WAARNING: malformed raw file, aborting\n");
+        dbg(0, "read_dataset(): WARNING (Variables): malformed raw file, aborting, line:\n%s\n", line);
         extra_rawfile(3, NULL, NULL, -1.0, -1.0);
         /* free_rawfile(rawptr, 0, 0); */
         exit_status = 0;

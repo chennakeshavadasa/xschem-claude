@@ -3174,7 +3174,7 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
             dbg(1, "scheduler: undo_reset=%d\n", undo_reset);
 
             if(first_loaded) {
-              int dr = nofullzoom ? 3 : 1;
+              int dr = nofullzoom * 2 + !nodraw;
               ret = new_schematic("create", "noconfirm", f, dr);
               if(undo_reset) {
                 tclvareval("update_recent_file {", f, "}", NULL);
@@ -3720,7 +3720,7 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       if(argc > 2) {
 
-        if(argc >= 6 && argv[5][0] == '0') dr = 0;
+        if(argc >= 6 ) dr = atoi(argv[5]);
         if(argc == 3) r = new_schematic(argv[2], NULL, NULL, 1);
         else if(argc == 4) r = new_schematic(argv[2], argv[3], NULL, 1);
         else if(argc >= 5) {
