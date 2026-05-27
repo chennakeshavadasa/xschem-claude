@@ -253,7 +253,7 @@ function process(        i,j, iprefix, saveinstr, savetype, saveanalysis)
   }
   for(i=1;i<=num;i++)
   {
-   printf "%s ", indent spiceprefix q(name[i])
+   printf "%s ", indent q(spiceprefix name[i])
 
    for(j=2;j<=NF;j++)
    {
