@@ -1,0 +1,12 @@
+**.subckt nand2 Z A B
+*.ipin A
+*.opin Z
+*.ipin B
+m1 Z A net1 VSS CMOSN w=WN l=LLN
+m1 net1 B VSS VSS CMOSN w=WN l=LLN
+m2 Z B VCC VCC CMOSP w=WP l=LP
+m2 Z A VCC VCC CMOSP w=WP l=LP
+**.ends
+.GLOBAL VSS
+.GLOBAL VCC
+.end

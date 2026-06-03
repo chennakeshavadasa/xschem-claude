@@ -1,0 +1,10 @@
+# Headless harness case manifest.
+# One schematic per line, path relative to the repo root.
+# Blank lines and lines starting with '#' are ignored.
+# Each case is loaded hermetically, sanity-checked, and netlisted to SPICE;
+# the normalized netlist is the golden artifact compared on every run.
+xschem_library/examples/tb_test_evaluated_param.sch
+xschem_library/examples/nand2.sch
+xschem_library/examples/dlatch.sch
+xschem_library/examples/flop.sch
+xschem_library/examples/cmos_example.sch

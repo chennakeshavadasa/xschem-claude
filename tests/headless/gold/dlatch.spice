@@ -1,0 +1,11 @@
+**.subckt dlatch D Q G VSS
+*.ipin D
+*.opin Q
+*.ipin VSS
+*.ipin G
+G5 net2 net1 vcr pwl(1) G VSS 'VTH-0.1' 10G 'VTH+0.1' 10
+c1 net2 VSS 1p
+E5 net1 VSS pwl(1) D VSS 'VTH-0.1' 0 'VTH+0.1' VHI
+E1 Q VSS pwl(1) net2 VSS 'VTH-0.1' 0 'VTH+0.1' VHI
+**.ends
+.end

@@ -1,0 +1,20 @@
+## Hermetic xschemrc for the headless test harness.
+## Sourced by xschem via --rcfile. It deliberately does NOT read the user's
+## ~/.xschem/xschemrc, so results do not depend on the developer's environment.
+## The repo root is passed in by run.sh through the REPO environment variable.
+
+set REPO $env(REPO)
+
+set XSCHEM_SHAREDIR $REPO/src
+
+## Pin the symbol/schematic search path to in-repo libraries only.
+set XSCHEM_LIBRARY_PATH {}
+append XSCHEM_LIBRARY_PATH :$REPO/xschem_library/devices
+append XSCHEM_LIBRARY_PATH :$REPO/xschem_library/examples
+append XSCHEM_LIBRARY_PATH :$REPO/xschem_library/logic
+append XSCHEM_LIBRARY_PATH :$REPO/xschem_library
+
+## Deterministic netlisting: default to flat-ish SPICE, no GUI side effects.
+set netlist_type spice
+set bus_replacement_char {}
+set hspice_netlist 1
