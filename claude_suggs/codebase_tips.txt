@@ -1,0 +1,46 @@
+QUESTION: Given this is such a massive database, how should one go about using Claude Code to tackle it - fix bugs and add features?
+
+================================================================================
+
+Good question — and the codebase's specific shape changes the answer a lot. Generic "let Claude read the repo" advice fails here because no single file fits cleanly in context and the control flow is unusual. Here's how I'd actually work it.
+
+## Mental model first: where does work enter the code?
+
+Almost every feature/bug traces back through one of three entry points. Knowing which one saves you from reading the wrong 5,000-line file:
+
+1. A user action / new command → `scheduler.c`, the `xschem()` dispatcher. It's switched on `argv[1][0]` then sorted `strcmp`s. To add a feature, you usually add a branch here + a Tcl caller.
+2. A GUI event (mouse/key) → `callback()` in `callback.c`.
+3. The GUI/dialog/menu itself → `xschem.tcl` (~12k lines of Tcl, not C).
+
+So the first triage question for any task is: "Is this C-engine behavior, Tcl-GUI behavior, or the glue between them?" That alone tells you whether you're in `scheduler.c`, `xschem.tcl`, or chasing a `MIRRORED IN TCL` variable across both.
+
+## The workflow that works on a codebase this size
+
+1. Locate before you read. Don't ask me to "read the netlister." Ask me to *find* things: "Which `xschem` subcommand handles `netlist`?" or "Where is `xctx->hilight_table` populated?" I'll grep/dispatch a search agent and come back with `file:line` anchors. The huge files (`scheduler.c`, `draw.c`, `token.c`, `save.c`) should be read in targeted slices, never whole.
+
+2. Reproduce headlessly. This is the codebase's superpower for our loop. It has a scriptable, no-GUI mode:
+       cd src && ./xschem <file.sch> --pipe -q --script /tmp/repro.tcl
+   For most bugs I can write a tiny `.tcl` that drives `xschem load`, `xschem netlist`, `xschem get ...`, dumps state, and exits — giving us a fast, deterministic repro without you clicking anything. Use this *before* and *after* a fix.
+
+3. Pin behavior with the golden tests. `tests/run_regression.tcl` (cases: `create_save`, `open_close`, `netlisting`) compares output against golden files. Run it before touching anything to get a clean baseline, then after. For netlist changes especially, this catches regressions you'd never spot by eye.
+
+4. Build incrementally. `cd src && make` relinks fast since objects are per-file. Run from the tree (no install). After my edit, I compile immediately — C89 + `-O2` means the compiler catches a lot.
+
+## Codebase-specific traps to tell me to respect
+
+- Never hand-edit `eval_expr.c`, `expandlabel.c/.h`, `parselabel.c` — they're bison/flex-generated. Edit the `.y`/`.l` sources; `make` regenerates.
+- `MIRRORED IN TCL` variables must change in both places. If a feature touches one (e.g. `hide_symbols`, `case_insensitive`), grep `xschem.h` for the marker and update the Tcl side too, or you get silent desync.
+- Don't edit `Makefile.conf`/`config.h` — they're scconfig-generated from `.in` templates.
+- New `.c` file means adding it to `OBJ` in `src/Makefile` plus a compile rule.
+- State lives on `xctx`. A feature usually means a new field there + init in `xinit.c` + the disk format in `save.c` if it persists.
+
+## How to scope a request to me
+
+What works well, in rough order of effectiveness:
+
+- Bug fix: "When I do X, Y happens; expected Z. Repro: this `.sch` + these `xschem` commands." Let me write the headless repro, then fix.
+- Small feature: "Add an `xschem <verb>` that does X." I add the dispatcher branch + Tcl glue + a test case.
+- Understanding: "Trace how a wire gets a net name during SPICE netlisting." I'll map the call path with anchors — read this first before requesting changes.
+- Risky/wide change: Ask me to plan first (I can enter plan mode), list affected files, and confirm before editing.
+
+The single highest-leverage habit: give me a concrete reproduction or a precise symptom, not "the netlister seems wrong." On a 64k-line single-author codebase with deep global state, a runnable repro is worth more than any amount of description — and this tool is unusually good at being driven headlessly to produce one.

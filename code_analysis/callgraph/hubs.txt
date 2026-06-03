@@ -1,0 +1,68 @@
+MOST-CALLED FUNCTIONS (call sites; high = central utility / hub)
+------------------------------------------------------------
+  1196  dbg                          [editprop.c]
+  1010  my_free                      [editprop.c]
+   659  get_tok_value                [token.c]
+   570  my_strdup                    [editprop.c]
+   543  my_snprintf                  [editprop.c]
+   381  tcleval                      [scheduler.c]
+   359  my_strdup2                   [editprop.c]
+   250  tclgetboolvar                [scheduler.c]
+   247  tclvareval                   [scheduler.c]
+   224  my_strncpy                   [editprop.c]
+   163  tclresult                    [scheduler.c]
+   150  strboolcmp                   [editprop.c]
+   143  tclgetvar                    [scheduler.c]
+   142  subst_token                  [token.c]
+   137  my_mstrcat                   [editprop.c]
+   127  my_calloc                    [editprop.c]
+   116  tclsetvar                    [scheduler.c]
+   110  draw                         [draw.c]
+   104  my_realloc                   [editprop.c]
+   104  move_objects                 [move.c]
+   103  rebuild_selected_array       [move.c]
+    99  my_malloc                    [editprop.c]
+    99  my_itoa                      [editprop.c]
+    86  dtoa                         [editprop.c]
+    84  bbox                         [select.c]
+    83  get_cell                     [token.c]
+    81  set_modify                   [actions.c]
+    75  push_undo                    [save.c]
+    69  my_strcat                    [editprop.c]
+    62  unselect_all                 [select.c]
+
+MOST DEPENDED-ON FILES (distinct caller files = fan-in)
+------------------------------------------------------------
+ 29 callers  editprop.c             (4873 incoming calls)
+ 25 callers  actions.c              (614 incoming calls)
+ 24 callers  scheduler.c            (1298 incoming calls)
+ 23 callers  save.c                 (335 incoming calls)
+ 23 callers  token.c                (1010 incoming calls)
+ 21 callers  select.c               (265 incoming calls)
+ 20 callers  netlist.c              (279 incoming calls)
+ 19 callers  hilight.c              (123 incoming calls)
+ 17 callers  draw.c                 (394 incoming calls)
+ 13 callers  move.c                 (258 incoming calls)
+ 13 callers  spice_netlist.c        (168 incoming calls)
+ 10 callers  check.c                (26 incoming calls)
+  9 callers  clip.c                 (72 incoming calls)
+  9 callers  xinit.c                (127 incoming calls)
+  8 callers  hash_iterator.c        (32 incoming calls)
+
+MOST DEPENDENT FILES (distinct callee files = fan-out)
+------------------------------------------------------------
+ 26 deps     scheduler.c            (1142 outgoing calls)
+ 22 deps     callback.c             (1037 outgoing calls)
+ 18 deps     xinit.c                (789 outgoing calls)
+ 17 deps     draw.c                 (725 outgoing calls)
+ 15 deps     actions.c              (968 outgoing calls)
+ 14 deps     select.c               (289 outgoing calls)
+ 13 deps     hilight.c              (411 outgoing calls)
+ 13 deps     psprint.c              (175 outgoing calls)
+ 13 deps     save.c                 (878 outgoing calls)
+ 13 deps     spice_netlist.c        (296 outgoing calls)
+ 12 deps     move.c                 (191 outgoing calls)
+ 12 deps     netlist.c              (349 outgoing calls)
+ 12 deps     spectre_netlist.c      (219 outgoing calls)
+ 12 deps     verilog_netlist.c      (241 outgoing calls)
+ 12 deps     vhdl_netlist.c         (274 outgoing calls)

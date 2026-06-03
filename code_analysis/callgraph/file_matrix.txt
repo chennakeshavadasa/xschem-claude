@@ -1,0 +1,41 @@
+Per-file coupling summary (generated parsers excluded)
+============================================================================================
+file                   funcs intCall  extOut   extIn fanOut  fanIn selfRatio
+--------------------------------------------------------------------------------------------
+scheduler.c               17     191    1142    1298     26     24    0.14
+token.c                   53     327     992    1010      9     23    0.25
+callback.c                40     155    1037      17     22      5    0.13
+save.c                    77     208     878     335     13     23    0.19
+actions.c                 80      87     968     614     15     25    0.08
+draw.c                    79     199     725     394     17     17    0.22
+xinit.c                   46      88     789     127     18      9    0.10
+hilight.c                 45     108     411     123     13     19    0.21
+netlist.c                 59     106     349     279     12     20    0.23
+editprop.c                52     197     242    4873      9     29    0.45
+select.c                  25      87     289     265     14     21    0.23
+spice_netlist.c           18      22     296     168     13     13    0.07
+vhdl_netlist.c             3       3     274       6     12      6    0.01
+verilog_netlist.c          3       3     241       6     12      6    0.01
+move.c                    10      41     191     258     12     13    0.18
+psprint.c                 21      54     175      11     13      5    0.24
+spectre_netlist.c          4       5     219       6     12      6    0.02
+in_memory_undo.c          13      18     153       1      6      1    0.11
+svgdraw.c                 18      32     113       5     11      3    0.22
+paste.c                    8       7     105       8      8      2    0.06
+check.c                   10      10     101      26     11     10    0.09
+tedax_netlist.c            3       3     100       3     10      3    0.03
+node_hash.c                8       2      82      24      5      8    0.02
+findnet.c                 11       8      49       9      8      3    0.14
+store.c                   12       5      51      76      5      8    0.09
+options.c                  2       2      40       1      2      1    0.05
+font.c                     1       0      15       1      6      1    0.00
+clip.c                     8       8       6      72      1      9    0.57
+rawtovcd.c                 9      12       0       0      0      0    1.00
+main.c                     3       0      11       0      7      0    0.00
+hash_iterator.c            6       0       9      32      1      8    0.00
+cairo_jpg.c               10       5       0       5      0      2    1.00
+globals.c                  0       0       0       0      0      0    0.00
+icon.c                     0       0       0       0      0      0    0.00
+--------------------------------------------------------------------------------------------
+selfRatio = internal calls / (internal+outgoing external). 1.00 = fully self-contained.
+Totals: 754 functions, 12046 call-edges (10053 cross-file), 323 file-pairs coupled.

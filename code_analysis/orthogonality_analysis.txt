@@ -1,0 +1,66 @@
+QUESTION: How orthogonal is the code?
+
+================================================================================
+
+Measured rather than guessed. Here's the data and what it means.
+
+## The numbers
+
+| Signal | Value | Reading |
+|---|---|---|
+| `xctx->` references | 14,648 across 25 files | Nearly every module reads/writes one shared global struct |
+| Global vs static functions | 472 global / 330 static (~59% exported) | Large public surface, weak encapsulation |
+| `extern` func decls in `xschem.h` | 464 in one kitchen-sink header | Everything depends on one header (35/37 `.c` files include it) |
+| C<->Tcl bridge calls | ~1,900 (`tcleval` 426, `tclvareval` 264, `tclgetboolvar` 251, …) | Behavior split across two languages over shared mirrored vars |
+| Netlist backends cross-calling each other | 0 real (the 3-4 "hits" were property-name strings like `vhdl_netlist`, not calls) | The format backends are genuinely independent |
+| Modules with zero `xctx` coupling | 5 (`cairo_jpg`, `globals`, `icon`, `options`, `rawtovcd`) | A few true leaf modules |
+
+## Verdict: horizontally orthogonal, vertically coupled
+
+The code is orthogonal in its *organization* but not in its *state*.
+
+Where it IS orthogonal (clean, pluggable seams):
+- Netlist backends — `spice/spectre/vhdl/verilog/tedax_netlist.c` don't reference each other at all. You can add or change a format without touching the others. This is the single cleanest seam in the codebase.
+- Output renderers — `draw.c` (X11), `svgdraw.c`, `psprint.c` are parallel independent consumers of one object model. Same pattern.
+- Responsibility-per-file — `move/select/paste/clip/save/check` each own one verb, and the `xctx` struct even comments which fields belong to which file. Conceptually tidy.
+- A few true leaves — the parsers, `options.c`, `cairo_jpg.c`, and `rawtovcd.c` (a separate executable) stand alone.
+
+Where it is NOT orthogonal (the dominant reality):
+- The `xctx` god-struct is a shared blackboard. 14.6k references mean modules don't communicate through narrow interfaces — they all read and mutate the same global. A change to the *semantics* of an `xctx` field (selection model, hierarchy stack, undo state) can ripple into draw, move, netlist, save simultaneously. That's the opposite of orthogonal.
+- C/Tcl mirroring. The `MIRRORED IN TCL` variables mean some state has *two owners in two languages* that must be kept in sync by hand. Changing one without the other is a classic non-local bug.
+- Wide exported surface. With 59% of functions global and one umbrella header, the compiler enforces almost no module boundaries — discipline is by convention, not structure.
+
+## What this means for our workflow
+
+- Adding a netlist format, output format, or a new `xschem` subcommand is low-risk — these hit the orthogonal seams. Confined blast radius.
+- Touching core state (selection, hierarchy, undo, the object arrays) is high-risk — effects are non-local by construction. For these, the headless harness we just built earns its keep: it's the only cheap way to detect a ripple into netlisting you didn't anticipate.
+- Practical rule: when I propose a change, I'll flag which side of this line it's on. "Backend/renderer/command" = isolated, verify the one path. "`xctx` semantics" = assume non-local, run the full harness + regression suite and read the diff carefully.
+
+One caveat on the method: these are coarse proxies (grep counts, not a call-graph). They're directionally solid — the 14.6k-to-narrow-interface ratio isn't ambiguous — but a function-level dependency graph (who-calls-whom across files) would pinpoint the genuinely tangled hotspots versus the cleanly separable ones.
+
+================================================================================
+SUPPORTING MEASUREMENTS (commands run against src/)
+
+xctx-> references per file (top):
+  1751 actions.c     1720 callback.c    1630 move.c       1191 draw.c
+   922 select.c       916 scheduler.c    850 save.c        838 xinit.c
+   644 token.c        500 hilight.c      436 check.c       430 editprop.c
+   415 netlist.c      367 in_memory_undo.c  343 psprint.c  266 svgdraw.c
+   251 vhdl_netlist.c 230 spice_netlist.c   189 verilog_netlist.c
+   189 store.c        182 spectre_netlist.c 117 findnet.c  102 tedax_netlist.c
+    83 paste.c         24 hash_iterator.c
+  Total: 14,648
+
+Files with zero xctx coupling: cairo_jpg.c, globals.c, icon.c, options.c, rawtovcd.c
+
+Encapsulation: 330 static funcs / 472 global funcs
+Shared API surface: 464 extern function decls in xschem.h; 35/37 .c files include it
+
+C<->Tcl coupling (call counts):
+  525 Tcl_SetResult   426 tcleval        264 tclvareval     251 tclgetboolvar
+  146 tclgetvar       130 Tcl_ResetResult 119 tclsetvar     107 Tcl_AppendResult
+   46 tclgetintvar     41 Tcl_AppInit      32 tclgetdoublevar 21 tclsetboolvar
+
+Netlist backend independence: the apparent cross-references in spice_netlist.c
+were property-name string literals (get_tok_value(... "vhdl_netlist" ...)), not
+calls — confirming the 5 backends do not depend on one another.

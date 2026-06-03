@@ -1,0 +1,26 @@
+QUESTION: How is the coding style? Is it from a professional coder?
+
+================================================================================
+
+## Verdict: Yes — this is clearly a competent, experienced systems/C programmer, but the style is "domain-expert engineer," not "modern software-craftsmanship textbook."
+
+XSCHEM is essentially a single-author project (Stefan Schippers, ~1998–2024). The style reflects that: very consistent with itself, pragmatic, and shaped by decades of maintaining one large C/Tk application rather than by team conventions.
+
+### Signs of a professional / experienced hand
+
+- Disciplined, project-wide conventions. Every file has the same header; the giant `xschem()` dispatcher in `scheduler.c` is explicitly kept *in sorted order* and switched on `argv[1][0]` first as a cheap prefix filter before `strcmp` — a deliberate, maintained structure across 7,000 lines.
+- Self-aware infrastructure. Allocations go through `my_malloc`/`my_free` with an `_ALLOC_ID_` placeholder that awk scripts rewrite into unique ids for leak tracing. A leveled `dbg(level, ...)` facility is used pervasively. That's someone who has debugged this long-term and built tooling for it.
+- Portability care. The `hash_file` function goes out of its way to produce identical hashes on Windows (CRLF) and Unix (LF), with comments explaining why. C89 throughout, `__unix__` guards, overflow-safe buffer comments (`/* overflow safe 20161122 */`).
+- Defensive, honest error handling. Consistent `Tcl_SetResult(... TCL_ERROR)` returns, null checks, and graceful fallbacks.
+- Very low cruft. Only a handful of TODO/FIXME/HACK markers across 64k lines. Most `goto`s are concentrated in `eval_expr.c`/`expandlabel.c`, which are bison/flex-generated, not hand-written.
+
+### Stylistic traits that aren't "modern best practice"
+
+- Massive files and functions. `scheduler.c` (7k lines), `draw.c`, `token.c`, `save.c` all 5k+. The single `xschem()` function is enormous. This works because it's one consistent dispatcher, but it's the opposite of small-modules orthodoxy.
+- One giant god-struct. Nearly all state lives on the global `Xschem_ctx *xctx`. Effective and cache-friendly for the domain, but heavy global coupling.
+- Terse, abbreviated naming (`mooz` = inverse zoom, `nl_*`, `prep_*`, `bbx1`). Readable once you're inside the idiom, opaque on first contact.
+- Minor typos in comments (`suppoded`), inconsistent spacing (`h=5381` vs `draw = 1`). Cosmetic, not structural.
+
+### Bottom line
+
+This reads like production code from a seasoned domain engineer who optimizes for performance, portability, and long-term solo maintainability over textbook modularity. It's not sloppy or amateur — the consistency, the custom tracing/allocation tooling, and the cross-platform rigor are hallmarks of someone who knows exactly what they're doing. It's just an older-school, monolithic C style rather than what you'd see in a modern multi-developer codebase with small files and heavy abstraction.

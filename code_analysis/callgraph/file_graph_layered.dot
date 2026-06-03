@@ -1,0 +1,58 @@
+digraph layered {
+  rankdir=TB; ranksep=0.9; nodesep=0.3;
+  node [shape=box,style=filled,fillcolor=lightyellow,fontsize=11];
+  edge [color=gray40];
+  labelloc=t; fontsize=14;
+  label="xschem core architecture — layered by SCC-condensed call graph\n(leaf utils excluded, edges >=30 calls; dashed red = cycle/back-edge)";
+  { rank=same; "paste.c"; "spectre_netlist.c"; "callback.c"; "verilog_netlist.c"; "check.c"; "vhdl_netlist.c"; "scheduler.c"; }
+  { rank=same; "hilight.c"; "netlist.c"; "xinit.c"; "move.c"; }
+  { rank=same; "select.c"; "draw.c"; "actions.c"; "save.c"; }
+  { rank=same; "editprop.c"; }
+  { rank=same; "token.c"; "spice_netlist.c"; }
+  "L0" [label="0: entry / drivers",shape=plaintext,fillcolor=none,fontcolor=blue];
+  "L1" [label="1: high-level ops",shape=plaintext,fillcolor=none,fontcolor=blue];
+  "L2" [label="2: mid services",shape=plaintext,fillcolor=none,fontcolor=blue];
+  "L3" [label="3: core services",shape=plaintext,fillcolor=none,fontcolor=blue];
+  "L4" [label="4: data & parsing",shape=plaintext,fillcolor=none,fontcolor=blue];
+  "L0" -> "L1" -> "L2" -> "L3" -> "L4" [style=invis];
+  subgraph cluster_scc0 { style=dashed; color=red; label="cycle";
+    "token.c"; "spice_netlist.c"; }
+  subgraph cluster_scc2 { style=dashed; color=red; label="cycle";
+    "select.c"; "draw.c"; "actions.c"; "save.c"; }
+  "callback.c" -> "token.c" [label=96,penwidth=3.0];
+  "scheduler.c" -> "move.c" [label=75,penwidth=2.5];
+  "callback.c" -> "move.c" [label=110,penwidth=3.4];
+  "scheduler.c" -> "draw.c" [label=63,penwidth=2.2];
+  "scheduler.c" -> "token.c" [label=93,penwidth=2.9];
+  "draw.c" -> "token.c" [label=125,penwidth=3.7];
+  "save.c" -> "token.c" [label=81,penwidth=2.6];
+  "callback.c" -> "draw.c" [label=62,penwidth=2.1];
+  "scheduler.c" -> "actions.c" [label=159,penwidth=4.6];
+  "scheduler.c" -> "save.c" [label=81,penwidth=2.6];
+  "verilog_netlist.c" -> "token.c" [label=50,penwidth=1.9];
+  "scheduler.c" -> "select.c" [label=63,penwidth=2.2];
+  "vhdl_netlist.c" -> "token.c" [label=61,penwidth=2.1];
+  "scheduler.c" -> "xinit.c" [label=73,penwidth=2.4];
+  "actions.c" -> "token.c" [label=107,penwidth=3.3];
+  "move.c" -> "draw.c" [label=44,penwidth=1.7];
+  "spectre_netlist.c" -> "token.c" [label=45,penwidth=1.7];
+  "spice_netlist.c" -> "token.c" [label=54,penwidth=2.0,color=red,style=dashed,constraint=false];
+  "callback.c" -> "editprop.c" [label=34,penwidth=1.4];
+  "netlist.c" -> "token.c" [label=44,penwidth=1.7];
+  "check.c" -> "netlist.c" [label=35,penwidth=1.5];
+  "draw.c" -> "editprop.c" [label=48,penwidth=1.8];
+  "hilight.c" -> "token.c" [label=32,penwidth=1.4];
+  "paste.c" -> "save.c" [label=33,penwidth=1.4];
+  "actions.c" -> "draw.c" [label=71,penwidth=2.4,color=red,style=dashed,constraint=false];
+  "callback.c" -> "actions.c" [label=123,penwidth=3.7];
+  "editprop.c" -> "token.c" [label=43,penwidth=1.7];
+  "save.c" -> "spice_netlist.c" [label=30,penwidth=1.4];
+  "select.c" -> "draw.c" [label=58,penwidth=2.0,color=red,style=dashed,constraint=false];
+  "actions.c" -> "select.c" [label=33,penwidth=1.4,color=red,style=dashed,constraint=false];
+  "callback.c" -> "select.c" [label=41,penwidth=1.6];
+  "save.c" -> "actions.c" [label=47,penwidth=1.8,color=red,style=dashed,constraint=false];
+  "xinit.c" -> "actions.c" [label=44,penwidth=1.7];
+  "draw.c" -> "save.c" [label=38,penwidth=1.5,color=red,style=dashed,constraint=false];
+  "scheduler.c" -> "hilight.c" [label=31,penwidth=1.4];
+  "token.c" -> "spice_netlist.c" [label=43,penwidth=1.7,color=red,style=dashed,constraint=false];
+}

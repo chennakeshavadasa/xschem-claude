@@ -1,0 +1,112 @@
+QUESTION: What should be our first move, in terms of cleanup (refactoring), if the
+short-term goal is to add UI related features to improve ease of use?
+
+================================================================================
+WHAT THE UI CODE ACTUALLY LOOKS LIKE TODAY
+
+A single user-facing action is defined in up to FOUR disconnected places.
+Trace "Clear Schematic / Ctrl+N":
+
+1. Menu — build_widgets (a ~700-line proc, lines 10167-10871 in xschem.tcl)
+   hand-writes:
+     add command -label "Clear Schematic" -accelerator Ctrl+N \
+                 -command {xschem clear schematic}
+   There are 221 such add command / checkbutton / radiobutton calls.
+
+2. The accelerator is decoration — `-accelerator Ctrl+N` is just a label string.
+   It does nothing functional.
+
+3. The real key dispatch lives elsewhere: key_binding (Tcl) wires `bind` ->
+   `xschem callback`, which lands in callback.c's giant
+   `if(key=='a')...else if(key==XK_Left)...` chain, where the actual behavior is
+   hardcoded in C on raw keysyms.
+
+4. keys.help — a hand-maintained text file documenting the bindings, kept in sync
+   by hand.
+
+So the shortcut->action mapping is not DATA — it is control flow split across C
+and Tcl, with a decorative copy in the menu and a prose copy in help. Every new
+UI action is a 3-4 place edit, and they drift.
+
+================================================================================
+FIRST MOVE: make user actions first-class data — a single declarative action
+table (Tcl-only)
+
+Introduce one action registry — a list of descriptors:
+
+  # {id  label  menu  accelerator  command  help}
+  {clear_sch  "Clear Schematic"  file  Ctrl+N  {xschem clear schematic}
+   "Empty the current schematic"}
+
+Then GENERATE from it: the menu items in build_widgets, the accelerator labels,
+the Tcl key_binding bindings, and keys.help / the "Show Keybindings" window.
+
+================================================================================
+WHY THIS ONE, FIRST
+
+- It is on the safe side of the dependency map we built. Pure Tcl — no xctx
+  state, no token.c, no the editing-core cycle (actions<->draw<->save<->select).
+  Per the dependency analysis this is the lowest-blast-radius zone in the
+  codebase. It touches nothing that can ripple into netlisting or the data model.
+
+- It is the prerequisite every "ease of use" feature wants. Once actions are
+  data, you get them almost for free:
+    * Command palette        = fuzzy-search over the table
+    * Customizable shortcuts  = edit the accelerator field + persist
+    * Always-accurate help/discoverability = generated, cannot drift
+    * Tooltips, context menus, a toolbar = read label/help/command from the table
+
+- It removes the measured pain directly — the 221-call inline menu, the
+  decorative accelerators, the hand-synced help.
+
+- It is incremental and reversible. The table can coexist with hand-written
+  items; migrate one menu (e.g. File) to prove the pattern, ship, then convert
+  the rest menu-by-menu. No big-bang.
+
+================================================================================
+WHAT NOT TO DO FIRST (AND WHY)
+
+- Don't refactor callback.c's C keysym chain yet. It is the highest-value
+  EVENTUAL cleanup, but its logic feeds the editing-core knot. Do it in phase 2,
+  after the Tcl table exists and after we have UI-level smoke tests — the table
+  can keep driving Tcl binds for now, with the C chain migrated key-by-key later.
+
+- Don't split xschem.tcl into modules first. It helps navigation but removes no
+  desync and unlocks no feature — cosmetic-first is the wrong order.
+
+- Don't touch xctx / the MIRRORED IN TCL vars (only 4 marked + the 33-entry
+  `xschem set` dispatcher). Relevant to feature TOGGLES, a reasonable fast-follow,
+  but secondary to the action/menu surface. And it is the deep-coupling zone —
+  out of scope for short-term UI work.
+
+================================================================================
+CONCRETELY, THE FIRST PR
+
+1. Add actions.tcl with the table + two generators (build_menu_from_table,
+   bind_keys_from_table).
+2. Convert ONE menu (File) to be generated from it, leaving the rest untouched.
+3. Generate the "Show Keybindings" list from the table to prove the no-drift
+   payoff.
+4. Verify via the headless harness that nothing in the netlist/load paths moved,
+   and a manual smoke-test of the File menu.
+
+That gives a working pattern, a visible win (self-documenting shortcuts), and the
+foundation the actual ease-of-use features sit on — at near-zero architectural
+risk.
+
+Recommended sequencing of the two kickoff options:
+  (b) first inventory all 221 menu items + the callback.c keysym chain into a
+      draft action table (see the full surface), THEN
+  (a) build the first PR against the File menu as a proof-of-concept.
+
+================================================================================
+SUPPORTING EVIDENCE (commands run against src/)
+- xschem.h: only 4 variables explicitly marked "MIRRORED IN TCL"
+  (hide_symbols, draw_window, case_insensitive, show_hidden_texts).
+- scheduler.c: the generic `xschem set <var>` block handles 33 settable vars.
+- xschem.tcl: build_widgets spans lines 10167-10871 (~700 lines); 221 menu-item
+  add calls; menu accelerators are display-only strings.
+- callback.c: keypress actions hardcoded in an if/else chain on KeySym
+  (e.g. key=='a', key==XK_Left, ...), reached via `xschem callback` from the Tcl
+  key_binding proc (xschem.tcl:1121).
+- keys.help: separate hand-written keybinding documentation.

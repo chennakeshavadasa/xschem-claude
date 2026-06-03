@@ -1,0 +1,38 @@
+CORE module coupling — leaf utilities (my_*, tcl*, dbg) excluded.
+This is the architecturally meaningful dependency structure.
+==============================================================================
+file                   coreOut  coreIn  fanOut   fanIn
+------------------------------------------------------------------------------
+actions.c                  379     598      15      25
+save.c                     220     335      12      23
+token.c                    150     969       9      23
+select.c                   186     265      13      21
+netlist.c                  140     279      11      20
+hilight.c                  122     123      12      19
+draw.c                     307     390      16      17
+editprop.c                 120     177       9      13
+move.c                     123     258      11      13
+scheduler.c                733      46      26      13
+spice_netlist.c            127     168      13      13
+check.c                     66      26       9      10
+clip.c                       0      72       0       9
+xinit.c                    118     127      18       9
+hash_iterator.c              0      32       0       8
+node_hash.c                 21      24       4       8
+store.c                     26      76       5       8
+spectre_netlist.c          105       6      12       6
+verilog_netlist.c          113       6      11       6
+vhdl_netlist.c             142       6      11       6
+callback.c                 561      17      22       5
+psprint.c                   69      11      11       5
+findnet.c                   25       9       6       3
+svgdraw.c                   36       5       9       3
+tedax_netlist.c             54       3       9       3
+cairo_jpg.c                  0       5       0       2
+paste.c                     76       8       7       2
+font.c                       8       1       4       1
+in_memory_undo.c             9       1       5       1
+options.c                    2       1       1       1
+main.c                       6       0       5       0
+------------------------------------------------------------------------------
+Total core cross-file calls: 4044 (vs 10053 incl. utilities — 60% was util noise)

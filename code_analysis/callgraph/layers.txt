@@ -1,0 +1,21 @@
+LAYERED ARCHITECTURE (SCC-condensed core call graph, edges >=30)
+======================================================================
+
+Layer 0 — entry / drivers
+  callback.c, check.c, paste.c, scheduler.c, spectre_netlist.c, verilog_netlist.c, vhdl_netlist.c
+
+Layer 1 — high-level ops
+  hilight.c, move.c, netlist.c, xinit.c
+
+Layer 2 — mid services
+  actions.c, draw.c, save.c, select.c
+
+Layer 3 — core services
+  editprop.c
+
+Layer 4 — data & parsing
+  spice_netlist.c, token.c
+
+Cycles (mutually-recursive file groups):
+  { spice_netlist.c, token.c }
+  { actions.c, draw.c, save.c, select.c }

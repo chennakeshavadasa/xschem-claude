@@ -1,0 +1,243 @@
+menu,type,label,accel,var,command,line
+(top),cascade,File,,,,10185
+(top),cascade,Edit,,,,10187
+(top),cascade,Options,,,,10189
+(top),cascade,View,,,,10191
+(top),cascade,Properties,,,,10193
+(top),cascade,Layers,,,,10196
+(top),cascade,Tools,,,,10198
+(top),cascade,Symbol,,,,10200
+(top),cascade,Highlight,,,,10202
+(top),cascade,Simulation,,,,10204
+(top),cascade,Help,,,,10206
+(top),command,-,,,,10448
+(top),command,Netlist,,,xschem netlist -erc,10449
+(top),command,Simulate,,,simulate_from_button,10452
+(top),cascade,Waves,,,,10457
+edit,command,Undo,U,,xschem undo; xschem redraw,10413
+edit,command,Redo,Shift+U,,xschem redo; xschem redraw,10414
+edit,command,Copy,Ctrl+C,,xschem copy,10415
+edit,command,Cut,Ctrl+X,,xschem cut,10416
+edit,command,Paste,Ctrl+V,,xschem paste,10417
+edit,command,Delete,Del,,xschem delete,10418
+edit,command,Select all,Ctrl+A,,xschem select_all,10419
+edit,command,Duplicate objects,C,,xschem copy_objects,10420
+edit,command,Move objects,M,,xschem move_objects,10421
+edit,command,Move objects stretching attached wires,Control+M,,xschem move_objects stretch,10422
+edit,command,Move objects adding wires to connected pins,Shift+M,,xschem move_objects kissing,10424
+edit,command,Horizontal Flip in place selected objects,Alt-F,,xschem flip_in_place,10426
+edit,command,Vertical Flip in place selected objects,Alt-V,,xschem flipv_in_place,10428
+edit,command,Rotate in place selected objects,Alt-R,,xschem rotate_in_place,10430
+edit,command,Vertical Flip selected objects,Shift-V,,xschem flipv,10432
+edit,command,Horizontal Flip selected objects,Shift-F,,xschem flip,10434
+edit,command,Rotate selected objects,Shift-R,,xschem rotate,10436
+edit,radiobutton,Unconstrained move,,constr_mv,xschem set constr_mv 0,10438
+edit,radiobutton,Constrained Horizontal move,H,constr_mv,xschem set constr_mv 1,10440
+edit,radiobutton,Constrained Vertical move,V,constr_mv,xschem set constr_mv 2,10442
+edit,command,Push schematic,E,,xschem descend,10444
+edit,command,Push symbol,I,,xschem descend_symbol,10445
+edit,command,Pop,Ctrl+E,,xschem go_back,10446
+file,command,Clear Schematic,Ctrl+N,,xschem clear schematic,10225
+file,command,Clear Symbol,Ctrl+Shift+N,,xschem clear symbol,10229
+file,command,Component browser,"Shift-Ins, Ctrl-I",,if {$new_file_browser} { file_chooser } else { load_file_dialog {Insert symbol} *.sym INITIALINSTDIR 2 },10233
+file,command,Open,Ctrl+O,,xschem load,10241
+file,command,Open in new window,Alt+O,,xschem load_new_window,10242
+file,command,Open last closed,Ctrl+Shift+T,,xschem load -gui -lastclosed,10244
+file,command,Open most recent,Ctrl+Shift+O,,xschem load -gui -lastopened,10246
+file,cascade,Open recent,,,,10248
+file,command,Create new window/tab,Ctrl+T,,xschem new_schematic create,10251
+file,command,Open selected schematic in new window,Alt+E,,open_sub_schematic,10254
+file,command,Open selected symbol in new window,Alt+I,,xschem symbol_in_new_window,10257
+file,command,Delete files,Shift-D,,xschem delete_files,10260
+file,command,Save,Ctrl+S,,xschem save,10261
+file,command,Merge,B,,xschem merge,10262
+file,command,Reload,Alt+S,,"if {[alert_ ""Are you sure you want to reload?"" {} 0 1] == 1} { xschem reload }",10263
+file,command,Save as,Ctrl+Shift+S,,xschem saveas,10269
+file,command,Save as symbol,Ctrl+Alt+S,,xschem saveas {} symbol,10270
+file,cascade,Image export,,,,10273
+file,command,Start new Xschem process,X,,xschem new_process,10284
+file,command,Close schematic,Ctrl+W,,xschem exit,10287
+file,command,Quit Xschem,Ctrl+Q,,quit_xschem,10290
+file.im_exp,command,EPS Selection Export,,,xschem print eps,10275
+file.im_exp,command,PDF/PS Export,*,,xschem print pdf,10276
+file.im_exp,command,PDF/PS Export Full,,,xschem print pdf_full,10277
+file.im_exp,command,Hierarchical PDF/PS Export,,,xschem hier_psprint,10278
+file.im_exp,command,PNG Export,Ctrl+*,,xschem print png,10279
+file.im_exp,command,SVG Export,Alt+*,,xschem print svg,10280
+file.recent,command,[file,,,xschem load -gui {$i},1306
+help,command,Help,?,,"textwindow \""${XSCHEM_SHAREDIR}/xschem.help\"" ro",10219
+help,command,Keys,,,"textwindow \""${XSCHEM_SHAREDIR}/keys.help\"" ro",10221
+help,command,Show Keybindings,,,show_bindkeys,10222
+help,command,About XSCHEM,,,about,10223
+hilight,command,Set schematic to compare and compare with,,,xschem compare_schematics; set compare_sch 1,10665
+hilight,command,Swap compare schematics,,,swap_compare_schematics,10668
+hilight,checkbutton,Compare schematics,,compare_sch,xschem unselect_all xschem redraw,10671
+hilight,checkbutton,View only Probes,5,only_probes,xschem only_probes,10677
+hilight,command,Highlight net-pin mismatches on sel. instances,Shift-X,,xschem net_pin_mismatch,10680
+hilight,command,Highlight duplicate instance names,#,,xschem check_unique_names 0,10684
+hilight,command,Rename duplicate instance names,Ctrl+#,,xschem check_unique_names 1,10686
+hilight,command,Select overlapped instances,,,xschem warning_overlapped_symbols 1; xschem redraw,10688
+hilight,command,Propagate Highlight selected net/pins,Ctrl+Shift+K,,xschem hilight drill,10690
+hilight,checkbutton,Increment Hilight Color,,incr_hilight,,10692
+hilight,command,Highlight selected net/pins,K,,xschem hilight,10694
+hilight,command,Send selected net/pins to Viewer,Alt+G,,xschem send_to_viewer,10696
+hilight,command,Select hilight nets / pins,Alt+K,,xschem select_hilight_net,10698
+hilight,command,Un-highlight all net/pins,Shift+K,,xschem unhilight_all,10701
+hilight,command,Un-highlight selected net/pins,Ctrl+K,,xschem unhilight,10703
+hilight,command,Show labels on unconnected instance pins,,,xschem show_unconnected_pins,10706
+hilight,checkbutton,Auto-highlight net/pins,,auto_hilight,,10708
+hilight,checkbutton,Enable highlight connected instances,,en_hilight_conn_inst,,10710
+layers,command,$laylab,,,xschem set rectcolor $j; reconfigure_layers_button $topwin,11033
+option,checkbutton,Color Postscript/SVG,,color_ps,if { $color_ps==1 } {xschem set color_ps 1} else { xschem set color_ps 0},10293
+option,checkbutton,Transparent SVG background,,transparent_svg,,10297
+option,checkbutton,Debug mode,,menu_debug_var,if { $menu_debug_var==1 } {xschem debug 1} else { xschem debug 0},10299
+option,checkbutton,Undo buffer on Disk,,undo_type,switch_undo,10303
+option,checkbutton,Enable stretch,Y,enable_stretch,,10306
+option,checkbutton,Enable infix-interface,,infix_interface,,10308
+option,checkbutton,Enable orthogonal wiring,Shift-L,orthogonal_wiring,,10310
+option,checkbutton,Unsel. partial sel. wires after stretch move,,unselect_partial_sel_wires,,10312
+option,checkbutton,Auto Join/Trim Wires,,autotrim_wires,if {$autotrim_wires == 1} { xschem trim_wires xschem redraw },10315
+option,checkbutton,Persistent wire/line place command,,persistent_command,,10322
+option,checkbutton,Intuitive Click & Drag interface,,intuitive_interface,xschem set intuitive_interface $intuitive_interface,10324
+option,cascade,Crosshair,,,,10328
+option,command,Replace \[ and \] for buses in SPICE netlist,,,"input_line ""Enter two characters to replace default bus \[\] delimiters:"" ""set bus_replacement_char""",10341
+option,checkbutton,Group bus slices in Verilog instances,,verilog_bitblast,,10345
+option,checkbutton,Draw grid,%,draw_grid,xschem redraw,10347
+option,command,Half Snap Threshold,G,,xschem set cadsnap [expr {$cadsnap / 2.0} ],10352
+option,command,Double Snap Threshold,Shift-G,,xschem set cadsnap [expr {$cadsnap * 2.0} ],10355
+option,checkbutton,Variable grid point size,,big_grid_points,xschem redraw,10358
+option,checkbutton,No XCopyArea drawing model,Ctrl+$,draw_window,if { $draw_window == 1} { xschem set draw_window 1} else { xschem set draw_window 0},10362
+option,checkbutton,Fix for GPUs with broken tiled fill,,fix_broken_tiled_fill,if { $fix_broken_tiled_fill == 1} { xschem set fix_broken_tiled_fill 1 } else { xschem set fix_broken_tiled_fill 0 } xschem resetwin 1 1 1 0 0 xschem redraw,10368
+option,checkbutton,Fix broken RDP mouse coordinates,,fix_mouse_coord,xschem set fix_mouse_coord $fix_mouse_coord,10379
+option,cascade,Netlist format / Symbol mode,,,,10384
+option.crosshair,checkbutton,Draw snap cursor,Alt-Z,snap_cursor,,10332
+option.crosshair,checkbutton,Draw crosshair,Alt-X,draw_crosshair,,10334
+option.crosshair,command,Crosshair size,,,"input_line ""Enter crosshair size (int, 0 = full screen width):"" ""set crosshair_size"" $crosshair_size",10336
+option.netlist,checkbutton,Flat netlist,:,flat_netlist,if { $flat_netlist==1 } {xschem set flat_netlist 1} else { xschem set flat_netlist 0},10388
+option.netlist,checkbutton,Split netlist,,split_files,,10393
+option.netlist,radiobutton,Spectre netlist,Ctrl+Shift+V,netlist_type,xschem set netlist_type spectre; xschem redraw,10395
+option.netlist,radiobutton,Spice netlist,Ctrl+Shift+V,netlist_type,xschem set netlist_type spice; xschem redraw,10398
+option.netlist,radiobutton,VHDL netlist,Ctrl+Shift+V,netlist_type,xschem set netlist_type vhdl; xschem redraw,10401
+option.netlist,radiobutton,Verilog netlist,Ctrl+Shift+V,netlist_type,xschem set netlist_type verilog; xschem redraw,10404
+option.netlist,radiobutton,tEDAx netlist,Ctrl+Shift+V,netlist_type,xschem set netlist_type tedax; xschem redraw,10407
+option.netlist,radiobutton,Symbol global attrs,Ctrl+Shift+V,netlist_type,xschem set netlist_type symbol; xschem redraw,10410
+prop,command,Edit,Q,,xschem edit_prop,10560
+prop,command,Edit with editor,Shift+Q,,xschem edit_vi_prop,10561
+prop,command,View,Ctrl+Shift+Q,,xschem view_prop,10562
+prop,command,Toggle *_ignore attribute on selected instances,Shift+T,,xschem toggle_ignore,10563
+prop,command,Change selected object insertion order,Shift+S,,xschem change_elem_order -1,10565
+prop,command,Edit Header/License text,Shift+B,,update_schematic_header,10567
+prop,command,Edit file (danger!),Alt+Q,,xschem edit_file,10569
+simulation,command,Set netlist Dir,,,set local_netlist_dir 0 set_netlist_dir 1,10713
+simulation,command,Set top level netlist name,,,input_line {Set netlist file name} {xschem set netlist_name} [xschem get netlist_name] 40,10718
+simulation,command,Set netlist / graph / annotation precision,,,"input_line ""Enter precision (int):"" ""set ev_precision"" $ev_precision",10722
+simulation,checkbutton,Show netlist after netlist command,Shift+A,netlist_show,,10726
+simulation,checkbutton,Keep symbols when traversing hierarchy,,keep_symbols,,10728
+simulation,radiobutton,Use netlist directory,,local_netlist_dir,set_netlist_dir 1,10730
+simulation,radiobutton,Use 'simulation' dir in schematic dir,,local_netlist_dir,set_netlist_dir 1,10733
+simulation,radiobutton,Use 'simulation/\[schname\]' dir in schematic dir,,local_netlist_dir,set_netlist_dir 1,10736
+simulation,command,Configure simulators and tools,,,simconf,10739
+simulation,command,List running sub-processes,,,,10741
+simulation,command,List running sub-processes,,,list_running_cmds,10743
+simulation,command,View last job data,,,"if { [info exists execute(data,last)] } { viewdata $execute(data,last) }",10747
+simulation,command,View last job errors,,,"if { [info exists execute(error,last)] } { viewdata $execute(error,last) }",10752
+simulation,command,Utile Stimuli Editor (GUI),,,inutile [xschem get current_dirname]/stimuli.[file rootname [file tail [xschem get schname]]],10757
+simulation,command,Utile Stimuli Translate,,,inutile_translate [xschem get current_dirname]/stimuli.[file rootname [file tail [xschem get schname]]],10760
+simulation,command,Shell [simulation path],,,"if { [set_netlist_dir 0] ne """" } { get_shell $netlist_dir }",10763
+simulation,command,Edit Netlist,,,edit_netlist [xschem get netlist_name fallback],10768
+simulation,command,Send highlighted nets to viewer,Ctrl+Shift+X,,xschem create_plot_cmd,10770
+simulation,command,Changelog from current hierarchy,,,viewdata [list_hierarchy],10772
+simulation,cascade,Graphs,,,,10778
+simulation,cascade,LVS,,,,10804
+simulation.graph,checkbutton,Auto highlight plotted nets,,auto_hilight_graph_nodes,,10780
+simulation.graph,command,Add waveform graph,,,xschem add_graph,10782
+simulation.graph,command,Add waveform reload launcher,,,"xschem place_symbol [find_file_first launcher.sym] ""name=h5\ndescr=\""load waves\"" tclcommand=\""xschem raw_read \$netlist_dir/[file tail [file rootname [xschem get current_name]]].raw tran\"" """,10783
+simulation.graph,command,Annotate Operating Point into schematic,,,set tctx::retval [select_raw [xschem get topwindow]] set show_hidden_texts 1 if {$tctx::retval ne {}} { xschem annotate_op $tctx::retval } else { xschem annotate_op },10788
+simulation.graph,checkbutton,Live annotate probes with 'b' cursor,,live_cursor2_backannotate,,10798
+simulation.graph,checkbutton,Hide graphs if no spice data loaded,,hide_empty_graphs,xschem redraw,10800
+simulation.lvs,checkbutton,LVS netlist + Top level is a .subckt,,lvs_netlist,,10806
+simulation.lvs,checkbutton,Upper case .SUBCKT and .ENDS,,uppercase_subckt,,10808
+simulation.lvs,checkbutton,Top level is a .subckt,,top_is_subckt,,10810
+simulation.lvs,checkbutton,Set 'lvs_ignore' variable,,lvs_ignore,xschem rebuild_connectivity; xschem unhilight_all,10813
+simulation.lvs,checkbutton,Use 'spiceprefix' attribute,,spiceprefix,xschem redraw,10816
+sym,cascade,Show symbols,,,,10572
+sym,command,Set symbol width,,,"input_line ""Enter Symbol width ($symbol_width)"" ""set symbol_width"" $symbol_width",10585
+sym,command,Make symbol from schematic,A,,xschem make_symbol,10589
+sym,command,Make schematic from symbol,Ctrl+L,,xschem make_sch,10591
+sym,command,Make schematic and symbol from selected components,Ctrl+Shift+H,,xschem make_sch_from_sel,10593
+sym,command,Attach net labels to component instance,Shift+H,,xschem attach_labels,10595
+sym,command,Create symbol pins from selected schematic pins,Alt+H,,schpins_to_sympins,10597
+sym,command,Place symbol pin,Alt+P,,xschem add_symbol_pin,10599
+sym,command,Place schematic input port,Ctrl+P,,xschem net_label 2,10601
+sym,command,Place schematic output port,Ctrl+Shift+P,,xschem net_label 3,10603
+sym,command,Place net pin label,Alt+L,,xschem net_label 1,10605
+sym,command,Place net wire label,Alt+Shift+L,,xschem net_label 0,10607
+sym,command,Change selected inst. texts to floaters,,,xschem floaters_from_selected_inst,10609
+sym,command,Unselect attached floaters,,,xschem unselect_attached_floaters,10611
+sym,cascade,List of nets,,,,10615
+sym,checkbutton,Search all search-paths for schematic associated to symbol,,search_schematic,,10629
+sym,checkbutton,Allow duplicated instance names (refdes),,disable_unique_names,,10632
+sym.list,command,Print list of highlight nets,J,,xschem print_hilight_net 1,10618
+sym.list,command,"Print list of highlight nets, with buses expanded",Alt-Ctrl-J,,xschem print_hilight_net 3,10620
+sym.list,command,Create labels from highlight nets,Alt-J,,xschem print_hilight_net 4,10622
+sym.list,command,Create labels from highlight nets with 'i' prefix,Alt-Shift-J,,xschem print_hilight_net 2,10624
+sym.list,command,Create pins from highlight nets,Ctrl-J,,xschem print_hilight_net 0,10626
+sym.sym,radiobutton,Show symbol details,Alt+B,hide_symbols,xschem set hide_symbols $hide_symbols; xschem redraw,10575
+sym.sym,radiobutton,Show instance Bounding boxes for subcircuit symbols,Alt+B,hide_symbols,xschem set hide_symbols $hide_symbols; xschem redraw,10578
+sym.sym,radiobutton,Show instance Bounding boxes for all symbols,Alt+B,hide_symbols,xschem set hide_symbols $hide_symbols; xschem redraw,10581
+tools,command,Insert symbol,"Ins, Shift-I",,xschem place_symbol,10634
+tools,command,Insert text,T,,xschem place_text,10635
+tools,command,Insert wire,W,,xschem wire,10636
+tools,command,Insert snap wire,Shift+W,,xschem snap_wire,10637
+tools,command,Insert line,L,,xschem line,10638
+tools,command,Insert rect,R,,xschem rect,10639
+tools,command,Insert polygon,P,,xschem polygon,10640
+tools,command,Insert arc,Shift+C,,xschem arc,10641
+tools,command,Insert circle,Ctrl+Shift+C,,xschem circle,10642
+tools,command,Insert JPG/PNG/SVG image,,,xschem add_image,10643
+tools,command,Grab screen area,Print Scrn,,xschem grabscreen,10644
+tools,command,Search,Ctrl+F,,property_search,10646
+tools,command,Align to Grid,Alt+U,,xschem align,10647
+tools,command,Execute TCL command,=,,tclcmd,10648
+tools,command,Join/Trim wires,&,,xschem trim_wires,10649
+tools,command,Break wires at selected instance pins,!,,xschem break_wires,10651
+tools,command,Remove wires running through selected inst. pins,Ctrl-!,,xschem break_wires 1,10653
+tools,command,Break wires at mouse position,Alt-Shift-Right Butt.,,xschem wire_cut noalign,10655
+tools,command,"Break wires at mouse position, align cut point",Alt-Right Butt.,,xschem wire_cut,10657
+tools,command,Select all connected wires/labels/pins,Shift-Right Butt.,,xschem connected_nets,10659
+tools,command,"Select conn. wires, stop at junctions",Ctrl-Righ Butt.,,xschem connected_nets 1,10662
+view,command,Redraw,Esc,,xschem redraw,10486
+view,command,Fullscreen,\\,,if {\$fullscreen == 1} {set fullscreen 2} ;# avoid hiding menu in true fullscreen xschem fullscreen $topwin.drw,10487
+view,command,Zoom Full,F,,xschem zoom_full,10492
+view,command,Zoom In,Shift+Z,,xschem zoom_in,10493
+view,command,Zoom Out,Ctrl+Z,,xschem zoom_out,10494
+view,command,Zoom box,Z,,xschem zoom_box,10495
+view,command,Set snap value,,,"input_line ""Enter snap value (float):"" ""xschem set cadsnap"" $cadsnap",10496
+view,command,Set grid spacing,,,"input_line ""Enter grid spacing (float):"" ""xschem set cadgrid"" $cadgrid",10500
+view,command,Toggle colorscheme,Shift+O,,xschem toggle_colorscheme,10504
+view,command,Dim colors,,,color_dim,10507
+view,command,Change current layer color,,,change_color,10510
+view,command,Reset all colors to default,,,reset_colors 1,10513
+view,checkbutton,Toggle variable line width,_,change_lw,xschem set change_lw $change_lw,10518
+view,command,Set line width,Alt+-,,"input_line ""Enter linewidth (float):"" ""xschem line_width""",10520
+view,command,Set grid point size,,,"input_line ""Enter Grid point size (int or -1: $grid_point_size)"" ""set grid_point_size"" $grid_point_size",10524
+view,checkbutton,Tabbed interface,,tabbed_interface,setup_tabbed_interface,10528
+view,cascade,Show / Hide,,,,10531
+view.show,checkbutton,Show ERC Info window,,show_infowindow,if { $show_infowindow != 0 } {wm deiconify .infotext } else {wm withdraw .infotext},10535
+view.show,command,Visible layers,,,select_layers xschem redraw,10540
+view.show,checkbutton,Symbol text,Ctrl+B,sym_txt,xschem set sym_txt $sym_txt; xschem redraw,10545
+view.show,checkbutton,Show Toolbar,,toolbar_visible,"if { \$toolbar_visible } \"" toolbar_show $topwin\"" else \""toolbar_hide $topwin\""",10548
+view.show,checkbutton,Horizontal Toolbar,,toolbar_horiz,"if { \$toolbar_visible } \"" toolbar_hide $topwin; toolbar_show $topwin \""",10552
+view.show,checkbutton,Show hidden texts,,show_hidden_texts,xschem update_all_sym_bboxes; xschem redraw,10556
+view.show,checkbutton,Draw grid axes,,draw_grid_axes,xschem redraw,10558
+waves,command,External viewer,,,waves external,10460
+waves,command,Clear,,,xschem raw_clear,10462
+waves,command,Load first analysis found,,,waves {},10464
+waves,command,Op Annotate,,,set tctx::retval [select_raw [xschem get topwindow]] set show_hidden_texts 1 if {$tctx::retval ne {}} { xschem annotate_op $tctx::retval } else { xschem annotate_op },10465
+waves,command,Op,,,waves op,10474
+waves,command,Dc,,,waves dc,10475
+waves,command,Ac,,,waves ac,10476
+waves,command,Tran,,,waves tran,10477
+waves,command,Noise,,,waves noise,10478
+waves,command,Sp,,,waves ac,10479
+waves,command,Spectrum,,,waves ac,10480
