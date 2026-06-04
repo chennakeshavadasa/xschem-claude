@@ -105,12 +105,21 @@ We wrote the plan to a doc first (`refactor_plan_util_extraction.md`), then:
 4. Ran the harness → **byte-identical** gold netlists = behavior preserved,
    *demonstrated* not asserted.
 
-Two real bugs surfaced and were caught by the tools, exactly as designed:
+Two **self-inflicted mistakes** — introduced by *our own* refactor, not
+pre-existing defects — were caught by the tools before anything was committed.
+That's exactly the safety net's job: catching the errors *you* make mid-refactor.
 - The **linker** flagged `my_atof`/`my_atod` using `SPC`/`DGT` macros that hadn't
-  travelled with them → moved the macros to `util.h`.
+  travelled with them (in the original they sat in the same file, working fine) →
+  moved the macros to `util.h`.
 - The build wiring almost went into the *generated* `Makefile` (git-ignored,
   overwritten by `./configure`); the real fix was the tracked `Makefile.in`
   template.
+
+We also surfaced **one pre-existing fragility** (not a user-facing bug): in the
+original repo `my_strncat` had no prototype in any header — it compiled only
+because its definition preceded its callers inside `editprop.c`. Moving it out
+would have broken that, so we added the missing prototype to `util.h` and
+hardened it. Nothing in *shipped* xschem behavior was ever defective.
 
 Result: `editprop.c` 2137 → 1338 lines, an honest dependency graph, a real
 utility floor — zero functional change.
