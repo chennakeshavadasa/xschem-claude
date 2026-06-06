@@ -10006,6 +10006,10 @@ global env has_x OS autofocus_mainwindow
     # Command palette (UI layer): more-specific binding pre-empts the generic
     # <KeyPress> above, so this never reaches the C keysym dispatcher.
     bind $topwin <Control-Shift-Key-P> "command_palette $parent; break"
+    # Data-driven accelerators (Phase 2): generated from the action table. Each
+    # is a more-specific binding that pre-empts the generic <KeyPress> above, so
+    # the C keysym dispatcher is bypassed for migrated keys only.
+    bind_accelerators_from_table $topwin
     bind $topwin <KeyRelease> "xschem callback %W %T %x %y %N 0 0 %s"
     if {$autofocus_mainwindow} {
       bind $topwin <Motion> "focus $topwin; xschem callback %W %T %x %y 0 0 0 %s"

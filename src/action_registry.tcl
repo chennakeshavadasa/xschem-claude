@@ -149,6 +149,125 @@ proc action_reload {} {
   }
 }
 
+# --- data-driven keyboard accelerators ---------------------------------------
+# Phase 2: generate real key bindings from the table's 'accel' column instead of
+# hardcoding them in the C handle_key_press chain (callback.c). Each generated
+# binding is installed on the drawing widget in set_bindings; because a binding
+# with a key detail (e.g. <Control-Key-z>) is more *specific* than the generic
+# <KeyPress> binding on the same widget, Tk fires only the specific one, so the
+# C keysym dispatcher is bypassed for migrated keys ONLY. The C side is untouched
+# and still owns every key not migrated here.
+#
+# Migration is deliberately incremental: only action ids in migrated_action_ids
+# are bound. Keys that depend on in-progress editing state, infix-mode placement,
+# or whether the mouse is over a waveform graph stay in C and are NOT listed.
+
+# Action ids whose keyboard shortcut is generated from the table (and so bypass
+# the C handle_key_press chain). Grown one small, empirically-verified batch at a
+# time. Anything not listed here is still handled exactly as before by C.
+set migrated_action_ids {
+  edit.undo
+  edit.redo
+  view.zoom_in
+  view.zoom_out
+}
+
+# Translate an accelerator DISPLAY string (e.g. "Ctrl+S", "Shift+Z", "Alt-F",
+# "U") into a real Tk event sequence (e.g. <Control-Key-s>, <Shift-Key-Z>,
+# <Alt-Key-f>, <Key-u>). Returns {} when the accel is not a single, bindable
+# keyboard shortcut (empty, mouse button, "Print Scrn", multi-key alternatives
+# like "Ins, Shift-I", a still-unhandled symbol key, or an unknown modifier);
+# the caller logs and leaves those to C.
+#
+# IMPORTANT: the real keysym, not the display casing, decides the binding. A
+# bare letter with no Shift maps to the LOWERCASE keysym ("U" undo -> <Key-u>,
+# matching C's case 'u'); a letter WITH Shift maps to the uppercase keysym
+# ("Shift+U" redo -> <Shift-Key-U>, matching C's case 'U'). This mirrors how C
+# strips ShiftMask and switches on the character keysym.
+proc accel_to_tk_sequence {accel} {
+  if {$accel eq {}} { return {} }
+  # Not single keyboard shortcuts: alternatives, mouse buttons, special labels.
+  if {[string match *,* $accel]}      { return {} } ;# e.g. "Ins, Shift-I"
+  if {[string match *Butt.* $accel]}  { return {} } ;# mouse button
+  if {[string match *Scrn* $accel]}   { return {} } ;# "Print Scrn"
+  if {[string match {* *} $accel]}    { return {} } ;# any space => multi-word
+
+  # Split into modifier tokens + a final key token. '+' and '-' both separate.
+  set tokens {}
+  foreach t [split [string map {+ -} $accel] -] {
+    if {$t ne {}} { lappend tokens $t }
+  }
+  if {[llength $tokens] == 0} { return {} }
+  set keytok [lindex $tokens end]
+  set modtoks [lrange $tokens 0 end-1]
+
+  # Normalize modifiers; bail on anything we don't recognize.
+  set mods {}
+  set shift 0
+  foreach m $modtoks {
+    switch -- $m {
+      Ctrl - Control { lappend mods Control }
+      Alt            { lappend mods Alt }
+      Shift          { set shift 1 }
+      default        { return {} } ;# unknown modifier (Meta/Super/...) -> leave to C
+    }
+  }
+
+  # Resolve the key token into a Tk keysym.
+  if {[string length $keytok] == 1 && [string is alpha $keytok]} {
+    if {$shift} {
+      set keysym [string toupper $keytok]
+    } else {
+      set keysym [string tolower $keytok]
+    }
+  } elseif {[string length $keytok] == 1 && [string is digit $keytok]} {
+    set keysym $keytok
+    if {$shift} { lappend mods Shift } ;# digit row keeps Shift as a real modifier
+  } else {
+    # Symbol keys (# = * & ! ...) and named keys (Del/Esc/...) need a keysym map;
+    # deferred to a later batch. Flag as not-yet-translatable.
+    return {}
+  }
+
+  # Emit modifiers in canonical order (Control, Alt, Shift) like the palette
+  # binding <Control-Shift-Key-P>, then the keysym.
+  set seq {}
+  if {[lsearch -exact $mods Control] >= 0} { lappend seq Control }
+  if {[lsearch -exact $mods Alt] >= 0}     { lappend seq Alt }
+  if {$shift && [string length $keytok] == 1 && [string is alpha $keytok]} { lappend seq Shift }
+  if {[lsearch -exact $mods Shift] >= 0}   { lappend seq Shift } ;# digit Shift
+  lappend seq Key $keysym
+  return "<[join $seq -]>"
+}
+
+# Run a table command at global scope, reporting (not raising) errors so a bad
+# binding can't take down the event loop. Mirrors the command palette's runner.
+proc run_action {cmd} {
+  if {[catch {uplevel #0 $cmd} err]} {
+    puts stderr "action registry: error running '$cmd': $err"
+  }
+}
+
+# Install the generated accelerators on the drawing widget <topwin>. Only rows in
+# migrated_action_ids are bound; each pre-empts the generic <KeyPress> binding so
+# C never sees that key. Untranslatable accels are logged and left to C.
+proc bind_accelerators_from_table {topwin} {
+  global action_table migrated_action_ids
+  foreach row $action_table {
+    set id [dict get $row id]
+    if {[lsearch -exact $migrated_action_ids $id] < 0} continue
+    if {[dict get $row type] ne {command}} continue
+    set accel [dict get $row accel]
+    set seq [accel_to_tk_sequence $accel]
+    if {$seq eq {}} {
+      puts stderr "action registry: '$id' accel '$accel' not translatable; left to C"
+      continue
+    }
+    set cmd [dict get $row command]
+    bind $topwin $seq "run_action [list $cmd]; break"
+  }
+}
+
 # --- command palette ---------------------------------------------------------
 # Fuzzy-searchable launcher over the action table. Reuses fuzzy_subseq_score
 # (the file-chooser matcher in xschem.tcl). Bound to Ctrl+Shift+P in
