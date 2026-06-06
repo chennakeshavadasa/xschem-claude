@@ -119,3 +119,33 @@ coexist with hand-written items, migrate menu-by-menu.
 Deferred to Phase 2: the 22 inline-script commands (need named-proc extraction)
 and the 46 checkbutton / 15 radiobutton toggles (need a `toggle` row type), then
 migrate the `tcleval(...)` key branches onto the table for remappable shortcuts.
+
+**Phase 2 — IN PROGRESS** (branch `feature/action-registry`, still UI/Tcl only,
+callback.c untouched — keys are intercepted *above* C via Tk binding specificity):
+- `accel_to_tk_sequence` (action_registry.tcl): translates an accel display
+  string to a real Tk event pattern ("Ctrl+S"→`<Control-Key-s>`, "Shift+Z"→
+  `<Shift-Key-Z>`, "Alt-F"→`<Alt-Key-f>`, "U"→`<Key-u>`). The keysym, not the
+  display casing, decides: a bare letter → lowercase keysym (C `case 'u'`), a
+  Shift'd letter → uppercase keysym (C `case 'U'`). Returns {} for non-shortcuts
+  (mouse buttons, "Print Scrn", comma alternatives, symbol keys, unknown mods).
+- `bind_accelerators_from_table` + `run_action`: install bindings on the drawing
+  widget in `set_bindings`, gated by an explicit `migrated_action_ids` allowlist;
+  re-runnable (releases prior bindings first). `remap_action_accel` changes one
+  row's accel at runtime and re-installs — the core a "customize shortcuts"
+  dialog would call.
+- `generate_keybindings_text` / `show_keybindings_help`: cheat-sheet generated
+  from the table (Help → "Keybindings (from table)"), always accurate; supersedes
+  the hand-maintained keys.help. Migrated keys flagged `*`.
+- Classification of `handle_key_press`: keys that are waves-guarded (route to
+  graph on mouse-over), infix/modal placement or move-start, or depend on
+  in-progress edit state STAY in C; only clean global command keys migrate.
+- **Batch 1 (done & verified):** `edit.undo` (u), `edit.redo` (Shift+U),
+  `view.zoom_in` (Shift+Z), `view.zoom_out` (Ctrl+Z). Each binding empirically
+  runs the same action as the C branch (identical zoom ratio; wire removed/
+  restored), un-migrated keys still reach C. Tests:
+  `tests/headless/test_accelerators.tcl` (12/12), `test_remap.tcl` (7/7),
+  `test_keybindings_help.tcl` (6/6); engine harness still 6/6.
+- Next batches: grow `migrated_action_ids` with more clean command keys (e.g.
+  `S` change-elem-order, `n`/Ctrl+n/Ctrl+N netlist & clear, `T` toggle-ignore,
+  hilight `j/J/k/K` family, `x` new-process); add symbol-key keysym mapping
+  (`# = * & !`) when those rows are migrated.
