@@ -10164,6 +10164,11 @@ proc load_raw {{type {}}} {
 #
 # bind Menubutton <Button-1> {tk::menubutton1 %W %X %Y}
 
+# Action registry: declarative table (actions.csv) that drives the File menu and
+# the command palette. Loaded once at startup; build_widgets consumes it per window.
+source $XSCHEM_SHAREDIR/action_registry.tcl
+load_action_table
+
 proc build_widgets { {topwin {} } } {
   global canvas_height canvas_width
   global XSCHEM_SHAREDIR tabbed_interface simulate_bg OS sim
@@ -10222,74 +10227,10 @@ proc build_widgets { {topwin {} } } {
   $topwin.menubar.help add command -label "Show Keybindings" -command "show_bindkeys"
   $topwin.menubar.help add command -label "About XSCHEM" -command "about"
 
-  $topwin.menubar.file add command -label "Clear Schematic"  -accelerator Ctrl+N\
-    -command {
-      xschem clear schematic
-    }
-  $topwin.menubar.file add command -label "Clear Symbol" -accelerator Ctrl+Shift+N \
-    -command {
-      xschem clear symbol
-    }
-  $topwin.menubar.file add command -label "Component browser" -accelerator {Shift-Ins, Ctrl-I} \
-    -command {
-      if {$new_file_browser} {
-        file_chooser
-      } else {
-        load_file_dialog {Insert symbol} *.sym INITIALINSTDIR 2
-      }
-    }
-  $topwin.menubar.file add command -label "Open" -command "xschem load" -accelerator {Ctrl+O}
-  $topwin.menubar.file add command -label "Open in new window" -command "xschem load_new_window" \
-    -accelerator {Alt+O}
-  $topwin.menubar.file add command -label "Open last closed" \
-    -command {xschem load -gui -lastclosed} -accelerator {Ctrl+Shift+T}
-  $topwin.menubar.file add command -label "Open most recent" \
-    -command {xschem load -gui -lastopened} -accelerator {Ctrl+Shift+O}
-  $topwin.menubar.file add cascade -label "Open recent" -menu $topwin.menubar.file.recent
-  menu $topwin.menubar.file.recent -tearoff 0 -takefocus 0
-  setup_recent_menu $topwin
-  $topwin.menubar.file add command -label {Create new window/tab} -command "xschem new_schematic create" \
-     -accelerator {Ctrl+T}
-
-  $topwin.menubar.file add command -label "Open selected schematic in new window" \
-      -command "open_sub_schematic" -accelerator Alt+E
-      # -command "xschem schematic_in_new_window" -accelerator Alt+E
-  $topwin.menubar.file add command -label "Open selected symbol in new window" \
-      -command "xschem symbol_in_new_window" -accelerator Alt+I
-
-  $topwin.menubar.file add command -label "Delete files" -command "xschem delete_files" -accelerator {Shift-D}
-  $topwin.menubar.file add command -label "Save" -command "xschem save" -accelerator {Ctrl+S}
-  $topwin.menubar.file add command -label "Merge" -command "xschem merge" -accelerator {B}
-  $topwin.menubar.file add command -label "Reload" -accelerator {Alt+S} \
-    -command {
-      if {[alert_ "Are you sure you want to reload?" {} 0 1] == 1} {
-        xschem reload
-      }
-    }
-  $topwin.menubar.file add command -label "Save as" -command "xschem saveas" -accelerator {Ctrl+Shift+S}
-  $topwin.menubar.file add command -label "Save as symbol" \
-     -command "xschem saveas {} symbol" -accelerator {Ctrl+Alt+S}
-  # added svg, png 20171022
-  $topwin.menubar.file add cascade -label "Image export" -menu $topwin.menubar.file.im_exp
-  menu $topwin.menubar.file.im_exp -tearoff 0 -takefocus 0
-  $topwin.menubar.file.im_exp add command -label "EPS Selection Export" -command "xschem print eps"
-  $topwin.menubar.file.im_exp add command -label "PDF/PS Export" -command "xschem print pdf" -accelerator {*}
-  $topwin.menubar.file.im_exp add command -label "PDF/PS Export Full" -command "xschem print pdf_full"
-  $topwin.menubar.file.im_exp add command -label "Hierarchical PDF/PS Export" -command "xschem hier_psprint"
-  $topwin.menubar.file.im_exp add command -label "PNG Export" -command "xschem print png" -accelerator {Ctrl+*}
-  $topwin.menubar.file.im_exp add command -label "SVG Export" -command "xschem print svg" -accelerator {Alt+*}
-
-
-  $topwin.menubar.file add separator
-  $topwin.menubar.file add command -label "Start new Xschem process" -accelerator {X} -command {
-    xschem new_process
-  }
-  $topwin.menubar.file add command -label "Close schematic" -accelerator {Ctrl+W} -command {
-    xschem exit
-  }
-  $topwin.menubar.file add command -label "Quit Xschem" -accelerator {Ctrl+Q} -command {
-    quit_xschem
-  }
+  # File menu is generated from the action registry (actions.csv). The parent
+  # menu widget $topwin.menubar.file is created above; submenus (Image export,
+  # Open recent) are created by the generator. Other menus remain hand-written.
+  build_menu_from_table $topwin file
   $topwin.menubar.option add checkbutton -label "Color Postscript/SVG" -variable color_ps \
      -selectcolor $selectcolor -command {
         if { $color_ps==1 } {xschem set color_ps 1} else { xschem set color_ps 0}
