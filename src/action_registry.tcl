@@ -148,3 +148,132 @@ proc action_reload {} {
     xschem reload
   }
 }
+
+# --- command palette ---------------------------------------------------------
+# Fuzzy-searchable launcher over the action table. Reuses fuzzy_subseq_score
+# (the file-chooser matcher in xschem.tcl). Bound to Ctrl+Shift+P in
+# set_bindings; runs entirely in the UI layer (does not go through the C
+# keysym dispatcher).
+
+# Rebuild the result list to match the current query. Guarded so that arrow/
+# Return key releases (which also fire <KeyRelease>) don't rebuild and reset
+# the selection while the user is navigating.
+proc palette_refilter {} {
+  global action_table palette_rows palette_query palette_last_query
+  set w .cmd_palette
+  if {![winfo exists $w]} return
+  if {[info exists palette_last_query] && $palette_last_query eq $palette_query} return
+  set palette_last_query $palette_query
+  set q $palette_query
+  set scored {}
+  foreach row $action_table {
+    if {[dict get $row type] ne {command}} continue
+    if {$q eq {}} {
+      lappend scored [list 0 $row]
+      continue
+    }
+    set sc [fuzzy_subseq_score $q [dict get $row label]]
+    foreach field {help id} {
+      set s [fuzzy_subseq_score $q [dict get $row $field]]
+      if {$s > $sc} { set sc $s }
+    }
+    if {$sc >= 0} { lappend scored [list $sc $row] }
+  }
+  if {$q ne {}} { set scored [lsort -decreasing -integer -index 0 $scored] }
+  set palette_rows {}
+  $w.l delete 0 end
+  set n 0
+  foreach pair $scored {
+    if {$n >= 200} break
+    set row [lindex $pair 1]
+    lappend palette_rows $row
+    set label [dict get $row label]
+    set accel [dict get $row accel]
+    if {$accel ne {}} {
+      $w.l insert end [format "%-46s %s" $label "\[$accel\]"]
+    } else {
+      $w.l insert end $label
+    }
+    incr n
+  }
+  if {[llength $palette_rows] > 0} {
+    $w.l selection clear 0 end
+    $w.l selection set 0
+    $w.l activate 0
+  }
+}
+
+# Move the listbox selection by $dir (+1/-1), clamped.
+proc palette_move {dir} {
+  set w .cmd_palette
+  if {![winfo exists $w]} return
+  set last [expr {[$w.l index end] - 1}]
+  if {$last < 0} return
+  set cur [$w.l index active]
+  if {$cur eq {}} { set cur 0 }
+  set new [expr {$cur + $dir}]
+  if {$new < 0} { set new 0 }
+  if {$new > $last} { set new $last }
+  $w.l selection clear 0 end
+  $w.l selection set $new
+  $w.l activate $new
+  $w.l see $new
+}
+
+# Run the highlighted action and close the palette.
+proc palette_run {} {
+  global palette_rows
+  set w .cmd_palette
+  if {![winfo exists $w]} return
+  set sel [$w.l curselection]
+  if {[llength $sel]} {
+    set idx [lindex $sel 0]
+  } else {
+    set idx [$w.l index active]
+  }
+  if {$idx eq {} || $idx < 0 || $idx >= [llength $palette_rows]} return
+  set cmd [dict get [lindex $palette_rows $idx] command]
+  destroy $w
+  if {$cmd ne {}} {
+    if {[catch {uplevel #0 $cmd} err]} { puts stderr "command palette: $err" }
+  }
+}
+
+# Open (or re-open) the command palette as a small dialog near the top of the
+# parent toplevel.
+proc command_palette { {parent {}} } {
+  global palette_query palette_last_query
+  if {$parent eq {} || ![winfo exists $parent]} { set parent . }
+  set parent [winfo toplevel $parent]
+  set w .cmd_palette
+  if {[winfo exists $w]} { destroy $w }
+  toplevel $w
+  wm title $w {Command palette}
+  catch {wm transient $w $parent}
+  set palette_query {}
+  catch {unset palette_last_query}
+  entry $w.q -textvariable palette_query
+  listbox $w.l -height 14 -width 72 -activestyle dotbox -exportselection 0
+  pack $w.q -side top -fill x -padx 2 -pady 2
+  pack $w.l -side top -fill both -expand 1 -padx 2 -pady 2
+  bind $w.q <KeyRelease> palette_refilter
+  bind $w.q <Down>   {palette_move 1 ; break}
+  bind $w.q <Up>     {palette_move -1 ; break}
+  bind $w.q <Next>   {palette_move 10 ; break}
+  bind $w.q <Prior>  {palette_move -10 ; break}
+  bind $w.q <Return> {palette_run ; break}
+  bind $w.q <Escape> {destroy .cmd_palette ; break}
+  bind $w.l <Double-Button-1> palette_run
+  bind $w.l <Return> palette_run
+  bind $w <Escape> {destroy .cmd_palette}
+  palette_refilter
+  # center horizontally near the top of the parent window
+  catch {
+    update idletasks
+    set x [expr {[winfo rootx $parent] + ([winfo width $parent] - [winfo reqwidth $w]) / 2}]
+    set y [expr {[winfo rooty $parent] + 80}]
+    if {$x < 0} { set x 0 }
+    wm geometry $w +$x+$y
+  }
+  focus $w.q
+}

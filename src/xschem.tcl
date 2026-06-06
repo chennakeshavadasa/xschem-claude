@@ -10003,6 +10003,9 @@ global env has_x OS autofocus_mainwindow
     bind $topwin <KeyPress> "
       if {{%K} eq {Escape}} { destroy .ctxmenu }
       xschem callback %W %T %x %y %N 0 0 %s"
+    # Command palette (UI layer): more-specific binding pre-empts the generic
+    # <KeyPress> above, so this never reaches the C keysym dispatcher.
+    bind $topwin <Control-Shift-Key-P> "command_palette $parent; break"
     bind $topwin <KeyRelease> "xschem callback %W %T %x %y %N 0 0 %s"
     if {$autofocus_mainwindow} {
       bind $topwin <Motion> "focus $topwin; xschem callback %W %T %x %y 0 0 0 %s"
