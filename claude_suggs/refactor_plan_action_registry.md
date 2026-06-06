@@ -102,5 +102,20 @@ manual UI smoke → commit. Phase 1 is additive and reversible: the table can
 coexist with hand-written items, migrate menu-by-menu.
 
 ## Status / next step
-Phase 1 step 3+4 (generate the File menu from the table + a command-palette
-prototype) is the proposed proof-of-concept. Not started yet.
+
+**Phase 1 — DONE** (branch `feature/action-registry`, UI/Tcl only, C engine untouched):
+- `src/actions.csv` — the action table (134 rows: id, type, menu, label, accel,
+  command, submenu, hook, help), seeded from the menu inventory.
+- `src/action_registry.tcl` — CSV loader, `build_menu_from_table`, the command
+  palette (Ctrl+Shift+P, reuses `fuzzy_subseq_score`), and two procs
+  (`action_component_browser`, `action_reload`) promoted from inline menu scripts.
+- `src/xschem.tcl` — File menu generated from the table; one palette binding in
+  `set_bindings`; a "Command palette" entry in the Help menu.
+- `code_analysis/menu_inventory/gen_actions.tcl` — idempotent generator for the
+  106 imported palette rows.
+- Verified: headless harness 6/6 PASS (engine unchanged); File menu byte-identical
+  (28/28 entries); palette = 131 commands.
+
+Deferred to Phase 2: the 22 inline-script commands (need named-proc extraction)
+and the 46 checkbutton / 15 radiobutton toggles (need a `toggle` row type), then
+migrate the `tcleval(...)` key branches onto the table for remappable shortcuts.

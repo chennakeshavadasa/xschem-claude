@@ -10228,6 +10228,8 @@ proc build_widgets { {topwin {} } } {
        -accelerator {?}
   $topwin.menubar.help add command -label "Keys" -command "textwindow \"${XSCHEM_SHAREDIR}/keys.help\" ro"
   $topwin.menubar.help add command -label "Show Keybindings" -command "show_bindkeys"
+  $topwin.menubar.help add command -label "Command palette" -command "command_palette $topwin" \
+       -accelerator {Ctrl+Shift+P}
   $topwin.menubar.help add command -label "About XSCHEM" -command "about"
 
   # File menu is generated from the action registry (actions.csv). The parent
