@@ -12,6 +12,53 @@ fuzzy-search command palette from that table, without changing the C engine.
 
 ---
 
+## Quickstart: add a new action in 30 seconds
+
+You don't need to read the rest of this doc to add an action. Edit one CSV file.
+
+**Add a palette-searchable action.** Append a row to `src/actions.csv`. Columns
+are `id,type,menu,label,accel,command,submenu,hook,help`:
+
+```csv
+mytools.rebuild_conn,command,mytools,Rebuild connectivity,,xschem rebuild_connectivity,,,Recompute net connectivity
+```
+
+- Pick a unique `id` (`<menu>.<slug>` by convention).
+- `type` is `command`. `menu` can be any tag — if it isn't a *generated* menu
+  (currently only `file` is), the row is **palette-only**: searchable via
+  Ctrl+Shift+P but not shown in a menu bar. That's the easy, low-risk case.
+- `command` is the Tcl/`xschem` string to run. Leave `accel`, `submenu`, `hook`
+  empty. `help` is the one-line description the palette also searches.
+
+Restart xschem (the table loads at startup) and press **Ctrl+Shift+P** → type a
+few letters of the label. Done.
+
+**Make it appear in the File menu too.** Set `menu` to `file` and put the row in
+the File block of `actions.csv` in the position you want it. It now renders in the
+menu *and* the palette — no Tcl code to write.
+
+**If the command is more than one clean call** (a multi-line `if`, embedded
+quotes, `$`-substitution): write a proc and name it in the `command` cell — keep
+the data simple. See §4a.
+
+```tcl
+# in src/action_registry.tcl
+proc action_rebuild_conn {} {
+  if {[alert_ "Rebuild net connectivity?" {} 0 1] == 1} { xschem rebuild_connectivity }
+}
+```
+```csv
+mytools.rebuild_conn,command,mytools,Rebuild connectivity,,action_rebuild_conn,,,Recompute net connectivity
+```
+
+**Verify you didn't break anything:** `cd tests/headless && ./run.sh` (should stay
+6/6 PASS — the engine is untouched). Quoting note: if any field contains a comma,
+wrap it in double quotes, e.g. `"Shift-Ins, Ctrl-I"`.
+
+That's the whole workflow. The sections below explain *why* it works this way.
+
+---
+
 ## 1. The problem: actions were scattered, not described
 
 Before this work, a single user action like "Save" existed in **three**
