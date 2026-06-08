@@ -2272,19 +2272,24 @@ static InputBinding input_bindings[MAX_INPUT_BINDINGS];
 static int num_input_bindings = 0;
 static int input_bindings_initialized = 0;
 
+/* find the binding for an exact signature, or NULL */
+static InputBinding *find_binding(int device, int code, int mods, int ctx)
+{
+  int i;
+  for(i = 0; i < num_input_bindings; ++i) {
+    InputBinding *b = &input_bindings[i];
+    if(b->device==device && b->code==code && b->mods==mods && b->ctx==ctx) return b;
+  }
+  return NULL;
+}
+
 /* install or replace the action bound to a signature; returns 0, or -1 if the
  * table is full. Does not validate the action id (callers reject unknown ids
  * first where appropriate). */
 static int set_input_binding(int device, int code, int mods, int ctx, const char *id)
 {
-  int i;
-  for(i = 0; i < num_input_bindings; ++i) {
-    InputBinding *b = &input_bindings[i];
-    if(b->device==device && b->code==code && b->mods==mods && b->ctx==ctx) {
-      my_strncpy(b->action_id, id, S(b->action_id));
-      return 0;
-    }
-  }
+  InputBinding *b = find_binding(device, code, mods, ctx);
+  if(b) { my_strncpy(b->action_id, id, S(b->action_id)); return 0; }
   if(num_input_bindings >= MAX_INPUT_BINDINGS) return -1;
   input_bindings[num_input_bindings].device = device;
   input_bindings[num_input_bindings].code   = code;
@@ -2329,21 +2334,19 @@ static void ensure_input_bindings(void)
   if(!input_bindings_initialized) init_input_bindings();
 }
 
-/* look up and run the action bound to an event signature;
- * returns 1 if a binding matched and ran, 0 otherwise */
+/* look up and run the action bound to an event signature; returns 1 if a binding
+ * matched and ran, 0 otherwise. Most-specific-wins: try the event's own context,
+ * then fall back to a context-independent (ACTX_GLOBAL) binding (Phase 3c). */
 static int dispatch_input_action(const ActionEvent *e)
 {
-  int i;
+  InputBinding *b;
+  action_fn fn;
   ensure_input_bindings();
-  for(i = 0; i < num_input_bindings; ++i) {
-    InputBinding *b = &input_bindings[i];
-    if(b->device==e->device && b->code==e->code && b->mods==e->mods && b->ctx==e->ctx) {
-      action_fn fn = lookup_action_fn(b->action_id);
-      if(fn) return fn(e);
-      return 0;   /* bound to an id with no C behavior (Tcl-backed: future) */
-    }
-  }
-  return 0;
+  b = find_binding(e->device, e->code, e->mods, e->ctx);
+  if(!b && e->ctx != ACTX_GLOBAL) b = find_binding(e->device, e->code, e->mods, ACTX_GLOBAL);
+  if(!b) return 0;
+  fn = lookup_action_fn(b->action_id);
+  return fn ? fn(e) : 0;   /* id with no C behavior (Tcl-backed): future */
 }
 
 /* dispatch a mouse-button chord (button + modifiers) through the binding table.

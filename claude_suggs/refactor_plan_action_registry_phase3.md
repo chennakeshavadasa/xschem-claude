@@ -253,8 +253,8 @@ large key-migration work in 3d.
   alongside `wheel up 0 canvas → view.zoom_in`; the hardcoded `if` guard disappears.
 
 **Atomic steps:**
-- [ ] **c1.** Add `current_input_ctx(event, key, state, button)` wrapping `waves_selected` → `ACTX_OVER_GRAPH`/`ACTX_CANVAS`. No behavior change yet.
-- [ ] **c2.** Upgrade `dispatch_input_action` to the precedence lookup (specific ctx, then `ACTX_GLOBAL`). Add a headless test that a `global` row matches in any ctx and an `over_graph` row wins when present. Pure plumbing; defaults unchanged.
+- [ ] **c1.** Add `current_input_ctx(event, key, state, button)` wrapping `waves_selected` → `ACTX_OVER_GRAPH`/`ACTX_CANVAS`. *(Folded into c3, where it is first wired in — adding it now would be a dead, uncalled function.)*
+- [x] **c2.** ✅ DONE. `dispatch_input_action` now does most-specific-wins lookup (event ctx, then `ACTX_GLOBAL`) via a new `find_binding` helper (also reused by `set_input_binding`). Pure plumbing; defaults are all `canvas`, behavior unchanged. Test `tests/headless/test_binding_precedence.tcl` (5/5): specific-context row beats a `global` row; `global` is the fallback when no specific row exists (verified with canvas-only events — `over_graph` precedence comes with the c3 graph fixture). Full regression green.
 - [ ] **c3.** Migrate the **wheel** graph-routing into rows: add a `graph.forward` action (calls `waves_callback`), seed `over_graph` wheel rows, delete the `waves_selected` guards from `handle_mouse_wheel`. Verify wheel-over-graph still drives the graph; over canvas still zooms.
 - [ ] **c4.** Extract the context-routed **keys** (`s`, `f`, `a`, arrows) behaviors into `act_*` fns (ids match `actions.csv`).
 - [ ] **c5.** Add a **`DEV_KEY` dispatch at the top of `handle_key_press`** (`callback.c:2834`): compute keysym signature + context, try the table, return if dispatched, else fall through to the `switch`. Add `key + ctx` rows (canvas vs over_graph) for the c4 keys, then delete their per-case `waves_selected` guards.
