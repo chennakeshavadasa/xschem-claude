@@ -2216,6 +2216,11 @@ typedef struct {
   int ctx;          /* ACTX_*                           */
   int mx, my;       /* pointer position                 */
   int state;        /* raw X modifier/button mask       */
+  /* raw X event params, for actions that re-forward the event (e.g. graph.forward) */
+  int xevent;       /* X event type (ButtonPress, ...)  */
+  KeySym key;       /* raw keysym (0 for mouse)         */
+  int button;       /* raw X button number (0 for key)  */
+  int aux;
 } ActionEvent;
 
 typedef int (*action_fn)(const ActionEvent *e);  /* returns 1 if handled */
@@ -2235,6 +2240,12 @@ static int act_pan_down(const ActionEvent *e) {
  * sets ui_state STARTZOOM; the rubber-band (motion) and completion (release)
  * already key off that bit, so they need no per-button binding (Phase 3b). */
 static int act_zoom_rect_start(const ActionEvent *e) { (void)e; zoom_rectangle(START); return 1; }
+/* forward the raw event to the waveform-graph handler. Bound to over_graph rows
+ * so that e.g. wheeling while the pointer is over a graph drives the graph rather
+ * than the canvas — the data-driven replacement for the old inline
+ * waves_selected/waves_callback guards (Phase 3c). */
+static int act_graph_forward(const ActionEvent *e) {
+  waves_callback(e->xevent, e->mx, e->my, e->key, e->button, e->aux, e->state); return 1; }
 
 /* --- action registry: stable id -> behavior --- */
 typedef struct { const char *id; action_fn fn; const char *help; } ActionDef;
@@ -2247,6 +2258,7 @@ static const ActionDef action_registry[] = {
   { "view.pan_up",    act_pan_up,    "Pan up"    },
   { "view.pan_down",  act_pan_down,  "Pan down"  },
   { "view.zoom_rect", act_zoom_rect_start, "Zoom to rectangle (drag)" },
+  { "graph.forward",  act_graph_forward,   "Forward event to the waveform graph" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
@@ -2326,12 +2338,27 @@ static void init_input_bindings(void)
   set_input_binding(DEV_WHEEL, WHEEL_UP,   ControlMask, ACTX_CANVAS, "view.pan_up");
   set_input_binding(DEV_WHEEL, WHEEL_DOWN, ControlMask, ACTX_CANVAS, "view.pan_down");
   set_input_binding(DEV_BUTTON, Button3,   0,           ACTX_CANVAS, "view.zoom_rect");
+  /* over a waveform graph, the no-modifier and Shift wheel drive the graph
+   * (the old inline waves_selected routing, now data). Ctrl-wheel never did, so
+   * it has no over_graph row and stays canvas pan. */
+  set_input_binding(DEV_WHEEL, WHEEL_UP,   0,         ACTX_OVER_GRAPH, "graph.forward");
+  set_input_binding(DEV_WHEEL, WHEEL_DOWN, 0,         ACTX_OVER_GRAPH, "graph.forward");
+  set_input_binding(DEV_WHEEL, WHEEL_UP,   ShiftMask, ACTX_OVER_GRAPH, "graph.forward");
+  set_input_binding(DEV_WHEEL, WHEEL_DOWN, ShiftMask, ACTX_OVER_GRAPH, "graph.forward");
   input_bindings_initialized = 1;
 }
 
 static void ensure_input_bindings(void)
 {
   if(!input_bindings_initialized) init_input_bindings();
+}
+
+/* map an input event to its binding context: over a waveform graph, or the normal
+ * schematic canvas. The single place that consults waves_selected for routing,
+ * replacing the inline guards scattered through the handlers (Phase 3c). */
+static int current_input_ctx(int event, KeySym key, int state, int button)
+{
+  return waves_selected(event, key, state, button) ? ACTX_OVER_GRAPH : ACTX_CANVAS;
 }
 
 /* look up and run the action bound to an event signature; returns 1 if a binding
@@ -2357,6 +2384,7 @@ static int dispatch_button_chord(int button, int state, int mx, int my)
   ActionEvent ae;
   ae.device = DEV_BUTTON; ae.code = button; ae.mods = state; ae.ctx = ACTX_CANVAS;
   ae.mx = mx; ae.my = my; ae.state = state;
+  ae.xevent = 0; ae.key = 0; ae.button = button; ae.aux = 0;
   return dispatch_input_action(&ae);
 }
 
@@ -2518,37 +2546,36 @@ static int handle_mouse_wheel(int event, int mx, int my, KeySym key, int button,
 {
    int graph_use_ctrl_key = tclgetboolvar("graph_use_ctrl_key");
    ActionEvent ae;
-   int wheel, mods;
+   int wheel, mods, ctx;
 
    if(button == Button4)      wheel = WHEEL_UP;
    else if(button == Button5) wheel = WHEEL_DOWN;
    else return 0;
 
+   /* The graph-vs-canvas routing that used to be a hardcoded
+    * waves_selected/waves_callback block is now data: over_graph wheel rows map
+    * to "graph.forward". The no-modifier and Shift wheel consult the context (they
+    * may land on a graph); Ctrl-wheel never did, so it stays canvas. */
    if(state == 0) {
-     if(waves_selected(event, key, state, button)) {
-       waves_callback(event, mx, my, key, button, aux, state);
-       return 1;
-     }
-     mods = 0;
+     mods = 0; ctx = current_input_ctx(event, key, state, button);
    }
    else if(!graph_use_ctrl_key && (state & ShiftMask) && !(state & Button2Mask)) {
-     if(waves_selected(event, key, state, button)) {
-       waves_callback(event, mx, my, key, button, aux, state);
-       return 1;
-     }
-     mods = ShiftMask;
+     mods = ShiftMask; ctx = current_input_ctx(event, key, state, button);
    }
    else if(!graph_use_ctrl_key && (state & ControlMask) && !(state & Button2Mask)) {
-     mods = ControlMask;   /* Ctrl-wheel never routed to a graph */
+     mods = ControlMask; ctx = ACTX_CANVAS;
    }
    else {
      return 0;             /* no built-in handling for other modifier combos */
    }
 
-   ae.device = DEV_WHEEL; ae.code = wheel; ae.mods = mods; ae.ctx = ACTX_CANVAS;
+   ae.device = DEV_WHEEL; ae.code = wheel; ae.mods = mods; ae.ctx = ctx;
    ae.mx = mx; ae.my = my; ae.state = state;
+   ae.xevent = event; ae.key = key; ae.button = button; ae.aux = aux;
    dispatch_input_action(&ae);
-   return 0;
+   /* preserve the old contract: a graph-consumed event returns 1 (caller stops);
+    * a canvas zoom/pan returned 0 to let the caller continue */
+   return (ctx == ACTX_OVER_GRAPH);
 }
 
 static void end_shape_point_edit(double c_snap)
