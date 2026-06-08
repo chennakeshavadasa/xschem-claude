@@ -227,12 +227,55 @@ commit.
 - [x] **b6.** Test `tests/headless/test_gesture_bindings.tcl` (9/9): full press→drag→release zooms; unbind makes button-3 press inert (data-driven proof); rebind restores. Engine harness 6/6; all prior GUI smokes PASS (`test_mouse_bindings` count assertion updated to count wheel rows). *Note:* remap was proven via unbind/rebind of button3 rather than rebinding to button2, because Button2 is special-cased in the skip logic (`callback.c:48/50/52`) — a candidate to clean up in a later phase.
 
 ### Phase 3c — contexts (graph-vs-canvas routing)
-- [ ] **c1.** Add one cheap `current_input_ctx()` in C returning `ACTX_OVER_GRAPH` / `ACTX_CANVAS` (wraps `waves_selected`/pointer-over-graph)
-- [ ] **c2.** Make `dispatch_input_action` context-aware with precedence: try specific ctx, then `ACTX_GLOBAL`; most-specific wins
-- [ ] **c3.** Move the wheel's graph-routing *out of* `handle_mouse_wheel`'s hardcoded `waves_selected` block and *into* table rows (over-graph signatures → graph action)
-- [ ] **c4.** Extract behaviors for the context-routed keys (`s`, `f`, `a`, arrows) into action fns
-- [ ] **c5.** Add a `DEV_KEY` dispatch at the top of `handle_key_press` (table first, switch as fallthrough); add `key + ctx` rows (canvas vs over_graph) for those keys
-- [ ] **c6.** Verify each routing empirically (pointer over graph vs canvas). Commit per batch.
+
+**Why this is the lynchpin.** A binding signature today is `{device, code, mods}` +
+a *constant* `ctx = ACTX_CANVAS`. That can't express the one thing blocking
+everything else: the same input meaning different things depending on where the
+pointer is. The mechanism for that today is `waves_selected()` (`callback.c:29`) —
+"is this event over a waveform graph?" — called **~30 times** as hardcoded
+`if(waves_selected(...)){ waves_callback(...); return; }` guards across
+`handle_mouse_wheel`, `handle_button_press/release`, and inside individual `case`
+bodies of the 1600-line `handle_key_press` switch (`callback.c:2834`). Those
+per-key guards are exactly the keys Phase 2 had to **LEAVE IN C** (`s`, `f`, `a`,
+`m`, arrows). 3c turns that routing from control flow into data, which is what
+finally makes those keys migratable — so it's a modest change that unblocks the
+large key-migration work in 3d.
+
+**Design.** Add one dimension + a precedence rule:
+- *Compute context once per event* — `current_input_ctx()` simply wraps the
+  existing predicate: `waves_selected(...) ? ACTX_OVER_GRAPH : ACTX_CANVAS`. No new
+  logic, just a name.
+- *Most-specific-wins lookup* — instead of an exact `ctx` match, try
+  `{…, ACTX_OVER_GRAPH}` then `{…, ACTX_GLOBAL}`. A graph-scoped row beats a global
+  row beats nothing. The small, fixed analogue of a `when` clause — **not** a
+  general predicate language.
+- *Express the split as rows* — e.g. `wheel up 0 over_graph → graph.forward`
+  alongside `wheel up 0 canvas → view.zoom_in`; the hardcoded `if` guard disappears.
+
+**Atomic steps:**
+- [ ] **c1.** Add `current_input_ctx(event, key, state, button)` wrapping `waves_selected` → `ACTX_OVER_GRAPH`/`ACTX_CANVAS`. No behavior change yet.
+- [ ] **c2.** Upgrade `dispatch_input_action` to the precedence lookup (specific ctx, then `ACTX_GLOBAL`). Add a headless test that a `global` row matches in any ctx and an `over_graph` row wins when present. Pure plumbing; defaults unchanged.
+- [ ] **c3.** Migrate the **wheel** graph-routing into rows: add a `graph.forward` action (calls `waves_callback`), seed `over_graph` wheel rows, delete the `waves_selected` guards from `handle_mouse_wheel`. Verify wheel-over-graph still drives the graph; over canvas still zooms.
+- [ ] **c4.** Extract the context-routed **keys** (`s`, `f`, `a`, arrows) behaviors into `act_*` fns (ids match `actions.csv`).
+- [ ] **c5.** Add a **`DEV_KEY` dispatch at the top of `handle_key_press`** (`callback.c:2834`): compute keysym signature + context, try the table, return if dispatched, else fall through to the `switch`. Add `key + ctx` rows (canvas vs over_graph) for the c4 keys, then delete their per-case `waves_selected` guards.
+- [ ] **c6.** Verify each migrated key empirically *in both contexts* (pointer over graph vs canvas) via observable state; confirm un-migrated keys still reach C. Commit per small batch.
+
+**Decisions & risks:**
+- Keep the context enum **tiny and fixed** (3 values). Resist adding `move`/`wire_draw` until a concrete need appears; if a binding needs richer logic, point its id at a Tcl command (3d) rather than growing a DSL in C.
+- The **`DEV_KEY` dispatch is the riskiest single change** (huge switch, keys interact with edit state). Mitigation: table-first / switch-fallthrough → migrate one small batch at a time; un-migrated keys are byte-for-byte unchanged.
+- `waves_selected` is **order-sensitive** — some guards sit before other logic. Lifting them into rows must preserve "graph gets first refusal," which is why `over_graph` outranks `global`/`canvas` in the lookup; the c2 precedence test guards this.
+- **Testing context needs a loaded graph** (unlike 3a/3b, which run on an empty schematic) so `waves_selected` returns true — a new test fixture to budget for.
+
+**Scope boundary:** 3c migrates only the **context-routed** inputs. It does NOT
+bulk-migrate the ~65 clean `tcleval` keys or the ~85 direct-C keys — that's 3d, and
+it depends on a piece 3c doesn't build (an action id resolving to a Tcl command).
+3c stays C-function-backed.
+
+**Success criteria:** the `waves_selected` guard count in `callback.c` drops toward
+the handful that are genuinely structural; the wheel + a first batch of keys route
+correctly in *both* contexts via table rows and are remappable with
+`xschem bind … over_graph|canvas …`; full regression (engine 6/6 + GUI smokes +
+new context tests) stays green.
 
 ### Phase 3d — bulk-migrate keys + unify accel display
 - [ ] **d1.** Add a Tcl-command backing to the registry (an action id may resolve to a `tcleval` string, not only a C fn) — needed for the ~65 `tcleval` keysym branches and to unify with `actions.csv`'s `command` column
