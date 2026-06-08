@@ -200,32 +200,40 @@ and the cheat-sheet then cannot disagree with what the keys actually do.
 - The Tcl-interception path from Phase 2 stays valid for genuinely Tcl-only actions;
   it simply stops being the *only* mechanism.
 
-## Plan (risk-sequenced)
+## Plan (risk-sequenced, atomic steps)
 
-**Phase 3a — prove the dispatch table on the safest cases (wheel/zoom/pan).**
-These are self-contained, stateless, no gesture, no `waves_selected()` ambiguity in
-the common path. 1) Extract `act_zoom_in/out`, `act_pan_{up,down,left,right}` from
-`handle_mouse_wheel`. 2) Add the `ActionDef` registry + signature lookup; route
-`handle_mouse_wheel` through it with the old ladder as fallthrough. 3) Add `xschem
-bind`/`unbind` in `scheduler.c`. 4) Load `mousebindings.csv` from Tcl. Verify: wheel
-zoom ratio and pan deltas identical to baseline (observe `xschem get zoom`,
-xorigin/yorigin); headless harness 6/6.
+Each step is scoped to be independently buildable, verifiable, and ideally one
+commit.
 
-**Phase 3b — one gesture, end to end (right-drag zoom-rect).**
-Extract `act_zoom_rect_start`; bind `BUTTON,3,0,canvas`. Confirm the rubber-band loop
-is untouched and rebinding the chord (e.g. to button 2) works via one CSV edit.
-This validates "bind the initiating chord, action owns the drag."
+### Phase 3a — mouse wheel ✅ DONE (commit `9fd11c1f`)
+- [x] Extract the 6 wheel behaviors into named action fns (`act_zoom_in/out`, `act_pan_*`)
+- [x] Add `ActionDef` registry (id→fn) + `InputBinding` table (signature→id) + `dispatch_input_action()`
+- [x] Seed built-in defaults reproducing the old ladder; rewrite `handle_mouse_wheel` to dispatch through the table (graph-routing kept verbatim)
+- [x] Add `xschem bind` / `unbind` / `bindings dump`
+- [x] Test (`tests/headless/test_mouse_bindings.tcl`, 15/15) + engine harness 6/6
 
-**Phase 3c — introduce contexts; migrate the context-routed keys.**
-Add the `ctx` enum + computation; express the `waves_selected()` split as paired rows
-(`global` vs `over_graph`). Migrate `s`/`f`/`a`/arrows. Verify both routings
-empirically (pointer over graph vs canvas).
+### Phase 3b — first gesture: right-drag zoom-rectangle
+- [ ] **b1.** Extract the `zoom_rectangle(START)` initiation into `act_zoom_rect_start`; register it (id `view.zoom_rect`)
+- [ ] **b2.** Add a `DEV_BUTTON` dispatch path in `handle_button_press`: build a button signature, consult the table *before* the hardcoded Button3 branch, fall through if unmatched
+- [ ] **b3.** Seed default binding `button 3 0 canvas → view.zoom_rect`; reduce the hardcoded branch to a pure fallthrough
+- [ ] **b4.** Verify the gesture *completion* path (`end_place_move_copy_zoom`, callback.c:1419) fires for a remapped button — make the ButtonRelease call site button-agnostic if it isn't (rubber + END already key off `ui_state & STARTZOOM`; only START is button-specific)
+- [ ] **b5.** Round-trip buttons through `bind`/`dump` (code = integer button number; `parse_code` already handles it) — confirm dump prints `button 3 0 canvas view.zoom_rect`
+- [ ] **b6.** Test: right-drag still zooms (rubber band visible, zoom applied); rebind to a different chord (e.g. `button 2 0 canvas`) and confirm the gesture starts *and completes* from the new chord; restore default. Commit.
 
-**Phase 3d — bulk-migrate `handle_key_press`.**
-Extract the remaining `case` bodies into `ActionFn`s (the 65 `tcleval` branches are
-nearly verbatim; the ~85 direct-C branches wrap existing calls). Generate `accel`
-display + cheat-sheet from `xschem bindings dump`; retire the decorative `accel`
-column as a source of truth. The switch shrinks to the fallthrough, then to nothing.
+### Phase 3c — contexts (graph-vs-canvas routing)
+- [ ] **c1.** Add one cheap `current_input_ctx()` in C returning `ACTX_OVER_GRAPH` / `ACTX_CANVAS` (wraps `waves_selected`/pointer-over-graph)
+- [ ] **c2.** Make `dispatch_input_action` context-aware with precedence: try specific ctx, then `ACTX_GLOBAL`; most-specific wins
+- [ ] **c3.** Move the wheel's graph-routing *out of* `handle_mouse_wheel`'s hardcoded `waves_selected` block and *into* table rows (over-graph signatures → graph action)
+- [ ] **c4.** Extract behaviors for the context-routed keys (`s`, `f`, `a`, arrows) into action fns
+- [ ] **c5.** Add a `DEV_KEY` dispatch at the top of `handle_key_press` (table first, switch as fallthrough); add `key + ctx` rows (canvas vs over_graph) for those keys
+- [ ] **c6.** Verify each routing empirically (pointer over graph vs canvas). Commit per batch.
+
+### Phase 3d — bulk-migrate keys + unify accel display
+- [ ] **d1.** Add a Tcl-command backing to the registry (an action id may resolve to a `tcleval` string, not only a C fn) — needed for the ~65 `tcleval` keysym branches and to unify with `actions.csv`'s `command` column
+- [ ] **d2.** Migrate the clean command keys in batches; the switch shrinks toward the fallthrough
+- [ ] **d3.** Generate accel display strings + the cheat-sheet from `xschem bindings dump` (single source of truth); retire the decorative `accel` column drift
+- [ ] **d4.** (User-facing) Load `keybindings.csv`/`mousebindings.csv` at startup (Tcl reads → `xschem bind`), enabling edit-a-file remapping *and* un-binding defaults
+- [ ] **d5.** Delete the dead hardcoded ladders once parity is proven
 
 ## Risks & honest trade-offs
 
@@ -242,9 +250,42 @@ column as a source of truth. The switch shrinks to the fallthrough, then to noth
   If a binding truly needs richer logic, point its action-id at a Tcl command and let
   the predicate live there.
 
-## First slice for next session
+## Next slice: Phase 3b — why right-drag-zoom
 
-Phase 3a only: `act_zoom_in/out` + `act_pan_*` extracted from `handle_mouse_wheel`,
-the `ActionDef` registry + signature lookup, `xschem bind`/`unbind` in `scheduler.c`,
-and `mousebindings.csv` loaded from Tcl — with the old ladder as fallthrough and a
-headless test asserting wheel zoom/pan are byte-for-byte unchanged before any rebind.
+**It's not about the zoom-rect feature — it's the canary that proves the architecture
+handles *gestures*, the exact class Phase 1/2's Tcl-interception structurally could
+not.** Phase 3a only proved *discrete, instantaneous* actions (one wheel notch → one
+action, no state spanning events). A gesture is the harder, distinct case: **press →
+drag (rubber-band) → release**, multiple events coordinated against `xctx`. If the
+binding architecture can't carry that, it can't deliver the productivity-critical
+direct/modal inputs that motivated Phase 3 in the first place.
+
+The thesis being validated is **"bind the initiating chord only; the action owns the
+drag loop."** Right-drag-zoom confirms it almost for free, because the gesture is
+*already* mostly button-agnostic in the code:
+
+| Phase | Trigger | Keyed on |
+|---|---|---|
+| START | Button3 press | **button number** (`callback.c:4468`) ← the only button-specific part |
+| RUBBER (drag) | mouse motion | `ui_state & STARTZOOM` (`callback.c:119`) — button-agnostic |
+| END (release) | button release | `ui_state & STARTZOOM` (`callback.c:1419`) — button-agnostic |
+
+Once `zoom_rectangle(START)` sets the `STARTZOOM` bit, the whole
+rubber-band-and-finish machinery flows through `ui_state`-driven code that doesn't
+care how it started. So making the gesture remappable means turning **just the START
+chord** into a table lookup — zero changes to the interactive loop.
+
+What the change buys us:
+1. **Extends remappability to direct/modal interaction**, not just discrete keys/wheel
+   — closing the gap that made the Phase 2 approach insufficient.
+2. **Establishes the reusable pattern** every later gesture migration follows
+   (middle-drag pan, wire draw, move-start): bind the chord, let `ui_state` carry the
+   rest. Proven once on the simplest case.
+3. **De-risks the rest of Phase 3** by showing the C engine's interactive loops never
+   need rewriting — only their entry points become data.
+4. **Real user value**: zoom on a different button (3-button/trackball mice, or
+   matching muscle memory from another EDA tool) via `xschem bind` — no GUI, no
+   recompile.
+
+Ideal first gesture: self-contained, used by essentially every user, and (per the
+table) its lifecycle is already `ui_state`-driven, so the risk is low.
