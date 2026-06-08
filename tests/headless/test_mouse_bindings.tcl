@@ -65,9 +65,12 @@ wheel $B_UP $M_SHIFT
 set x1 [xschem get xorigin]
 check "Shift+wheel-up pans (x)" [approx $x1 [expr {$x0 + (-$MSTEP*$zoom/2.0)}]] "(x0=$x0 x1=$x1)"
 
-# --- 2. bindings dump lists the 6 built-in defaults ---
+# --- 2. bindings dump lists the 6 built-in wheel defaults ---
+# (count wheel rows specifically; other devices add their own defaults)
 set dump [xschem bindings dump]
-check "dump has 6 rows" [expr {[llength $dump] == 6}] "(=> [llength $dump])"
+set nwheel 0
+foreach row $dump { if {[lindex $row 0] eq "wheel"} { incr nwheel } }
+check "dump has 6 wheel rows" [expr {$nwheel == 6}] "(=> $nwheel of [llength $dump] total)"
 check "dump: wheel up 0 -> zoom_in" \
   [expr {[lsearch -exact $dump {wheel up 0 canvas view.zoom_in}] >= 0}] {}
 check "dump: wheel up ctrl -> pan_up" \

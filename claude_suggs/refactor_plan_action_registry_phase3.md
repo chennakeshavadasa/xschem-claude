@@ -17,8 +17,14 @@
 > runtime remap, unbind→inert, unknown-action rejected); engine harness 6/6 and the
 > Phase-2 GUI smokes (`test_accelerators`, `test_remap`) still PASS. Users can already
 > remap the wheel with no GUI/recompile, e.g. `xschem bind wheel up 0 canvas
-> view.pan_up` in `.xschemrc`. **Next: Phase 3b** (one gesture end-to-end: right-drag
-> zoom-rect — bind the initiating chord only).
+> view.pan_up` in `.xschemrc`.
+>
+> **Phase 3b DONE & verified (2026-06-07).** First gesture migrated: right-drag
+> zoom-rectangle. Only the initiating chord is data-driven (`act_zoom_rect_start`,
+> default `button 3 0 canvas`); the rubber-band + completion stay in C, keyed off
+> `ui_state STARTZOOM`. `handle_button_release` got a button-agnostic completion
+> `else-if` (inert under defaults). Verified by `test_gesture_bindings.tcl` (9/9) +
+> full regression green. **Next: Phase 3c** (contexts: graph-vs-canvas routing).
 
 ## Starting question
 
@@ -212,13 +218,13 @@ commit.
 - [x] Add `xschem bind` / `unbind` / `bindings dump`
 - [x] Test (`tests/headless/test_mouse_bindings.tcl`, 15/15) + engine harness 6/6
 
-### Phase 3b — first gesture: right-drag zoom-rectangle
-- [ ] **b1.** Extract the `zoom_rectangle(START)` initiation into `act_zoom_rect_start`; register it (id `view.zoom_rect`)
-- [ ] **b2.** Add a `DEV_BUTTON` dispatch path in `handle_button_press`: build a button signature, consult the table *before* the hardcoded Button3 branch, fall through if unmatched
-- [ ] **b3.** Seed default binding `button 3 0 canvas → view.zoom_rect`; reduce the hardcoded branch to a pure fallthrough
-- [ ] **b4.** Verify the gesture *completion* path (`end_place_move_copy_zoom`, callback.c:1419) fires for a remapped button — make the ButtonRelease call site button-agnostic if it isn't (rubber + END already key off `ui_state & STARTZOOM`; only START is button-specific)
-- [ ] **b5.** Round-trip buttons through `bind`/`dump` (code = integer button number; `parse_code` already handles it) — confirm dump prints `button 3 0 canvas view.zoom_rect`
-- [ ] **b6.** Test: right-drag still zooms (rubber band visible, zoom applied); rebind to a different chord (e.g. `button 2 0 canvas`) and confirm the gesture starts *and completes* from the new chord; restore default. Commit.
+### Phase 3b — first gesture: right-drag zoom-rectangle ✅ DONE
+- [x] **b1.** Extracted `zoom_rectangle(START)` into `act_zoom_rect_start`; registered (id `view.zoom_rect`)
+- [x] **b2.** Added `dispatch_button_chord()` and routed the zoom-rect branch in `handle_button_press` through the table (consults binding before the old hardcoded check; falls through if unmatched)
+- [x] **b3.** Seeded default `button 3 0 canvas → view.zoom_rect`; the hardcoded branch is now a generalized table-driven branch keeping the original `!excl && semaphore<2` guards
+- [x] **b4.** Made completion button-agnostic: added an `else-if` in `handle_button_release` (callback.c) that finishes a pending `STARTZOOM` on a non-Button3 release. Inert under defaults (Button3 path unchanged, incl. the click→context-menu behavior). Confirmed rubber (`callback.c:119`) + END (`zoom_rectangle`) are `ui_state`-driven; only START + the context-menu branch were button-specific.
+- [x] **b5.** Buttons round-trip through `bind`/`dump` (code = integer button number); dump prints `button 3 0 canvas view.zoom_rect`
+- [x] **b6.** Test `tests/headless/test_gesture_bindings.tcl` (9/9): full press→drag→release zooms; unbind makes button-3 press inert (data-driven proof); rebind restores. Engine harness 6/6; all prior GUI smokes PASS (`test_mouse_bindings` count assertion updated to count wheel rows). *Note:* remap was proven via unbind/rebind of button3 rather than rebinding to button2, because Button2 is special-cased in the skip logic (`callback.c:48/50/52`) — a candidate to clean up in a later phase.
 
 ### Phase 3c — contexts (graph-vs-canvas routing)
 - [ ] **c1.** Add one cheap `current_input_ctx()` in C returning `ACTX_OVER_GRAPH` / `ACTX_CANVAS` (wraps `waves_selected`/pointer-over-graph)

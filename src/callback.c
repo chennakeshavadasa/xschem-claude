@@ -2231,6 +2231,10 @@ static int act_pan_up(const ActionEvent *e) {
   (void)e; xctx->yorigin += -CADMOVESTEP*xctx->zoom/2.; draw(); redraw_w_a_l_r_p_z_rubbers(1); return 1; }
 static int act_pan_down(const ActionEvent *e) {
   (void)e; xctx->yorigin -= -CADMOVESTEP*xctx->zoom/2.; draw(); redraw_w_a_l_r_p_z_rubbers(1); return 1; }
+/* gesture START: only the initiating chord is data-driven. zoom_rectangle(START)
+ * sets ui_state STARTZOOM; the rubber-band (motion) and completion (release)
+ * already key off that bit, so they need no per-button binding (Phase 3b). */
+static int act_zoom_rect_start(const ActionEvent *e) { (void)e; zoom_rectangle(START); return 1; }
 
 /* --- action registry: stable id -> behavior --- */
 typedef struct { const char *id; action_fn fn; const char *help; } ActionDef;
@@ -2242,6 +2246,7 @@ static const ActionDef action_registry[] = {
   { "view.pan_right", act_pan_right, "Pan right" },
   { "view.pan_up",    act_pan_up,    "Pan up"    },
   { "view.pan_down",  act_pan_down,  "Pan down"  },
+  { "view.zoom_rect", act_zoom_rect_start, "Zoom to rectangle (drag)" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
@@ -2315,6 +2320,7 @@ static void init_input_bindings(void)
   set_input_binding(DEV_WHEEL, WHEEL_DOWN, ShiftMask,   ACTX_CANVAS, "view.pan_right");
   set_input_binding(DEV_WHEEL, WHEEL_UP,   ControlMask, ACTX_CANVAS, "view.pan_up");
   set_input_binding(DEV_WHEEL, WHEEL_DOWN, ControlMask, ACTX_CANVAS, "view.pan_down");
+  set_input_binding(DEV_BUTTON, Button3,   0,           ACTX_CANVAS, "view.zoom_rect");
   input_bindings_initialized = 1;
 }
 
@@ -2338,6 +2344,17 @@ static int dispatch_input_action(const ActionEvent *e)
     }
   }
   return 0;
+}
+
+/* dispatch a mouse-button chord (button + modifiers) through the binding table.
+ * `state` here is already button-mask-stripped by the caller, so it is the clean
+ * modifier mask. Returns 1 if a binding matched and ran (Phase 3b). */
+static int dispatch_button_chord(int button, int state, int mx, int my)
+{
+  ActionEvent ae;
+  ae.device = DEV_BUTTON; ae.code = button; ae.mods = state; ae.ctx = ACTX_CANVAS;
+  ae.mx = mx; ae.my = my; ae.state = state;
+  return dispatch_input_action(&ae);
 }
 
 /* --- string <-> int helpers for the `xschem bind/unbind/bindings` commands - */
@@ -4463,9 +4480,13 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
     * }
     */
 
-   /* zoom rectangle by right clicking and drag */
-   else if(!excl && button == Button3 && state == 0 && xctx->semaphore < 2) {
-     zoom_rectangle(START);return;
+   /* Initiating chord for a mouse-button gesture (default: right-drag = zoom
+    * rectangle). The chord is data-driven via the binding table, so it is
+    * remappable with `xschem bind button ...`; the action sets a STARTxxx
+    * ui_state bit and the rubber-band/completion handle the rest. Guards match
+    * the previous hard-coded zoom branch (!excl, semaphore<2). Phase 3b. */
+   else if(!excl && xctx->semaphore < 2 && dispatch_button_chord(button, state, mx, my)) {
+     return;
    }
 
    /* Mouse wheel events */
@@ -4687,6 +4708,14 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
      if(!end_place_move_copy_zoom()) {
        context_menu_action(xctx->mousex_snap, xctx->mousey_snap);
      }
+   }
+   /* Phase 3b: a zoom gesture remapped onto a non-Button3 chord must complete on
+    * that button's release too (rubber-band/END are ui_state-driven; only the
+    * start chord and the context-menu branch above were Button3-specific, and the
+    * context menu stays Button3-only). With default bindings STARTZOOM is never
+    * pending on a non-Button3 release, so this is inert unless the user rebinds. */
+   else if((xctx->ui_state & STARTZOOM) && xctx->semaphore < 2) {
+     end_place_move_copy_zoom();
    }
 
    /* launcher, no intuitive interface */
