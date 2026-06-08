@@ -2187,56 +2187,347 @@ static void context_menu_action(double mx, double my)
   }
 }
 
-/* Mouse wheel events */
+/* ===========================================================================
+ * Phase 3a: data-driven input-action dispatch (mouse wheel).
+ * See claude_suggs/refactor_plan_action_registry_phase3.md.
+ *
+ * Separates *binding* (which physical input maps to which action -- held as
+ * data in input_bindings[], remappable at runtime via `xschem bind`) from
+ * *behavior* (the act_* functions, which stay in C and touch xctx). This first
+ * slice covers only the mouse wheel; the built-in defaults reproduce the
+ * previous hard-coded handling exactly. Later phases extend the same table to
+ * mouse buttons, gestures and the handle_key_press keysym chain, and may move
+ * this block into its own translation unit.
+ * ===========================================================================*/
+
+/* input device classes for a binding signature */
+enum { DEV_WHEEL = 1, DEV_BUTTON = 2, DEV_KEY = 3 };
+/* wheel direction codes (DEV_WHEEL) */
+enum { WHEEL_UP = 1, WHEEL_DOWN = 2 };
+/* binding context (kept tiny on purpose; grows in Phase 3c) */
+enum { ACTX_GLOBAL = 0, ACTX_CANVAS = 1, ACTX_OVER_GRAPH = 2 };
+
+/* event handed to an action function; gesture/key actions will use the extra
+ * fields in later phases, the Phase 3a wheel actions ignore them. */
+typedef struct {
+  int device;       /* DEV_*                            */
+  int code;         /* WHEEL_*, button number, or KeySym */
+  int mods;         /* normalized modifier mask         */
+  int ctx;          /* ACTX_*                           */
+  int mx, my;       /* pointer position                 */
+  int state;        /* raw X modifier/button mask       */
+} ActionEvent;
+
+typedef int (*action_fn)(const ActionEvent *e);  /* returns 1 if handled */
+
+/* --- action behaviors (the "what it does"; ids match src/actions.csv) --- */
+static int act_zoom_in(const ActionEvent *e)  { (void)e; view_zoom(CADZOOMSTEP);   return 1; }
+static int act_zoom_out(const ActionEvent *e) { (void)e; view_unzoom(CADZOOMSTEP); return 1; }
+static int act_pan_left(const ActionEvent *e) {
+  (void)e; xctx->xorigin += -CADMOVESTEP*xctx->zoom/2.; draw(); redraw_w_a_l_r_p_z_rubbers(1); return 1; }
+static int act_pan_right(const ActionEvent *e) {
+  (void)e; xctx->xorigin -= -CADMOVESTEP*xctx->zoom/2.; draw(); redraw_w_a_l_r_p_z_rubbers(1); return 1; }
+static int act_pan_up(const ActionEvent *e) {
+  (void)e; xctx->yorigin += -CADMOVESTEP*xctx->zoom/2.; draw(); redraw_w_a_l_r_p_z_rubbers(1); return 1; }
+static int act_pan_down(const ActionEvent *e) {
+  (void)e; xctx->yorigin -= -CADMOVESTEP*xctx->zoom/2.; draw(); redraw_w_a_l_r_p_z_rubbers(1); return 1; }
+
+/* --- action registry: stable id -> behavior --- */
+typedef struct { const char *id; action_fn fn; const char *help; } ActionDef;
+
+static const ActionDef action_registry[] = {
+  { "view.zoom_in",   act_zoom_in,   "Zoom in"   },
+  { "view.zoom_out",  act_zoom_out,  "Zoom out"  },
+  { "view.pan_left",  act_pan_left,  "Pan left"  },
+  { "view.pan_right", act_pan_right, "Pan right" },
+  { "view.pan_up",    act_pan_up,    "Pan up"    },
+  { "view.pan_down",  act_pan_down,  "Pan down"  },
+};
+static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
+
+static action_fn lookup_action_fn(const char *id)
+{
+  int i;
+  for(i = 0; i < num_action_defs; ++i)
+    if(!strcmp(action_registry[i].id, id)) return action_registry[i].fn;
+  return NULL;
+}
+
+/* --- binding table: input signature -> action id (mutable; the "where") --- */
+typedef struct {
+  int  device;        /* DEV_*  */
+  int  code;          /* WHEEL_*, button number, or KeySym */
+  int  mods;          /* normalized modifier mask */
+  int  ctx;           /* ACTX_* */
+  char action_id[64];
+} InputBinding;
+
+#define MAX_INPUT_BINDINGS 256
+static InputBinding input_bindings[MAX_INPUT_BINDINGS];
+static int num_input_bindings = 0;
+static int input_bindings_initialized = 0;
+
+/* install or replace the action bound to a signature; returns 0, or -1 if the
+ * table is full. Does not validate the action id (callers reject unknown ids
+ * first where appropriate). */
+static int set_input_binding(int device, int code, int mods, int ctx, const char *id)
+{
+  int i;
+  for(i = 0; i < num_input_bindings; ++i) {
+    InputBinding *b = &input_bindings[i];
+    if(b->device==device && b->code==code && b->mods==mods && b->ctx==ctx) {
+      my_strncpy(b->action_id, id, S(b->action_id));
+      return 0;
+    }
+  }
+  if(num_input_bindings >= MAX_INPUT_BINDINGS) return -1;
+  input_bindings[num_input_bindings].device = device;
+  input_bindings[num_input_bindings].code   = code;
+  input_bindings[num_input_bindings].mods   = mods;
+  input_bindings[num_input_bindings].ctx    = ctx;
+  my_strncpy(input_bindings[num_input_bindings].action_id, id,
+             S(input_bindings[num_input_bindings].action_id));
+  num_input_bindings++;
+  return 0;
+}
+
+/* remove the binding for a signature; returns 1 if one was removed, else 0 */
+static int unset_input_binding(int device, int code, int mods, int ctx)
+{
+  int i;
+  for(i = 0; i < num_input_bindings; ++i) {
+    InputBinding *b = &input_bindings[i];
+    if(b->device==device && b->code==code && b->mods==mods && b->ctx==ctx) {
+      input_bindings[i] = input_bindings[--num_input_bindings];
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* built-in defaults: reproduce the previous hard-coded wheel handling exactly */
+static void init_input_bindings(void)
+{
+  num_input_bindings = 0;
+  set_input_binding(DEV_WHEEL, WHEEL_UP,   0,           ACTX_CANVAS, "view.zoom_in");
+  set_input_binding(DEV_WHEEL, WHEEL_DOWN, 0,           ACTX_CANVAS, "view.zoom_out");
+  set_input_binding(DEV_WHEEL, WHEEL_UP,   ShiftMask,   ACTX_CANVAS, "view.pan_left");
+  set_input_binding(DEV_WHEEL, WHEEL_DOWN, ShiftMask,   ACTX_CANVAS, "view.pan_right");
+  set_input_binding(DEV_WHEEL, WHEEL_UP,   ControlMask, ACTX_CANVAS, "view.pan_up");
+  set_input_binding(DEV_WHEEL, WHEEL_DOWN, ControlMask, ACTX_CANVAS, "view.pan_down");
+  input_bindings_initialized = 1;
+}
+
+static void ensure_input_bindings(void)
+{
+  if(!input_bindings_initialized) init_input_bindings();
+}
+
+/* look up and run the action bound to an event signature;
+ * returns 1 if a binding matched and ran, 0 otherwise */
+static int dispatch_input_action(const ActionEvent *e)
+{
+  int i;
+  ensure_input_bindings();
+  for(i = 0; i < num_input_bindings; ++i) {
+    InputBinding *b = &input_bindings[i];
+    if(b->device==e->device && b->code==e->code && b->mods==e->mods && b->ctx==e->ctx) {
+      action_fn fn = lookup_action_fn(b->action_id);
+      if(fn) return fn(e);
+      return 0;   /* bound to an id with no C behavior (Tcl-backed: future) */
+    }
+  }
+  return 0;
+}
+
+/* --- string <-> int helpers for the `xschem bind/unbind/bindings` commands - */
+static int parse_device(const char *s)
+{
+  if(!strcmp(s, "wheel"))  return DEV_WHEEL;
+  if(!strcmp(s, "button")) return DEV_BUTTON;
+  if(!strcmp(s, "key"))    return DEV_KEY;
+  return -1;
+}
+
+static int parse_code(int device, const char *s)
+{
+  if(device == DEV_WHEEL) {
+    if(!strcmp(s, "up"))   return WHEEL_UP;
+    if(!strcmp(s, "down")) return WHEEL_DOWN;
+    return -1;
+  }
+  return atoi(s);   /* button number / raw code */
+}
+
+static int parse_mods(const char *s)
+{
+  int mask = 0;
+  char buf[128];
+  char *tok;
+  if(!s || !*s || !strcmp(s, "0") || !strcmp(s, "none")) return 0;
+  my_strncpy(buf, s, S(buf));
+  tok = strtok(buf, "+");
+  while(tok) {
+    if(!strcmp(tok, "shift") || !strcmp(tok, "Shift")) mask |= ShiftMask;
+    else if(!strcmp(tok, "ctrl") || !strcmp(tok, "control") ||
+            !strcmp(tok, "Ctrl") || !strcmp(tok, "Control")) mask |= ControlMask;
+    else if(!strcmp(tok, "alt") || !strcmp(tok, "Alt") || !strcmp(tok, "mod1")) mask |= Mod1Mask;
+    else return -1;
+    tok = strtok(NULL, "+");
+  }
+  return mask;
+}
+
+static int parse_ctx(const char *s)
+{
+  if(!s || !*s || !strcmp(s, "canvas")) return ACTX_CANVAS;
+  if(!strcmp(s, "global")) return ACTX_GLOBAL;
+  if(!strcmp(s, "graph") || !strcmp(s, "over_graph")) return ACTX_OVER_GRAPH;
+  return -1;
+}
+
+static const char *device_name(int d)
+{
+  return d==DEV_WHEEL ? "wheel" : d==DEV_BUTTON ? "button" : d==DEV_KEY ? "key" : "?";
+}
+
+static const char *code_name(int device, int code)
+{
+  static char buf[16];
+  if(device == DEV_WHEEL) return code==WHEEL_UP ? "up" : code==WHEEL_DOWN ? "down" : "?";
+  my_snprintf(buf, S(buf), "%d", code);
+  return buf;
+}
+
+static const char *mods_name(int mods)
+{
+  static char buf[32];
+  buf[0] = '\0';
+  if(mods == 0) return "0";
+  if(mods & ControlMask) strcat(buf, buf[0] ? "+ctrl"  : "ctrl");
+  if(mods & ShiftMask)   strcat(buf, buf[0] ? "+shift" : "shift");
+  if(mods & Mod1Mask)    strcat(buf, buf[0] ? "+alt"   : "alt");
+  return buf;
+}
+
+static const char *ctx_name(int ctx)
+{
+  return ctx==ACTX_GLOBAL ? "global" : ctx==ACTX_CANVAS ? "canvas"
+       : ctx==ACTX_OVER_GRAPH ? "graph" : "?";
+}
+
+/* `xschem bind <wheel|button|key> <code> <mods> <ctx> <action_id>` */
+int action_cmd_bind(int argc, const char **argv)
+{
+  int device, code, mods, ctx;
+  ensure_input_bindings();
+  if(argc < 7) {
+    Tcl_SetResult(interp,
+      "usage: xschem bind <wheel|button|key> <code> <mods> <ctx> <action_id>", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  device = parse_device(argv[2]);
+  if(device < 0) { Tcl_SetResult(interp, "bind: unknown device", TCL_STATIC); return TCL_ERROR; }
+  code = parse_code(device, argv[3]);
+  if(code < 0)   { Tcl_SetResult(interp, "bind: bad code", TCL_STATIC); return TCL_ERROR; }
+  mods = parse_mods(argv[4]);
+  if(mods < 0)   { Tcl_SetResult(interp, "bind: bad modifiers", TCL_STATIC); return TCL_ERROR; }
+  ctx = parse_ctx(argv[5]);
+  if(ctx < 0)    { Tcl_SetResult(interp, "bind: bad context", TCL_STATIC); return TCL_ERROR; }
+  if(!lookup_action_fn(argv[6])) {
+    Tcl_AppendResult(interp, "bind: unknown action '", argv[6], "'", NULL);
+    return TCL_ERROR;
+  }
+  if(set_input_binding(device, code, mods, ctx, argv[6]) < 0) {
+    Tcl_SetResult(interp, "bind: binding table full", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  Tcl_ResetResult(interp);
+  return TCL_OK;
+}
+
+/* `xschem unbind <device> <code> <mods> <ctx>` -> result = #removed (0 or 1) */
+int action_cmd_unbind(int argc, const char **argv)
+{
+  int device, code, mods, ctx, removed;
+  char res[32];
+  ensure_input_bindings();
+  if(argc < 6) {
+    Tcl_SetResult(interp, "usage: xschem unbind <device> <code> <mods> <ctx>", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  device = parse_device(argv[2]);
+  code   = parse_code(device, argv[3]);
+  mods   = parse_mods(argv[4]);
+  ctx    = parse_ctx(argv[5]);
+  if(device < 0 || code < 0 || mods < 0 || ctx < 0) {
+    Tcl_SetResult(interp, "unbind: bad argument", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  removed = unset_input_binding(device, code, mods, ctx);
+  my_snprintf(res, S(res), "%d", removed);
+  Tcl_SetResult(interp, res, TCL_VOLATILE);
+  return TCL_OK;
+}
+
+/* `xschem bindings dump` -> Tcl list of {device code mods ctx action_id} rows */
+int action_cmd_bindings(int argc, const char **argv)
+{
+  int i;
+  ensure_input_bindings();
+  if(argc >= 3 && strcmp(argv[2], "dump")) {
+    Tcl_SetResult(interp, "usage: xschem bindings dump", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  Tcl_ResetResult(interp);
+  for(i = 0; i < num_input_bindings; ++i) {
+    InputBinding *b = &input_bindings[i];
+    char row[160];
+    my_snprintf(row, S(row), "%s %s %s %s %s",
+      device_name(b->device), code_name(b->device, b->code),
+      mods_name(b->mods), ctx_name(b->ctx), b->action_id);
+    Tcl_AppendElement(interp, row);
+  }
+  return TCL_OK;
+}
+
+/* Mouse wheel events: signature -> action via the (remappable) binding table.
+ * Graph routing (pointer over a waveform graph) stays in C for now; only the
+ * no-modifier and Shift wheel ever routed to a graph, exactly as before. */
 static int handle_mouse_wheel(int event, int mx, int my, KeySym key, int button, int aux, int state)
 {
    int graph_use_ctrl_key = tclgetboolvar("graph_use_ctrl_key");
-   if(button==Button5 && state == 0 ) {
-    if(waves_selected(event, key, state, button)) {
-      waves_callback(event, mx, my, key, button, aux, state);
-      return 1;
-    }
-     view_unzoom(CADZOOMSTEP);
-     return 0;
+   ActionEvent ae;
+   int wheel, mods;
+
+   if(button == Button4)      wheel = WHEEL_UP;
+   else if(button == Button5) wheel = WHEEL_DOWN;
+   else return 0;
+
+   if(state == 0) {
+     if(waves_selected(event, key, state, button)) {
+       waves_callback(event, mx, my, key, button, aux, state);
+       return 1;
+     }
+     mods = 0;
    }
-   else if(button==Button4 && state == 0 ) {
-    if(waves_selected(event, key, state, button)) {
-      waves_callback(event, mx, my, key, button, aux, state);
-      return 1;
-    }
-     view_zoom(CADZOOMSTEP);
-     return 0;
+   else if(!graph_use_ctrl_key && (state & ShiftMask) && !(state & Button2Mask)) {
+     if(waves_selected(event, key, state, button)) {
+       waves_callback(event, mx, my, key, button, aux, state);
+       return 1;
+     }
+     mods = ShiftMask;
    }
-   if(!graph_use_ctrl_key) {
-     if(button==Button4 && (state & ShiftMask) && !(state & Button2Mask)) {
-      if(waves_selected(event, key, state, button)) {
-        waves_callback(event, mx, my, key, button, aux, state);
-        return 1;
-      }
-      xctx->xorigin+=-CADMOVESTEP*xctx->zoom/2.;
-      draw();
-      redraw_w_a_l_r_p_z_rubbers(1);
-     }
-     else if(button==Button5 && (state & ShiftMask) && !(state & Button2Mask)) {
-      if(waves_selected(event, key, state, button)) {
-        waves_callback(event, mx, my, key, button, aux, state);
-        return 1;
-      }
-      xctx->xorigin-=-CADMOVESTEP*xctx->zoom/2.;
-      draw();
-      redraw_w_a_l_r_p_z_rubbers(1);
-     }
-     else if(button==Button4 && (state & ControlMask) && !(state & Button2Mask)) {
-      xctx->yorigin+=-CADMOVESTEP*xctx->zoom/2.;
-      draw();
-      redraw_w_a_l_r_p_z_rubbers(1);
-     }
-     else if(button==Button5 && (state & ControlMask) && !(state & Button2Mask)) {
-      xctx->yorigin-=-CADMOVESTEP*xctx->zoom/2.;
-      draw();
-      redraw_w_a_l_r_p_z_rubbers(1);
-     }
+   else if(!graph_use_ctrl_key && (state & ControlMask) && !(state & Button2Mask)) {
+     mods = ControlMask;   /* Ctrl-wheel never routed to a graph */
    }
+   else {
+     return 0;             /* no built-in handling for other modifier combos */
+   }
+
+   ae.device = DEV_WHEEL; ae.code = wheel; ae.mods = mods; ae.ctx = ACTX_CANVAS;
+   ae.mx = mx; ae.my = my; ae.state = state;
+   dispatch_input_action(&ae);
    return 0;
 }
 

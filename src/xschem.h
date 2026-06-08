@@ -1437,6 +1437,12 @@ extern void backannotate_at_cursor_b_pos(xRect *r, Graph_ctx *gr);
 extern void unselect_attached_floaters(void);
 extern int callback(const char *win_path, int event, int mx, int my, KeySym key,
                         int button, int aux, int state);
+/* Phase 3 data-driven input bindings (callback.c); backends for the
+ * `xschem bind`/`unbind`/`bindings` subcommands. See
+ * claude_suggs/refactor_plan_action_registry_phase3.md */
+extern int action_cmd_bind(int argc, const char **argv);
+extern int action_cmd_unbind(int argc, const char **argv);
+extern int action_cmd_bindings(int argc, const char **argv);
 extern void resetwin(int create_pixmap, int clear_pixmap, int force, int w, int h);
 extern Selected find_closest_obj(double mx,double my, int override_lock);
 /*extern void find_closest_net_or_symbol_pin(double mx,double my, double *x, double *y);*/

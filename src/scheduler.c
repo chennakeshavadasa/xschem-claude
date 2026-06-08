@@ -490,6 +490,21 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       build_colors(tclgetdoublevar("dim_value"), tclgetdoublevar("dim_bg"));
       Tcl_ResetResult(interp);
     }
+
+    /* bind <wheel|button|key> <code> <mods> <ctx> <action_id>
+     *   Map an input signature to an action id (Phase 3 remappable input).
+     * bindings dump
+     *   List current input bindings as {device code mods ctx action_id} rows.
+     * (the matching `unbind` lives under case 'u')
+     * See claude_suggs/refactor_plan_action_registry_phase3.md */
+    else if(!strcmp(argv[1], "bind"))
+    {
+      return action_cmd_bind(argc, argv);
+    }
+    else if(!strcmp(argv[1], "bindings"))
+    {
+      return action_cmd_bindings(argc, argv);
+    }
     else { cmd_found = 0;}
     break;
     case 'c': /*----------------------------------------------*/
@@ -6547,9 +6562,17 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
     else { cmd_found = 0;}
     break;
     case 'u': /*----------------------------------------------*/
+    /* unbind <device> <code> <mods> <ctx>
+     *   Remove an input binding (result = number removed). Pairs with `bind`
+     *   under case 'b'. See claude_suggs/refactor_plan_action_registry_phase3.md */
+    if(!strcmp(argv[1], "unbind"))
+    {
+      return action_cmd_unbind(argc, argv);
+    }
+
     /* undo  [redo [set_modify]]
          Undo last action. Optional integers redo and set_modify are passed to pop_undo() */
-    if(!strcmp(argv[1], "undo"))
+    else if(!strcmp(argv[1], "undo"))
     {
       int redo = 0, set_modify = 1;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}

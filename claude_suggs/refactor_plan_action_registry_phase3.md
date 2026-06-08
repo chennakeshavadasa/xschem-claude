@@ -4,6 +4,21 @@
 > paused (Batch 1 banked as proof; `migrated_action_ids` will not grow further). The
 > "UI/Tcl-only, don't touch the engine" constraint is lifted for this work. Migrate
 > each input ONCE, into the unified C table below. First slice = Phase 3a.
+>
+> **Phase 3a DONE & verified (2026-06-07).** `src/callback.c` now holds the action
+> registry (`ActionDef` id→fn), the mutable binding table (`InputBinding`
+> signature→id), `dispatch_input_action()`, and built-in defaults that reproduce the
+> old wheel handling exactly; `handle_mouse_wheel` dispatches through the table while
+> the `waves_selected` graph-routing stays verbatim in C. `xschem bind`/`bindings
+> dump` (scheduler.c `case 'b'`) and `xschem unbind` (`case 'u'` — the dispatcher
+> switches on the subcommand's FIRST LETTER, so each branch must sit in the matching
+> case) are wired; prototypes in `xschem.h`. Verified by
+> `tests/headless/test_mouse_bindings.tcl` (15/15: defaults == old behavior, dump,
+> runtime remap, unbind→inert, unknown-action rejected); engine harness 6/6 and the
+> Phase-2 GUI smokes (`test_accelerators`, `test_remap`) still PASS. Users can already
+> remap the wheel with no GUI/recompile, e.g. `xschem bind wheel up 0 canvas
+> view.pan_up` in `.xschemrc`. **Next: Phase 3b** (one gesture end-to-end: right-drag
+> zoom-rect — bind the initiating chord only).
 
 ## Starting question
 
