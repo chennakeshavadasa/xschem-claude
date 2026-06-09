@@ -187,6 +187,26 @@ check "over-graph t forwards (no place_text)" \
   [expr {[xschem get ui_state] == $u0 && !([xschem get ui_state] & 1024)}] \
   "(ui_state $u0 -> [xschem get ui_state])"
 
+# ---- Phase 3d.1: Tcl-command-backed action ('B' = edit header). The whole case 'B'
+#      is gone from the switch; canvas -> sch.edit_header (tcleval), graph -> forward.
+#      Stub the real proc so the effect is observable without opening the dialog. ----
+set ::hdr_calls 0
+proc update_schematic_header {} { incr ::hdr_calls }
+check "B canvas row -> sch.edit_header" \
+  [expr {[lsearch -exact $dump {key 66 0 canvas sch.edit_header}] >= 0}] {}
+check "bind accepts a Tcl-backed id" [expr {![catch {xschem bind key 66 0 canvas sch.edit_header}]}] {}
+check "bind still rejects an unknown id" [catch {xschem bind key 66 0 canvas no.such.action}] {}
+
+# canvas 'B' runs the Tcl command; over a graph it forwards (command NOT run)
+lassign [screen 870 100] cx cy
+set n $::hdr_calls
+keyat $cx $cy 66
+check "canvas B runs update_schematic_header" [expr {$::hdr_calls == $n + 1}] "(calls=$::hdr_calls)"
+lassign [screen 870 -540] gx gy
+set n $::hdr_calls
+keyat $gx $gy 66
+check "over-graph B forwards (command not run)" [expr {$::hdr_calls == $n}] "(calls=$::hdr_calls)"
+
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
 exit [expr {$fail == 0 ? 0 : 1}]

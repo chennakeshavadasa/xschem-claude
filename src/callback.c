@@ -2268,30 +2268,36 @@ static int act_graph_forward(const ActionEvent *e) {
   waves_callback(e->xevent, e->mx, e->my, e->key, e->button, e->aux, e->state); return 1; }
 
 /* --- action registry: stable id -> behavior --- */
-typedef struct { const char *id; action_fn fn; const char *help; } ActionDef;
+/* An action is backed by EITHER a C function (fn) OR a Tcl command (tcl); exactly
+ * one is non-NULL. Tcl-backing (Phase 3d) lets the ~60 tcleval keysym branches
+ * become data without a throwaway C wrapper per command. */
+typedef struct { const char *id; action_fn fn; const char *tcl; const char *help; } ActionDef;
 
 static const ActionDef action_registry[] = {
-  { "view.zoom_in",   act_zoom_in,   "Zoom in"   },
-  { "view.zoom_out",  act_zoom_out,  "Zoom out"  },
-  { "view.zoom_full", act_zoom_full, "Zoom full" },
-  { "view.pan_left",  act_pan_left,  "Pan left"  },
-  { "view.pan_right", act_pan_right, "Pan right" },
-  { "view.pan_up",    act_pan_up,    "Pan up"    },
-  { "view.pan_down",  act_pan_down,  "Pan down"  },
-  { "view.scroll_up",    act_scroll_up,    "Scroll up (Up arrow)"       },
-  { "view.scroll_down",  act_scroll_down,  "Scroll down (Down arrow)"   },
-  { "view.scroll_left",  act_scroll_left,  "Scroll left (Left arrow)"   },
-  { "view.scroll_right", act_scroll_right, "Scroll right (Right arrow)" },
-  { "view.zoom_rect", act_zoom_rect_start, "Zoom to rectangle (drag)" },
-  { "graph.forward",  act_graph_forward,   "Forward event to the waveform graph" },
+  { "view.zoom_in",   act_zoom_in,   NULL, "Zoom in"   },
+  { "view.zoom_out",  act_zoom_out,  NULL, "Zoom out"  },
+  { "view.zoom_full", act_zoom_full, NULL, "Zoom full" },
+  { "view.pan_left",  act_pan_left,  NULL, "Pan left"  },
+  { "view.pan_right", act_pan_right, NULL, "Pan right" },
+  { "view.pan_up",    act_pan_up,    NULL, "Pan up"    },
+  { "view.pan_down",  act_pan_down,  NULL, "Pan down"  },
+  { "view.scroll_up",    act_scroll_up,    NULL, "Scroll up (Up arrow)"       },
+  { "view.scroll_down",  act_scroll_down,  NULL, "Scroll down (Down arrow)"   },
+  { "view.scroll_left",  act_scroll_left,  NULL, "Scroll left (Left arrow)"   },
+  { "view.scroll_right", act_scroll_right, NULL, "Scroll right (Right arrow)" },
+  { "view.zoom_rect", act_zoom_rect_start, NULL, "Zoom to rectangle (drag)" },
+  { "graph.forward",  act_graph_forward,   NULL, "Forward event to the waveform graph" },
+  /* Tcl-backed (Phase 3d.1): fn is NULL, the dispatch runs `tcl` via tcleval. */
+  { "sch.edit_header", NULL, "update_schematic_header", "Edit schematic header/license" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
-static action_fn lookup_action_fn(const char *id)
+/* resolve an action id to its definition (C fn or Tcl command), or NULL if unknown */
+static const ActionDef *find_action_def(const char *id)
 {
   int i;
   for(i = 0; i < num_action_defs; ++i)
-    if(!strcmp(action_registry[i].id, id)) return action_registry[i].fn;
+    if(!strcmp(action_registry[i].id, id)) return &action_registry[i];
   return NULL;
 }
 
@@ -2406,6 +2412,9 @@ static void init_input_bindings(void)
   set_input_binding(DEV_KEY, 'b', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* toggle sym text */
   set_input_binding(DEV_KEY, 'B', 0,           ACTX_OVER_GRAPH, "graph.forward"); /* edit header */
   set_input_binding(DEV_KEY, 'B', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* graph-only (hcursor2) */
+  /* Phase 3d.1: 'B' canvas behavior is now a Tcl-backed action; with this row the
+   * whole `case 'B'` is data and was deleted from the switch (first fully-migrated key). */
+  set_input_binding(DEV_KEY, 'B', 0,           ACTX_CANVAS,     "sch.edit_header");
   /* 't': plain (place text) is an EXACT chord -> its switch guard is deleted like
    * the rest of Group B. Ctrl+t uses `rstate & ControlMask` (a FAMILY), so its guard
    * is KEPT but narrowed to `rstate != ControlMask`: the row below owns the exact
@@ -2450,13 +2459,16 @@ static int current_input_ctx(int event, KeySym key, int state, int button)
 static int dispatch_input_action(const ActionEvent *e)
 {
   InputBinding *b;
-  action_fn fn;
+  const ActionDef *d;
   ensure_input_bindings();
   b = find_binding(e->device, e->code, e->mods, e->ctx);
   if(!b && e->ctx != ACTX_GLOBAL) b = find_binding(e->device, e->code, e->mods, ACTX_GLOBAL);
   if(!b) return 0;
-  fn = lookup_action_fn(b->action_id);
-  return fn ? fn(e) : 0;   /* id with no C behavior (Tcl-backed): future */
+  d = find_action_def(b->action_id);
+  if(!d) return 0;
+  if(d->fn)  return d->fn(e);          /* C-backed behavior */
+  if(d->tcl) { tcleval(d->tcl); return 1; }  /* Tcl-backed: run the command (Phase 3d.1) */
+  return 0;
 }
 
 /* dispatch a mouse-button chord (button + modifiers) through the binding table.
@@ -2565,7 +2577,7 @@ int action_cmd_bind(int argc, const char **argv)
   if(mods < 0)   { Tcl_SetResult(interp, "bind: bad modifiers", TCL_STATIC); return TCL_ERROR; }
   ctx = parse_ctx(argv[5]);
   if(ctx < 0)    { Tcl_SetResult(interp, "bind: bad context", TCL_STATIC); return TCL_ERROR; }
-  if(!lookup_action_fn(argv[6])) {
+  if(!find_action_def(argv[6])) {   /* accept Tcl-backed ids too, not only C-backed */
     Tcl_AppendResult(interp, "bind: unknown action '", argv[6], "'", NULL);
     return TCL_ERROR;
   }
@@ -3090,15 +3102,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'B':
-      if(rstate == 0) { /* edit schematic header/license (graph routing is data) */
-        tcleval("update_schematic_header");
-      }
-      else if(rstate == ControlMask) {
-        /* graph-only (toggle hcursor2 if graph_use_ctrl_key set): routing is data
-         * now (over_graph -> graph.forward); on the canvas this does nothing. */
-      }
-      break;
+    /* case 'B' fully migrated to the binding table (Phase 3d.1): canvas ->
+     * sch.edit_header (Tcl-backed), graph -> graph.forward. See init_input_bindings. */
 
     case 'c':
       /* duplicate selection */
