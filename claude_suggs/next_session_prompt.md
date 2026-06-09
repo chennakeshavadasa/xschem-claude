@@ -1,8 +1,18 @@
-# Opening prompt for the next session (Phase 3d.2 — batch 2: clean command keys)
+# Opening prompt for the next session (Phase 3d.2 — batch 3: more clean command keys)
 
 Phases 3a (wheel), 3b (right-drag zoom gesture), 3c (context-routed keys, migration
-complete), and 3d.1 (Tcl-command-backed actions; `B` migrated out) + 3d.2 dispatch
-refinement + batch 1 (`H`, Alt-`h`) are committed on branch `feature/action-registry`.
+complete), 3d.1 (Tcl-command-backed actions; `B` migrated out), 3d.2 dispatch
+refinement + batch 1 (`H`, Alt-`h`) + batch 2 (`y`, `G`, `g`, `T`, `O`) are committed
+on branch `feature/action-registry`.
+
+> NOTE: the block below still describes BATCH 2 (now done). For batch 3, the task is
+> the same SHAPE — re-run the classification scan in `handle_key_press` for branches
+> with no `semaphore>=2` / `waves_selected` / mouse-coords / modal `ui_state`, scope a
+> small set, write a short plan like `plan_phase3d2_batch2.md`, and migrate it the same
+> way. Reuse every gotcha below. Keys already done: B, H, Alt-h, y, G, g, T, O. Likely
+> next candidates to inspect: remaining single-fn/single-tcleval branches (e.g. `L`
+> orthogonal toggle has a small modal flag — check it). Or pivot to **d3** (generate the
+> cheat-sheet from `xschem bindings dump`) or **d1b** (semaphore `idle_only`).
 
 Paste the block below as the first message of a **fresh** Claude Code session, run
 from this repo directory. It's objective-first and points at the committed artifacts

@@ -108,3 +108,24 @@ You can't stub a C action, but you can stub the Tcl one: `proc schpins_to_sympin
 { incr ::n }`. The decisive check is pressing Alt-`h` **over a graph** and asserting it
 *still runs* — that's the bug the refinement prevents, and a plain canvas press
 wouldn't catch it.
+
+### Batch 2 — five C-backed command keys (commit `9a8e517a`)
+
+`y` (toggle stretch), `G`/`g` (snap double/half), `T` (`toggle_ignore`), `O` (toggle
+colorscheme). Two reusable lessons:
+
+- **A migrated action must not depend on `handle_key_press` parameters.** `G`/`g`
+  used the `c_snap` param and `y` toggled the `enable_stretch` param. An `act_*` fn
+  doesn't receive those. The fix is to read the *source of truth* the parameters were
+  derived from: `c_snap = tclgetdoublevar("cadsnap")` and `enable_stretch =
+  tclgetboolvar("enable_stretch")` (both set at the top of `callback()`). Bonus
+  catch: `y`'s local `enable_stretch = !enable_stretch` was **dead code** — the
+  function returns right after, so only the `tclsetboolvar` mattered. Always check
+  whether a local mutation actually escapes before faithfully "preserving" it.
+- **Test C-backed actions through the state they change.** No stub needed: `y`→
+  `enable_stretch` flips, `O`→`dark_colorscheme` flips, `G`×2 then `g`÷2 round-trips
+  `cadsnap`. Only `toggle_ignore` (operates on selection) lacks a clean observable —
+  assert the row exists and that it dispatches without error.
+
+Cases `y` and `G` deleted whole; `g`/`T`/`O` kept their `case` (the Ctrl/Alt branches
+do semaphore-manipulating loads or dialogs — deferred to d1b/later).
