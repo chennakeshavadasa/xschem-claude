@@ -9,6 +9,52 @@ Newest entries on top.
 
 ---
 
+## Q3. In plain language (high-school level): what are the next couple of steps, and what's the end goal?
+
+- **Asked:** 2026-06-08
+- **Project state:** branch `feature/action-registry` @ `cd5b5c9a` (wheel, zoom-rect
+  gesture, and the no-modifier `f` + arrow keys are data-driven; Group B sweep next).
+
+**Next couple of steps**
+
+1. **"Group B" keys sweep.** A handful of keys (`a`, `b`, `s`, Ctrl+tab-switch
+   arrows, …) each carry a copy-pasted "if the mouse is hovering over a waveform
+   graph, hand this to the graph instead" check buried in a 1600-line block of C.
+   The next step lifts just that check out into the lookup table (a plain list of
+   "this input → does that"). The keys' normal jobs (open a dialog, save a file)
+   stay in C; only the graph-routing part becomes data. This deletes a lot of
+   duplicate code. (Caveat found while scoping: some of these keys check an
+   "are we busy?" counter *before* the graph check, so they must be migrated
+   carefully or deferred — see the semaphore-ordering note in the Phase 3c work.)
+2. **Let an action run a Tcl command, not just C.** Today the table can only point a
+   key at a built-in C function. Most menu items are written in Tcl (the scripting
+   layer). Teaching the table to also say "this key runs *this script command*"
+   unlocks migrating dozens more keys.
+
+**End goal (the analogy)**
+
+Think of a TV remote whose buttons are *soldered* to fixed jobs — you can't make the
+red button do the green button's thing without rebuilding the remote. That's how
+XSCHEM's keyboard/mouse handling works today: every shortcut is hard-wired deep in
+the code.
+
+We're replacing it with a **"Controls" settings list**, like the rebind-your-keys
+menu in a video game. One master list says *"this key / mouse button / scroll does
+this action,"* and:
+
+- **You can edit it** in a config file to remap anything — no recompiling. (Already
+  true for the scroll wheel and the arrow keys; see Q2.)
+- **The help/cheat-sheet builds itself** from that same list, so it can't drift out
+  of sync with what the keys actually do.
+- Once everything is moved over, the old hard-wired code is **deleted**, leaving the
+  program smaller and easier to maintain.
+
+In one line: **turn soldered buttons into a remappable controls menu — for every
+key, mouse button, and scroll — and let the help screen generate itself from it**,
+done one small, fully-tested batch at a time so nothing breaks.
+
+---
+
 ## Q2. Can a user remap the mouse wheel — **Ctrl+wheel = zoom, plain wheel = vertical pan, Shift+wheel = horizontal pan** — via `.xschemrc` / `--script`? (And why didn't the original author's `replace_key` snippet work?)
 
 - **Asked:** 2026-06-08
