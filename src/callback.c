@@ -2291,6 +2291,30 @@ static int act_toggle_colorscheme(const ActionEvent *e) {
   draw();
   return 1;
 }
+/* Phase 3d.2 batch 3 — clean canvas-only command keys. Each replicates its switch
+ * branch verbatim (multi-statement tcl-var toggle / C-flag toggle), reading the
+ * source of truth rather than any handle_key_press parameter. */
+static int act_toggle_show_netlist(const ActionEvent *e) {
+  int v; (void)e;
+  v = !tclgetboolvar("netlist_show");
+  if(v) { tcleval("alert_ { enabling show netlist window} {}");  tclsetvar("netlist_show","1"); }
+  else  { tcleval("alert_ { disabling show netlist window } {}"); tclsetvar("netlist_show","0"); }
+  return 1;
+}
+static int act_toggle_orthogonal_wiring(const ActionEvent *e) {
+  (void)e;
+  if(tclgetboolvar("orthogonal_wiring")) { tclsetboolvar("orthogonal_wiring", 0); xctx->manhattan_lines = 0; }
+  else                                   { tclsetboolvar("orthogonal_wiring", 1); }
+  redraw_w_a_l_r_p_z_rubbers(1);
+  return 1;
+}
+static int act_toggle_draw_pixmap(const ActionEvent *e) {
+  (void)e;
+  xctx->draw_pixmap = !xctx->draw_pixmap;
+  if(xctx->draw_pixmap) tcleval("alert_ { enabling draw pixmap} {}");
+  else                  tcleval("alert_ { disabling draw pixmap} {}");
+  return 1;
+}
 
 /* --- action registry: stable id -> behavior --- */
 /* An action is backed by EITHER a C function (fn) OR a Tcl command (tcl); exactly
@@ -2329,6 +2353,12 @@ static const ActionDef action_registry[] = {
   { "prop.toggle_ignore_attribute_on_selected_instances", act_toggle_ignore, NULL,
     "Toggle *_ignore attribute on selected instances" },
   { "view.toggle_colorscheme", act_toggle_colorscheme, NULL, "Toggle light/dark colorscheme" },
+  /* Phase 3d.2 batch 3 — three C-backed (new ids, fold into actions.csv at d4) plus
+   * `=` reusing the csv id tools.execute_tcl_command (Tcl-backed -> "tclcmd"). */
+  { "view.toggle_show_netlist", act_toggle_show_netlist, NULL, "Toggle the show-netlist window" },
+  { "edit.toggle_orthogonal_wiring", act_toggle_orthogonal_wiring, NULL, "Toggle orthogonal (manhattan) wiring" },
+  { "view.toggle_draw_pixmap", act_toggle_draw_pixmap, NULL, "Toggle pixmap (off-screen) drawing" },
+  { "tools.execute_tcl_command", NULL, "tclcmd", "Open the Tcl command console" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
@@ -2469,6 +2499,13 @@ static void init_input_bindings(void)
   set_input_binding(DEV_KEY, 'G', 0, ACTX_CANVAS, "view.snap_double");
   set_input_binding(DEV_KEY, 'T', 0, ACTX_CANVAS, "prop.toggle_ignore_attribute_on_selected_instances");
   set_input_binding(DEV_KEY, 'O', 0, ACTX_CANVAS, "view.toggle_colorscheme");
+  /* Phase 3d.2 batch 3: A is graph-routed (over_graph rows above at 'A'); adding its
+   * canvas row makes the whole case data. L/=/$ are canvas-only (no over_graph row),
+   * so only their plain-chord switch branch is deleted (Ctrl/Alt branches stay in C). */
+  set_input_binding(DEV_KEY, 'A', 0, ACTX_CANVAS, "view.toggle_show_netlist");
+  set_input_binding(DEV_KEY, 'L', 0, ACTX_CANVAS, "edit.toggle_orthogonal_wiring");
+  set_input_binding(DEV_KEY, '=', 0, ACTX_CANVAS, "tools.execute_tcl_command");
+  set_input_binding(DEV_KEY, '$', 0, ACTX_CANVAS, "view.toggle_draw_pixmap");
   /* 't': plain (place text) is an EXACT chord -> its switch guard is deleted like
    * the rest of Group B. Ctrl+t uses `rstate & ControlMask` (a FAMILY), so its guard
    * is KEPT but narrowed to `rstate != ControlMask`: the row below owns the exact
@@ -3114,25 +3151,10 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'A':
-      if(rstate == 0) { /* toggle show netlist (graph routing is data: over_graph -> graph.forward) */
-        int net_s;
-        net_s = tclgetboolvar("netlist_show");
-        net_s = !net_s;
-        if(net_s) {
-          tcleval("alert_ { enabling show netlist window} {}");
-          tclsetvar("netlist_show","1");
-        }
-        else {
-          tcleval("alert_ { disabling show netlist window } {}");
-          tclsetvar("netlist_show","0");
-        }
-      }
-      else if(rstate == ControlMask) {
-        /* graph-only (toggle hcursor1 if graph_use_ctrl_key set): routing is data
-         * now (over_graph -> graph.forward); on the canvas this does nothing. */
-      }
-      break;
+    /* case 'A' fully migrated to the binding table (Phase 3d.2 batch 3): canvas ->
+     * view.toggle_show_netlist (C-backed), over_graph -> graph.forward (already data).
+     * The Ctrl branch was a canvas no-op (graph hcursor handled by the over_graph row),
+     * so the whole case is gone. See init_input_bindings. */
 
     case 'b':
       if(rstate==0) { /* merge schematic */
@@ -3537,16 +3559,10 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       break;
 
     case 'L':
-      if(rstate == 0) { /* toggle orthogonal routing */
-        if(tclgetboolvar("orthogonal_wiring")){
-          tclsetboolvar("orthogonal_wiring", 0);
-          xctx->manhattan_lines = 0;
-        } else {
-          tclsetboolvar("orthogonal_wiring", 1);
-        }
-        redraw_w_a_l_r_p_z_rubbers(1);
-      }
-      else if(EQUAL_MODMASK ) { /* add pin label*/
+      /* plain 'L' (toggle orthogonal routing) migrated to the binding table
+       * (Phase 3d.2 batch 3): key 'L' 0 canvas -> edit.toggle_orthogonal_wiring.
+       * The Alt branch (add pin label) stays in C. See init_input_bindings. */
+      if(EQUAL_MODMASK ) { /* add pin label*/
         place_net_label(0);
       }
       break;
@@ -4228,12 +4244,10 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       break;
 
     case '$':
-      if( rstate == 0 ) { /* toggle pixmap  saving */
-        xctx->draw_pixmap =!xctx->draw_pixmap;
-        if(xctx->draw_pixmap) tcleval("alert_ { enabling draw pixmap} {}");
-        else tcleval("alert_ { disabling draw pixmap} {}");
-      }
-      else if(state & ControlMask) { /* toggle window  drawing */
+      /* plain '$' (toggle pixmap saving) migrated to the binding table (Phase 3d.2
+       * batch 3): key '$' 0 canvas -> view.toggle_draw_pixmap. The Ctrl branch
+       * (toggle window drawing) stays in C. See init_input_bindings. */
+      if(state & ControlMask) { /* toggle window  drawing */
         xctx->draw_window =!xctx->draw_window;
         if(xctx->draw_window) {
           tcleval("alert_ { enabling draw window} {}");
@@ -4246,9 +4260,10 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       break;
 
     case '=':
-      if(state  == 0) { /* tcl command console */
-        tcleval("tclcmd");
-      } else if(state & ControlMask) { /* toggle fill rectangles */
+      /* plain '=' (Tcl command console) migrated to the binding table (Phase 3d.2
+       * batch 3): key '=' 0 canvas -> tools.execute_tcl_command (Tcl-backed "tclcmd").
+       * The Ctrl branch (toggle fill rectangles) stays in C. See init_input_bindings. */
+      if(state & ControlMask) { /* toggle fill rectangles */
         int x;
         xctx->fill_pattern++;
         if(xctx->fill_pattern==2) xctx->fill_pattern=0;

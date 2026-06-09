@@ -104,14 +104,17 @@ check "over-graph Up leaves canvas origin" [expr {$z1==$z0 && $x1==$x0 && $y1==$
   "(z:$z0->$z1 x:$x0->$x1 y:$y0->$y1 @ $gx,$gy)"
 
 # ---- Group B routing-only (Phase 3c): canvas behavior stays in C, only the
-#      graph-vs-canvas routing is data. Verified with clean boolean observables:
-#      'A' (Shift+a, no-mod chord) toggles netlist_show; Ctrl+b toggles sym_txt. ----
+#      graph-vs-canvas routing is data. Verified with Ctrl+b -> sym_txt.
+#      NOTE: 'A' (Shift+a) used to be Group-B routing-only but was fully migrated in
+#      Phase 3d.2 batch 3 (now has a canvas row -> view.toggle_show_netlist); its
+#      behavioral round-trip below still holds and now exercises the canvas row. ----
 proc keyats {x y ks st} { xschem callback .drw 2 $x $y $ks 0 0 $st; update idletasks }
 set Akey 65; set bkey 98
 set Shift 1; set Ctrl 4
 
-# the data: over_graph rows for the migrated chords, and NO canvas rows (so the
-# canvas behavior still falls through to the C switch)
+# the data: over_graph rows for the migrated chords, and NO canvas rows for the keys
+# whose canvas behavior still falls through to the C switch (a/Ctrl, b/Ctrl). 'A' is
+# excluded — it now owns a canvas row (asserted in the batch-3 section below).
 check "Group B over_graph rows present" [expr {
   [lsearch -exact $dump {key 97 ctrl graph graph.forward}] >= 0 &&
   [lsearch -exact $dump {key 65 0 graph graph.forward}]    >= 0 &&
@@ -119,10 +122,10 @@ check "Group B over_graph rows present" [expr {
   [lsearch -exact $dump {key 66 0 graph graph.forward}]    >= 0 }] {}
 check "Group B has no canvas rows (behavior stays in C)" [expr {
   [lsearch -glob $dump {key 97 ctrl canvas *}] < 0 &&
-  [lsearch -glob $dump {key 65 0 canvas *}]    < 0 &&
   [lsearch -glob $dump {key 98 ctrl canvas *}] < 0 }] {}
 
-# 'A' (Shift+a) toggles netlist_show on the canvas; over a graph it forwards (no toggle)
+# 'A' (Shift+a) toggles netlist_show on the canvas (now via its canvas row); over a
+# graph it forwards (no toggle, because A keeps its over_graph row)
 lassign [screen 870 100] cx cy
 set b0 $netlist_show
 keyats $cx $cy $Akey $Shift
@@ -255,6 +258,36 @@ check "G doubles then g halves cadsnap (round-trip)" [expr {$d == $b*2 && $cadsn
   "($b -> $d -> $cadsnap)"
 # T (toggle_ignore) has no clean observable: assert it dispatches without error
 check "T (toggle_ignore) dispatches without error" [expr {![catch {keyat $cx $cy 84}]}] {}
+
+# ---- Phase 3d.2 batch 3: clean canvas-only command keys (A, L, =, $).
+#      A (Shift+a) was Group-B graph-routed, so it gets a canvas row AND keeps its
+#      over_graph row (behavioral round-trip asserted above). L/=/$ are canvas-only
+#      (no over_graph row). A/L/$ are C-backed; '=' reuses the csv id
+#      tools.execute_tcl_command (Tcl-backed -> tclcmd). ----
+check "A has both canvas and over_graph rows" [expr {
+  [lsearch -exact $dump {key 65 0 canvas view.toggle_show_netlist}] >= 0 &&
+  [lsearch -exact $dump {key 65 0 graph graph.forward}]            >= 0 }] {}
+check "batch-3 canvas-only rows present" [expr {
+  [lsearch -exact $dump {key 76 0 canvas edit.toggle_orthogonal_wiring}] >= 0 &&
+  [lsearch -exact $dump {key 61 0 canvas tools.execute_tcl_command}]     >= 0 &&
+  [lsearch -exact $dump {key 36 0 canvas view.toggle_draw_pixmap}]       >= 0 }] {}
+check "L/=/\$ are canvas-only (no graph rows)" [expr {
+  [lsearch -glob $dump {key 76 * graph *}] < 0 &&
+  [lsearch -glob $dump {key 61 * graph *}] < 0 &&
+  [lsearch -glob $dump {key 36 * graph *}] < 0 }] {}
+
+lassign [screen 870 100] cx cy
+# L toggles orthogonal_wiring; round-trip back
+set b $orthogonal_wiring; keyat $cx $cy 76; set d $orthogonal_wiring; keyat $cx $cy 76
+check "L toggles orthogonal_wiring then back (round-trip)" [expr {$d != $b && $orthogonal_wiring == $b}] \
+  "($b -> $d -> $orthogonal_wiring)"
+# '=' runs the Tcl-backed console command: stub the proc as a counter
+set ::tclcmd_calls 0
+proc tclcmd {} { incr ::tclcmd_calls }
+set n $::tclcmd_calls; keyat $cx $cy 61
+check "= runs tools.execute_tcl_command (tclcmd)" [expr {$::tclcmd_calls == $n + 1}] "(calls=$::tclcmd_calls)"
+# '$' toggles a C-only flag (draw_pixmap, no tcl var): assert it dispatches without error
+check "\$ (toggle_draw_pixmap) dispatches without error" [expr {![catch {keyat $cx $cy 36}]}] {}
 
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
