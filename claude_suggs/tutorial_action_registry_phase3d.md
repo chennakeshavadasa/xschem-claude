@@ -162,3 +162,52 @@ Test note: `A`/`L` round-trip their tcl vars (`netlist_show`, `orthogonal_wiring
 var) so it only asserts dispatch-without-error (the `toggle_ignore` pattern). The
 existing Group-B `A` checks had to be **narrowed**: the old "Group B has no canvas
 rows" assertion explicitly excluded `key 65` once `A` gained its canvas row.
+
+## d1b — semaphore `idle_only`, the gate that unblocks the sem-gated set (commit `c806149d`)
+
+After batch 3 the *clean* canvas command keys were exhausted; ~75 switch branches were
+still gated by `if(xctx->semaphore >= 2) break;` and couldn't migrate because the top
+DEV_KEY dispatch runs **before** any per-branch sem check. d1b makes
+semaphore-sensitivity a data property.
+
+### The one structural insight: a flag checked at the *right place in the order*
+
+The dispatch already had a gate (`key_chord_has_binding`). d1b adds one term:
+```c
+if(key_chord_has_binding(key, kmods) &&
+   !(xctx->semaphore >= 2 && key_chord_is_idle_only(key, kmods))) { ...dispatch... }
+```
+The whole trick is **where** the check sits: *before* `current_input_ctx`
+(=`waves_selected`, side-effectful). The old branch order was `if(sem>=2)break;` *then*
+`if(waves_selected){...}`. So at `sem>=2` the old code did nothing **and** never touched
+`waves_selected`. The gate must reproduce *both*: skip the action **and** skip the
+side-effectful context probe. A flag checked *inside* `dispatch_input_action` (after
+`current_input_ctx` already ran) would be too late. **Lesson: when a guard's value comes
+from its position relative to a side effect, the migrated check must occupy the same
+position — not just compute the same boolean.**
+
+### Make the property first-class (settable + dumpable), not just internal
+
+`idle_only` lives on `InputBinding`, but it's also exposed: `bindings dump` appends
+` idle`; `xschem bind … [idle]` sets it. Two payoffs: (1) d3's cheat-sheet and d4's CSV
+loader will need to read/round-trip it, and (2) it makes the gate **testable without the
+real chords** — their canvas ops (make-symbol dialog, save) are destructive. The test
+binds an *unused* key idle_only to a Tcl-backed counter and drives `xschem set semaphore`:
+fires at 0, skipped at 2. A non-idle rebind of the same key still fires at 2 (proves the
+gate doesn't over-reach). Exposing the flag turned an untestable behavior into a clean one.
+
+> Bug caught by making it settable: the `set_input_binding` *replace* path only updates
+> the action id, so re-binding a row left `idle_only` stale. Fixed `xschem bind` to set
+> `idle_only` to the requested value explicitly (flips both ways), not only when `idle`
+> is present.
+
+### Migrate only what the data model can express
+
+The deferred set was "6 sem-first chords"; only **4** were actually migratable. plain `s`
+and `Ctrl+r` are *also* `cadence_compat`-gated — their `waves_selected` forward lives
+*inside* a mode-conditioned branch (simulate-vs-snapped_wire / simulate-only-in-cadence).
+An unconditional over_graph row would forward in the *wrong* mode. The binding table has
+no `cadence_compat` axis, so they stay in C. **Lesson: re-derive the migration set from
+the code, not from the earlier plan's count — a chord guarded by a condition the table
+can't represent isn't migratable just because it's sem-gated.** (This is the same family
+as the Z/`view.zoom_in` deferral: the table can't yet express the distinguishing axis.)

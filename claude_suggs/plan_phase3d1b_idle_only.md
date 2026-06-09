@@ -1,6 +1,6 @@
 # Phase 3d.1b — semaphore `idle_only` flag (+ migrate the sem-first chords)
 
-**Status:** proposed (signed off). **Branch:** `feature/action-registry`.
+**Status:** DONE (commit `c806149d`). **Branch:** `feature/action-registry`.
 **Predecessors:** d1 (Tcl-backed actions), d2 batches 1-3. See the 2026-06-08 DECISION
 in `refactor_plan_action_registry_phase3.md` (item d1b) and project memory
 `action-registry.md`.
