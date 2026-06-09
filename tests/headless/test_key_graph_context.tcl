@@ -75,9 +75,9 @@ check "arrow scroll rows present" [expr {
   [lsearch -exact $dump {key 65362 0 canvas view.scroll_up}]    >= 0 &&
   [lsearch -exact $dump {key 65363 0 canvas view.scroll_right}] >= 0 &&
   [lsearch -exact $dump {key 65362 0 graph graph.forward}]      >= 0 }] {}
-check "no modified-arrow rows (still in C switch)" [expr {
-  [lsearch -glob $dump {key 65361 ctrl *}] < 0 &&
-  [lsearch -glob $dump {key 65363 ctrl *}] < 0 }] {}
+check "no modified-arrow CANVAS rows (pan/tab-switch stays in C)" [expr {
+  [lsearch -glob $dump {key 65361 ctrl canvas *}] < 0 &&
+  [lsearch -glob $dump {key 65363 ctrl canvas *}] < 0 }] {}
 
 # (c) Up arrow on bare canvas -> vertical scroll (yorigin moves; zoom & xorigin not)
 lassign [screen 870 100] cx cy
@@ -141,6 +141,31 @@ lassign [screen 870 -540] gx gy
 set b1 $sym_txt
 keyats $gx $gy $bkey $Ctrl
 check "over-graph Ctrl+b leaves sym_txt" [expr {$sym_txt == $b1}] "($b1 == $sym_txt)"
+
+# ---- Ctrl+Left/Right tab-switch: routing is data, tab-switch stays in C ----
+# Ctrl+arrow must NOT scroll (that distinguishes it from the no-mod arrow, which
+# does); on the canvas it switches tabs (origin unchanged), over a graph it forwards
+# (origin unchanged). The strong signal is "origin does not move like a scroll".
+check "Ctrl+arrow over_graph rows present" [expr {
+  [lsearch -exact $dump {key 65361 ctrl graph graph.forward}] >= 0 &&
+  [lsearch -exact $dump {key 65363 ctrl graph graph.forward}] >= 0 }] {}
+check "Ctrl+arrow has no canvas rows (tab-switch stays in C)" [expr {
+  [lsearch -glob $dump {key 65361 ctrl canvas *}] < 0 &&
+  [lsearch -glob $dump {key 65363 ctrl canvas *}] < 0 }] {}
+
+lassign [screen 870 100] cx cy
+lassign [origin] z0 x0 y0
+keyats $cx $cy $Right $Ctrl
+lassign [origin] z1 x1 y1
+check "canvas Ctrl+Right does not scroll (tab switch)" [expr {$z1==$z0 && $x1==$x0 && $y1==$y0}] \
+  "(z:$z0->$z1 x:$x0->$x1 y:$y0->$y1)"
+
+lassign [screen 870 -540] gx gy
+lassign [origin] z0 x0 y0
+keyats $gx $gy $Right $Ctrl
+lassign [origin] z1 x1 y1
+check "over-graph Ctrl+Right leaves canvas origin (forwarded)" [expr {$z1==$z0 && $x1==$x0 && $y1==$y0}] \
+  "(z:$z0->$z1 x:$x0->$x1 y:$y0->$y1 @ $gx,$gy)"
 
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout

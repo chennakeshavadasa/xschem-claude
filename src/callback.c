@@ -2389,6 +2389,11 @@ static void init_input_bindings(void)
   set_input_binding(DEV_KEY, XK_Left,  0, ACTX_OVER_GRAPH, "graph.forward");
   set_input_binding(DEV_KEY, XK_Right, 0, ACTX_CANVAS,     "view.scroll_right");
   set_input_binding(DEV_KEY, XK_Right, 0, ACTX_OVER_GRAPH, "graph.forward");
+  /* Ctrl+Left/Right switch tabs on the canvas (that behavior stays in the switch);
+   * over a graph they forward, exactly as the old inline guard did. Routing-only:
+   * over_graph row, no canvas row. Exact chord (state==ControlMask), waves-first. */
+  set_input_binding(DEV_KEY, XK_Left,  ControlMask, ACTX_OVER_GRAPH, "graph.forward");
+  set_input_binding(DEV_KEY, XK_Right, ControlMask, ACTX_OVER_GRAPH, "graph.forward");
   /* Group B (Phase 3c): keys whose *canvas* behavior stays in the C switch, but
    * whose graph-vs-canvas *routing* becomes data. Only an over_graph row is added
    * (no canvas row); on the canvas the dispatch finds nothing and falls through to
@@ -4323,12 +4328,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
        * init_input_bindings, Phase 3c) and never reaches here. This case still owns
        * Ctrl (tab switch) and every other modified chord — do not delete the else
        * pan, it serves Shift/Alt/lock-mask arrows. */
-      if(state == ControlMask) {
+      if(state == ControlMask) { /* tab switch (graph routing is data: over_graph -> graph.forward) */
         int save = xctx->semaphore;
-        if(waves_selected(event, key, state, button)) {
-          waves_callback(event, mx, my, key, button, aux, state);
-          break;
-        }
         if(xctx->semaphore >= 2) break;
         xctx->semaphore = 0;
         tcleval("next_tab");
@@ -4348,12 +4349,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case XK_Left:
       /* No-modifier scroll is data-driven (view.scroll_left, Phase 3c). This case
        * still owns Ctrl (tab switch) and other modified chords. */
-      if(state == ControlMask) {
+      if(state == ControlMask) { /* tab switch (graph routing is data: over_graph -> graph.forward) */
         int save = xctx->semaphore;
-        if(waves_selected(event, key, state, button)) {
-          waves_callback(event, mx, my, key, button, aux, state);
-          break;
-        }
         if(xctx->semaphore >= 2) break;
         xctx->semaphore = 0;
         tcleval("prev_tab");
