@@ -207,6 +207,30 @@ set n $::hdr_calls
 keyat $gx $gy 66
 check "over-graph B forwards (command not run)" [expr {$::hdr_calls == $n}] "(calls=$::hdr_calls)"
 
+# ---- Phase 3d.2: canvas-only command keys (H = C-backed, Alt-h = Tcl-backed).
+#      The point of the dispatch refinement: a canvas-only key must still work when
+#      the pointer is over a graph (it never forwarded). Proven with Alt-h/schpins. ----
+set ::schpins_calls 0
+proc schpins_to_sympins {} { incr ::schpins_calls }
+set Alt 8   ;# Mod1Mask
+check "H / Alt-h rows present" [expr {
+  [lsearch -exact $dump {key 72 0 canvas sym.attach_net_labels_to_component_instance}] >= 0 &&
+  [lsearch -exact $dump {key 72 ctrl canvas sym.make_schematic_and_symbol_from_selected_components}] >= 0 &&
+  [lsearch -exact $dump {key 104 alt canvas sym.create_symbol_pins_from_selected_schematic_pins}] >= 0 }] {}
+check "H / Alt-h are canvas-only (no over_graph rows)" [expr {
+  [lsearch -glob $dump {key 72 * graph *}]   < 0 &&
+  [lsearch -glob $dump {key 104 alt graph *}] < 0 }] {}
+# Alt-h on canvas runs the Tcl command
+lassign [screen 870 100] cx cy
+set n $::schpins_calls
+keyats $cx $cy 104 $Alt
+check "canvas Alt-h runs schpins_to_sympins" [expr {$::schpins_calls == $n + 1}] "(calls=$::schpins_calls)"
+# Alt-h OVER A GRAPH still runs it (canvas-only key; refinement keeps it working)
+lassign [screen 870 -540] gx gy
+set n $::schpins_calls
+keyats $gx $gy 104 $Alt
+check "over-graph Alt-h still runs schpins (canvas-only)" [expr {$::schpins_calls == $n + 1}] "(calls=$::schpins_calls)"
+
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
 exit [expr {$fail == 0 ? 0 : 1}]

@@ -2266,6 +2266,11 @@ static int act_zoom_rect_start(const ActionEvent *e) { (void)e; zoom_rectangle(S
  * waves_selected/waves_callback guards (Phase 3c). */
 static int act_graph_forward(const ActionEvent *e) {
   waves_callback(e->xevent, e->mx, e->my, e->key, e->button, e->aux, e->state); return 1; }
+/* canvas-only symbol commands migrated out of the switch (Phase 3d.2). They call
+ * the exact C functions the old `case 'H'` did (operate on the selection, no mouse
+ * coords, no semaphore guard). */
+static int act_attach_labels(const ActionEvent *e) { (void)e; attach_labels_to_inst(1); return 1; }
+static int act_make_sch_sym_from_sel(const ActionEvent *e) { (void)e; make_schematic_symbol_from_sel(); return 1; }
 
 /* --- action registry: stable id -> behavior --- */
 /* An action is backed by EITHER a C function (fn) OR a Tcl command (tcl); exactly
@@ -2289,6 +2294,13 @@ static const ActionDef action_registry[] = {
   { "graph.forward",  act_graph_forward,   NULL, "Forward event to the waveform graph" },
   /* Tcl-backed (Phase 3d.1): fn is NULL, the dispatch runs `tcl` via tcleval. */
   { "sch.edit_header", NULL, "update_schematic_header", "Edit schematic header/license" },
+  /* Phase 3d.2 — canvas-only symbol commands (C-backed and Tcl-backed). */
+  { "sym.attach_net_labels_to_component_instance", act_attach_labels, NULL,
+    "Attach net labels to selected instances" },
+  { "sym.make_schematic_and_symbol_from_selected_components", act_make_sch_sym_from_sel, NULL,
+    "Make schematic and symbol from selected components" },
+  { "sym.create_symbol_pins_from_selected_schematic_pins", NULL, "schpins_to_sympins",
+    "Create symbol pins from selected schematic pins" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
@@ -2415,6 +2427,14 @@ static void init_input_bindings(void)
   /* Phase 3d.1: 'B' canvas behavior is now a Tcl-backed action; with this row the
    * whole `case 'B'` is data and was deleted from the switch (first fully-migrated key). */
   set_input_binding(DEV_KEY, 'B', 0,           ACTX_CANVAS,     "sch.edit_header");
+  /* Phase 3d.2: canvas-only command keys (no over_graph row — they never forwarded
+   * to a graph). With the dispatch refinement, a canvas-only chord uses ACTX_CANVAS
+   * directly, so deleting their switch cases is correct even over a graph. */
+  set_input_binding(DEV_KEY, 'H', 0,           ACTX_CANVAS, "sym.attach_net_labels_to_component_instance");
+  set_input_binding(DEV_KEY, 'H', ControlMask, ACTX_CANVAS, "sym.make_schematic_and_symbol_from_selected_components");
+  /* Alt-h (EQUAL_MODMASK = Alt OR Super in the switch) -> two rows */
+  set_input_binding(DEV_KEY, 'h', Mod1Mask,    ACTX_CANVAS, "sym.create_symbol_pins_from_selected_schematic_pins");
+  set_input_binding(DEV_KEY, 'h', Mod4Mask,    ACTX_CANVAS, "sym.create_symbol_pins_from_selected_schematic_pins");
   /* 't': plain (place text) is an EXACT chord -> its switch guard is deleted like
    * the rest of Group B. Ctrl+t uses `rstate & ControlMask` (a FAMILY), so its guard
    * is KEPT but narrowed to `rstate != ControlMask`: the row below owns the exact
@@ -3362,19 +3382,13 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
           new_line(RUBBER, xctx->mousex_snap, xctx->mousey_snap);
         }
       }
-      else if (EQUAL_MODMASK) {
-        tcleval("schpins_to_sympins");
-      }
+      /* Alt-h (schpins_to_sympins) migrated to the binding table (Phase 3d.2):
+       * key 'h' Mod1/Mod4 canvas -> sym.create_symbol_pins_from_selected_schematic_pins. */
       break;
 
-    case 'H':
-      if(rstate == 0) { /* attach labels to selected instances */
-        attach_labels_to_inst(1);
-      }
-      else if (rstate == ControlMask) { /* create schematic and symbol from selected components */
-        make_schematic_symbol_from_sel();
-      }
-      break;
+    /* case 'H' fully migrated to the binding table (Phase 3d.2): plain ->
+     * sym.attach_net_labels_to_component_instance, Ctrl -> sym.make_schematic_and_
+     * symbol_from_selected_components. See init_input_bindings. */
 
     case 'i':
       if(rstate==0) { /* descend to  symbol */
