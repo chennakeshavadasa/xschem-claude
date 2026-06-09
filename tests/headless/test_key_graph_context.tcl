@@ -329,6 +329,42 @@ check "non-idle chord still fires when busy (sem=2)" [expr {$::tclcmd_calls == $
 xschem set semaphore 0
 xschem unbind key 96 0 canvas
 
+# ---- Phase 3d.2 sem-gated batch 1: the first FULLY-migrated sem-gated command keys via
+#      idle_only. n (netlist + clear, case deleted whole), U (redo, deleted whole),
+#      u (undo, branch — case kept for Alt/Ctrl). All Tcl-backed reusing verified-identical
+#      actions.csv ids; all idle_only canvas rows (canvas-only, no graph routing). ----
+set sg [xschem bindings dump]
+check "sem-gated batch-1 idle_only canvas rows present" [expr {
+  [lsearch -exact $sg {key 110 0 canvas toolbar.netlist idle}]         >= 0 &&
+  [lsearch -exact $sg {key 110 ctrl canvas file.clear_schematic idle}] >= 0 &&
+  [lsearch -exact $sg {key 85 0 canvas edit.redo idle}]                >= 0 &&
+  [lsearch -exact $sg {key 117 0 canvas edit.undo idle}]               >= 0 }] {}
+check "sem-gated batch-1 keys are canvas-only (no graph rows)" [expr {
+  [lsearch -glob $sg {key 110 * graph *}] < 0 &&
+  [lsearch -glob $sg {key 85 * graph *}]  < 0 &&
+  [lsearch -glob $sg {key 117 * graph *}] < 0 }] {}
+
+# The idle gate on REAL migrated keys (undo/redo, reversible & observable). Do a delete
+# that pushes undo, then drive u/U with the semaphore busy vs idle. (Keep this LAST — it
+# mutates the fixture; restored at the end.)
+lassign [screen 870 100] cx cy
+set i0 [xschem get instances]
+xschem select_all; xschem delete
+set i1 [xschem get instances]
+check "setup: select_all+delete dropped instances" [expr {$i1 == 0 && $i0 > 0}] "($i0 -> $i1)"
+xschem set semaphore 2
+keyat $cx $cy 117
+check "u (undo) is SKIPPED when busy (sem=2)" [expr {[xschem get instances] == $i1}] "(inst=[xschem get instances])"
+xschem set semaphore 0
+keyat $cx $cy 117
+check "u (undo) FIRES when idle (sem=0)" [expr {[xschem get instances] == $i0}] "(inst=[xschem get instances])"
+keyat $cx $cy 85
+check "U (redo) re-applies the delete (idle)" [expr {[xschem get instances] == $i1}] "(inst=[xschem get instances])"
+keyat $cx $cy 117   ;# restore the fixture
+xschem set semaphore 0
+# clear-schematic (Ctrl+n) and netlist (n) are not key-pressed here: clear pops a confirm
+# dialog and netlist -erc writes files — their data rows above are the assertion.
+
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
 exit [expr {$fail == 0 ? 0 : 1}]

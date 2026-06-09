@@ -2359,6 +2359,12 @@ static const ActionDef action_registry[] = {
   { "edit.toggle_orthogonal_wiring", act_toggle_orthogonal_wiring, NULL, "Toggle orthogonal (manhattan) wiring" },
   { "view.toggle_draw_pixmap", act_toggle_draw_pixmap, NULL, "Toggle pixmap (off-screen) drawing" },
   { "tools.execute_tcl_command", NULL, "tclcmd", "Open the Tcl command console" },
+  /* Phase 3d.2 sem-gated batch 1 — Tcl-backed, reusing actions.csv ids whose commands
+   * are verified identical to the switch branches' C calls (idle_only-bound below). */
+  { "toolbar.netlist",      NULL, "xschem netlist -erc",      "Netlist (hierarchical) + ERC" },
+  { "file.clear_schematic", NULL, "xschem clear schematic",   "Clear the current schematic" },
+  { "edit.redo",            NULL, "xschem redo; xschem redraw", "Redo" },
+  { "edit.undo",            NULL, "xschem undo; xschem redraw", "Undo" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
@@ -2548,6 +2554,14 @@ static void init_input_bindings(void)
   set_input_binding_idle(DEV_KEY, 'b', 0,           ACTX_OVER_GRAPH, "graph.forward"); /* merge schematic */
   set_input_binding_idle(DEV_KEY, 'f', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* property search */
   set_input_binding_idle(DEV_KEY, 's', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* save */
+  /* Phase 3d.2 sem-gated batch 1: fully-migrated sem-gated command keys. Each was
+   * `if(sem>=2)break; <tcleval/C>` — now an idle_only CANVAS row (canvas-only, no graph
+   * routing). The dispatch skips them at sem>=2; case 'n'/'U' are deleted whole, case
+   * 'u' keeps its Alt/Ctrl branches. Tcl commands verified identical to the C branches. */
+  set_input_binding_idle(DEV_KEY, 'n', 0,           ACTX_CANVAS, "toolbar.netlist");      /* hierarchical netlist+erc */
+  set_input_binding_idle(DEV_KEY, 'n', ControlMask, ACTX_CANVAS, "file.clear_schematic"); /* clear schematic */
+  set_input_binding_idle(DEV_KEY, 'U', 0,           ACTX_CANVAS, "edit.redo");            /* redo */
+  set_input_binding_idle(DEV_KEY, 'u', 0,           ACTX_CANVAS, "edit.undo");            /* undo */
   input_bindings_initialized = 1;
 }
 
@@ -3688,16 +3702,10 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'n':
-      if(rstate==0) { /* hierarchical netlist */
-        if(xctx->semaphore >= 2) break;
-        tcleval("xschem netlist -erc");
-      }
-      else if(rstate == ControlMask) { /* clear schematic */
-        if(xctx->semaphore >= 2) break;
-        tcleval("xschem clear schematic");
-      }
-      break;
+    /* case 'n' fully migrated to the binding table (Phase 3d.2 sem-gated batch 1):
+     * plain -> toolbar.netlist, Ctrl -> file.clear_schematic, both idle_only canvas
+     * (Tcl-backed, identical to the old tcleval). The idle gate reproduces the deleted
+     * `if(sem>=2)break;`. See init_input_bindings. */
 
     case 'N':
       if(rstate == 0) { /* current level only netlist */
@@ -4023,12 +4031,11 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       break;
 
     case 'u':
-      if(rstate==0) { /* undo */
-        if(xctx->semaphore >= 2) break;
-        xctx->pop_undo(0, 1);  /* 2nd parameter: set_modify_status */
-        draw();
-      }
-      else if(EQUAL_MODMASK) { /* align to grid */
+      /* plain 'u' (undo) migrated to the binding table (Phase 3d.2 sem-gated batch 1):
+       * key 'u' 0 canvas -> edit.undo, idle_only (Tcl `xschem undo; xschem redraw` =
+       * pop_undo(0,1)+draw()). The Alt (align) and Ctrl (unselect floaters) branches
+       * stay in C. See init_input_bindings. */
+      if(EQUAL_MODMASK) { /* align to grid */
         if(xctx->semaphore >= 2) break;
         xctx->push_undo();
         round_schematic_to_grid(c_snap);
@@ -4047,13 +4054,9 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
       break;
 
-    case 'U':
-      if(rstate == 0) { /* redo */
-        if(xctx->semaphore >= 2) break;
-        xctx->pop_undo(1, 1); /* 2nd parameter: set_modify_status */
-        draw();
-      }
-      break;
+    /* case 'U' (redo) fully migrated to the binding table (Phase 3d.2 sem-gated
+     * batch 1): plain -> edit.redo, idle_only canvas (Tcl `xschem redo; xschem redraw`
+     * = pop_undo(1,1)+draw()). See init_input_bindings. */
 
     case 'v':
       if(rstate==0) { /* vertically constrained drag 20171023 */
