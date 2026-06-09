@@ -231,6 +231,31 @@ set n $::schpins_calls
 keyats $gx $gy 104 $Alt
 check "over-graph Alt-h still runs schpins (canvas-only)" [expr {$::schpins_calls == $n + 1}] "(calls=$::schpins_calls)"
 
+# ---- Phase 3d.2 batch 2: clean canvas-only command keys (y, G, g, T, O). All
+#      C-backed; verified via the Tcl vars they flip/scale. Cases y and G are gone;
+#      g/T/O keep their Ctrl branch. ----
+check "batch-2 canvas rows present" [expr {
+  [lsearch -exact $dump {key 121 0 canvas edit.toggle_stretch}] >= 0 &&
+  [lsearch -exact $dump {key 103 0 canvas view.snap_half}] >= 0 &&
+  [lsearch -exact $dump {key 71 0 canvas view.snap_double}] >= 0 &&
+  [lsearch -exact $dump {key 84 0 canvas prop.toggle_ignore_attribute_on_selected_instances}] >= 0 &&
+  [lsearch -exact $dump {key 79 0 canvas view.toggle_colorscheme}] >= 0 }] {}
+check "batch-2 keys are canvas-only (no graph rows)" [expr {
+  [lsearch -glob $dump {key 121 * graph *}] < 0 && [lsearch -glob $dump {key 71 * graph *}] < 0 &&
+  [lsearch -glob $dump {key 103 * graph *}] < 0 && [lsearch -glob $dump {key 84 * graph *}] < 0 &&
+  [lsearch -glob $dump {key 79 * graph *}] < 0 }] {}
+
+lassign [screen 870 100] cx cy
+set b $enable_stretch; keyat $cx $cy 121
+check "y toggles enable_stretch" [expr {$enable_stretch != $b}] "($b -> $enable_stretch)"
+set b $dark_colorscheme; keyat $cx $cy 79
+check "O toggles dark_colorscheme" [expr {$dark_colorscheme != $b}] "($b -> $dark_colorscheme)"
+set b $cadsnap; keyat $cx $cy 71; set d $cadsnap; keyat $cx $cy 103
+check "G doubles then g halves cadsnap (round-trip)" [expr {$d == $b*2 && $cadsnap == $b}] \
+  "($b -> $d -> $cadsnap)"
+# T (toggle_ignore) has no clean observable: assert it dispatches without error
+check "T (toggle_ignore) dispatches without error" [expr {![catch {keyat $cx $cy 84}]}] {}
+
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
 exit [expr {$fail == 0 ? 0 : 1}]

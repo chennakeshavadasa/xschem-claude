@@ -2271,6 +2271,26 @@ static int act_graph_forward(const ActionEvent *e) {
  * coords, no semaphore guard). */
 static int act_attach_labels(const ActionEvent *e) { (void)e; attach_labels_to_inst(1); return 1; }
 static int act_make_sch_sym_from_sel(const ActionEvent *e) { (void)e; make_schematic_symbol_from_sel(); return 1; }
+/* more clean canvas-only command keys (Phase 3d.2 batch 2). The snap acts read the
+ * current snap the same way the c_snap parameter is derived (tclgetdoublevar
+ * "cadsnap", callback.c); the stretch act flips the enable_stretch tcl var (the old
+ * branch's local toggle was dead after the function returned). */
+static int act_toggle_stretch(const ActionEvent *e) {
+  (void)e; tclsetboolvar("enable_stretch", !tclgetboolvar("enable_stretch")); return 1; }
+static int act_toggle_ignore(const ActionEvent *e) { (void)e; toggle_ignore(); return 1; }
+static int act_snap_half(const ActionEvent *e) {
+  (void)e; set_snap(tclgetdoublevar("cadsnap") / 2.0); change_linewidth(-1.); draw(); return 1; }
+static int act_snap_double(const ActionEvent *e) {
+  (void)e; set_snap(tclgetdoublevar("cadsnap") * 2.0); change_linewidth(-1.); draw(); return 1; }
+static int act_toggle_colorscheme(const ActionEvent *e) {
+  (void)e;
+  tclsetboolvar("dark_colorscheme", !tclgetboolvar("dark_colorscheme"));
+  tclsetdoublevar("dim_value", 0.0);
+  tclsetdoublevar("dim_bg", 0.0);
+  build_colors(0.0, 0.0);
+  draw();
+  return 1;
+}
 
 /* --- action registry: stable id -> behavior --- */
 /* An action is backed by EITHER a C function (fn) OR a Tcl command (tcl); exactly
@@ -2301,6 +2321,14 @@ static const ActionDef action_registry[] = {
     "Make schematic and symbol from selected components" },
   { "sym.create_symbol_pins_from_selected_schematic_pins", NULL, "schpins_to_sympins",
     "Create symbol pins from selected schematic pins" },
+  /* Phase 3d.2 batch 2 — clean canvas-only command keys (C-backed). The two view.snap_*
+   * and edit.toggle_stretch ids are new (not yet in actions.csv; fold in at d4). */
+  { "edit.toggle_stretch", act_toggle_stretch, NULL, "Toggle stretching of attached wires" },
+  { "view.snap_half",   act_snap_half,   NULL, "Halve the snap factor" },
+  { "view.snap_double", act_snap_double, NULL, "Double the snap factor" },
+  { "prop.toggle_ignore_attribute_on_selected_instances", act_toggle_ignore, NULL,
+    "Toggle *_ignore attribute on selected instances" },
+  { "view.toggle_colorscheme", act_toggle_colorscheme, NULL, "Toggle light/dark colorscheme" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
@@ -2435,6 +2463,12 @@ static void init_input_bindings(void)
   /* Alt-h (EQUAL_MODMASK = Alt OR Super in the switch) -> two rows */
   set_input_binding(DEV_KEY, 'h', Mod1Mask,    ACTX_CANVAS, "sym.create_symbol_pins_from_selected_schematic_pins");
   set_input_binding(DEV_KEY, 'h', Mod4Mask,    ACTX_CANVAS, "sym.create_symbol_pins_from_selected_schematic_pins");
+  /* Phase 3d.2 batch 2: plain-chord command keys (the cases' Ctrl/Alt branches stay in C). */
+  set_input_binding(DEV_KEY, 'y', 0, ACTX_CANVAS, "edit.toggle_stretch");
+  set_input_binding(DEV_KEY, 'g', 0, ACTX_CANVAS, "view.snap_half");
+  set_input_binding(DEV_KEY, 'G', 0, ACTX_CANVAS, "view.snap_double");
+  set_input_binding(DEV_KEY, 'T', 0, ACTX_CANVAS, "prop.toggle_ignore_attribute_on_selected_instances");
+  set_input_binding(DEV_KEY, 'O', 0, ACTX_CANVAS, "view.toggle_colorscheme");
   /* 't': plain (place text) is an EXACT chord -> its switch guard is deleted like
    * the rest of Group B. Ctrl+t uses `rstate & ControlMask` (a FAMILY), so its guard
    * is KEPT but narrowed to `rstate != ControlMask`: the row below owns the exact
@@ -3302,12 +3336,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       break;
 
     case 'g':
-      if(rstate==0) { /* half snap factor */
-        set_snap(c_snap / 2.0);
-        change_linewidth(-1.);
-        draw();
-      }
-      else if(rstate==ControlMask) { /* set snap factor 20161212 */
+      /* plain 'g' (half snap factor) is data-driven now -> view.snap_half (Phase 3d.2). */
+      if(rstate==ControlMask) { /* set snap factor 20161212 */
         my_snprintf(str,  S(str),
                     "input_line {Enter snap value (default: %.16g current: %.16g)}  {xschem set cadsnap} {%g} 10",
                     CADSNAP, c_snap, c_snap);
@@ -3348,13 +3378,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'G':
-      if(rstate == 0) { /* double snap factor */
-        set_snap(c_snap * 2.0);
-        change_linewidth(-1.);
-        draw();
-      }
-      break;
+    /* case 'G' (double snap factor) migrated to the binding table (Phase 3d.2):
+     * key 'G' 0 canvas -> view.snap_double. See init_input_bindings. */
 
     case 'h':
       if(rstate==ControlMask ) { /* go to http link */
@@ -3691,16 +3716,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         }
         xctx->semaphore++;
       }
-      else if(rstate == 0) { /* toggle light/dark colorscheme 20171113 */
-        int d_c;
-        d_c = tclgetboolvar("dark_colorscheme");
-        d_c = !d_c;
-        tclsetboolvar("dark_colorscheme", d_c);
-        tclsetdoublevar("dim_value", 0.0);
-        tclsetdoublevar("dim_bg", 0.0);
-        build_colors(0.0, 0.0);
-        draw();
-      }
+      /* plain 'O' (toggle light/dark colorscheme) is data-driven now ->
+       * view.toggle_colorscheme (Phase 3d.2). */
       break;
 
     case 'p':
@@ -3934,10 +3951,9 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       break;
 
     case 'T':
-      if(rstate == 0) { /* toggle spice_ignore, verilog_ignore, ... flag on selected instances. */
-        toggle_ignore();
-      }
-      else if(rstate == ControlMask ) { /* load last closed */
+      /* plain 'T' (toggle *_ignore on selected instances) is data-driven now ->
+       * prop.toggle_ignore_attribute_on_selected_instances (Phase 3d.2). */
+      if(rstate == ControlMask ) { /* load last closed */
         xctx->semaphore--;
         if(tclgetboolvar("open_in_new_window")) {
           tclvareval("xschem load_new_window -lastclosed", NULL);
@@ -4126,12 +4142,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'y':
-      if(rstate == 0) { /* toggle stretching */
-        enable_stretch = !enable_stretch;
-        tclsetboolvar("enable_stretch", enable_stretch);
-      }
-      break;
+    /* case 'y' (toggle stretching) migrated to the binding table (Phase 3d.2):
+     * key 'y' 0 canvas -> edit.toggle_stretch. See init_input_bindings. */
 
     case 'z':
       /* zoom box */
