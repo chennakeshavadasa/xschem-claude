@@ -1,25 +1,27 @@
-# Opening prompt for the next session (Phase 3d — first sem-gated full-migration batch, now unblocked by d1b)
+# Opening prompt for the next session (Phase 3d — sem-gated full-migration batch 2)
 
 Committed on branch `feature/action-registry`: 3a (wheel), 3b (right-drag zoom
 gesture), 3c (context-routed keys — complete), 3d.1 (Tcl-command-backed actions; `B`
-out), 3d.2 batches 1-3 (`H`, Alt-h, `y`,`G`,`g`,`T`,`O`, `A`,`L`,`=`,`$`), and **3d.1b
-(semaphore `idle_only` flag)** — which migrated the graph routing of the 4 sem-first
-chords (`a`,`b`,`Ctrl+f`,`Ctrl+s`) and, crucially, **unblocked the sem-gated command
-keys for full-data migration.**
+out), 3d.2 batches 1-3 (`H`, Alt-h, `y`,`G`,`g`,`T`,`O`, `A`,`L`,`=`,`$`), **3d.1b
+(semaphore `idle_only` flag)** (graph routing of `a`,`b`,`Ctrl+f`,`Ctrl+s`), and **3d.2
+sem-gated batch 1** (`n` netlist+clear, `U` redo, `u` undo — first fully-migrated
+sem-gated command keys via idle_only).
 
-Keys/chords out of the switch so far: **B, H, Alt-h, y, G, g, T, O, A, L, =, $** (whole
-or branch); plus graph routing for `f`/arrows/Group-B/`t`/the 4 sem-first chords.
+Keys/chords out of the switch so far: **B, H, Alt-h, y, G, g, T, O, A, L, =, $, n, U**
+(whole or branch), **u** (branch); plus graph routing for `f`/arrows/Group-B/`t`/the 4
+sem-first chords.
 
-The d1b gate means a sem-gated chord can now be **fully** migrated: add an `idle_only`
-canvas row (+ over_graph row if it routed to a graph) and **delete the whole case** —
-the dispatch skips it at `semaphore>=2` exactly like the old `if(sem>=2)break;`. This is
-the natural next batch. Paste the block below into a fresh Claude Code session.
+The pattern is now established (see `plan_phase3d2_semgated_batch1.md`): a sem-gated
+chord migrates by adding an `idle_only` canvas row → its action and deleting the
+case/branch; the dispatch skips it at `semaphore>=2` like the old `if(sem>=2)break;`.
+**This session = the NEXT such batch.** Paste the block below into a fresh session.
 
 ---
 
 ```
-Goal: scope and implement the FIRST batch of fully-migrated SEMAPHORE-GATED command
-keys, now that Phase 3d.1b added the idle_only gate. Behavior-preserving, tested, the
+Goal: scope and implement the NEXT batch of fully-migrated SEMAPHORE-GATED command
+keys (sem-gated batch 2), continuing the idle_only pattern from batch 1
+(plan_phase3d2_semgated_batch1.md). Behavior-preserving, tested, the
 same rhythm as the d2 batches. No pre-written plan — you scope it, propose 3-5 chords
 with my sign-off, write a short plan doc (mirror claude_suggs/plan_phase3d2_batch3.md),
 then implement.
@@ -42,20 +44,24 @@ PRE-FLIGHT:
    that are sem-gated and OTHERWISE clean (no mouse-coords mousex_snap|mx_double|
    infix_interface, no modal move_objects|new_*|place_|start_line|ui_state, no
    cadence_compat / other untable-able mode condition). Inspect each candidate as-is.
-3. SKIP already-migrated (B,H,Alt-h,y,G,g,T,O,A,L,=,$ and the routing-only a/b/Ctrl+f/
-   Ctrl+s). DEFER anything cadence_compat-gated (plain s, Ctrl+r) or param-dependent
-   (`\` fullscreen uses win_path) until a mechanism exists.
+3. SKIP already-migrated (B,H,Alt-h,y,G,g,T,O,A,L,=,$,n,U,u and the routing-only
+   a/b/Ctrl+f/Ctrl+s). DEFER anything cadence_compat-gated (plain s, Ctrl+r),
+   param-dependent (`\` fullscreen uses win_path), or that manipulates the semaphore
+   directly (q quit, o load, the e/I edit-in-new-window branches) until a mechanism
+   exists.
 
-STRONG CANDIDATES (verify, don't trust) — clean sem-gated, mostly single-fn/tcleval:
-  `?` (help: tcleval "textwindow ...help"), XK_slash `/` (tcleval "show_bindkeys"),
-  `&` (trim_wires: push_undo+trim_wires+draw — C), `>`/`<` (draw_single_layer inc / =-1
-  — C; note `>` has a quirk line `draw_single_layer = rectcolor` right after the ++,
-  read carefully), `*` (postscript/xpm/svg print — 3 branches, each sem-gated; Tcl/C),
-  `e`/`i`/`q`/`u`/`o`/`r`/`n`/`j`/`k` letters (many are sem-gated single ops, but several
-  ALSO touch mouse/modal — filter with the scan). Prefer the symbol keys + pure
-  single-fn letters for batch 1; they whole-delete cleanest.
-  NOTE `:` (flat_netlist) and `%`/`_` are UNCONDITIONAL (no sem, no mod guard) — additive
-  only (keep case), lower value; not this batch's focus.
+STRONG CANDIDATES for batch 2 (verify against scheduler.c, don't trust) — sem-gated,
+EXPLICIT mod guard (so whole/branch delete is exact), single-fn:
+  `j` (print_hilight_net 1/0/4 across plain/Ctrl/Alt — all sem-gated explicit; but the
+  4th SET_MODMASK&&Ctrl branch has no sem guard + murky reachability, read carefully),
+  `k` (hilight_net — but check if it depends on mouse position; Ctrl=unhilight_net),
+  `K` (delete hilighted nets — read it), `Q` (plain edit_property(1) sem-gated; Ctrl
+  edit_property(2) NOT sem-gated — both dialogs, test via gate not by opening them),
+  `J` (print_hilight_net 2). Prefer C-backed acts calling the exact fn; verify any csv
+  Tcl reuse equals the C call (the `e` trap: xschem descend ≠ the key's descend params).
+  AVOID for now: `?`,`/`,`&`,`>`,`<`,`*`,`:` (UNCONDITIONAL — no mod guard — so
+  whole-delete changes modified-press behavior; additive-only, lower value);
+  `%`/`_` (also unconditional).
 
 BACKINGS: call the exact C fn the switch did (C-backed act) OR a global tcl command
 string (Tcl-backed). For a tcleval branch, prefer Tcl-backed reusing an actions.csv id

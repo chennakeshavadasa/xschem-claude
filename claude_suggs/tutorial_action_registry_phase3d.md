@@ -211,3 +211,42 @@ no `cadence_compat` axis, so they stay in C. **Lesson: re-derive the migration s
 the code, not from the earlier plan's count — a chord guarded by a condition the table
 can't represent isn't migratable just because it's sem-gated.** (This is the same family
 as the Z/`view.zoom_in` deferral: the table can't yet express the distinguishing axis.)
+
+## d2 sem-gated batch 1 — the idle_only gate's first real use (commit `ac558252`)
+
+`n` (netlist + clear), `U` (redo), `u` (undo) — the first **fully-migrated** sem-gated
+command keys. Each branch was `if(sem>=2)break; <behavior>`; migrating it is now
+mechanical: add an `idle_only` **canvas** row → the action, delete the case/branch. At
+`sem>=2` the dispatch skips (→ no case, or the case's own surviving `if(sem>=2)break`).
+
+### Two reusable lessons
+
+- **Reuse a csv id only after verifying the Tcl command equals the C branch — but here
+  it provably did, for a satisfying reason.** All four reuse existing `actions.csv` ids
+  (`toolbar.netlist`, `file.clear_schematic`, `edit.redo`, `edit.undo`). `n` is the
+  cleanest case: the switch *already* did `tcleval("xschem netlist -erc")`, so a
+  Tcl-backed action running the same string is byte-identical by construction — no
+  divergence risk at all. `U`/`u` needed a real check against `scheduler.c`: `xschem
+  redo|undo` = `pop_undo(1|0, 1)`, `xschem redraw` = `draw()` — matches `pop_undo(1,1);
+  draw()`. Contrast `e`, which looked equally reusable but **wasn't**: `xschem descend`
+  = `descend_schematic(0,0,0,1)` while the key calls `(0,1,1,1)`, and `xschem go_back`
+  adds an internal `semaphore==0` check the C `go_back(1)` lacks. **Lesson: "there's a
+  menu command that looks like this key" is a hypothesis, not a fact — read the
+  scheduler branch. Some match exactly (reuse Tcl), some don't (write a C act or defer).**
+
+- **A sem-gated test needs a reversible, observable mutation — undo/redo is the natural
+  one.** The d1b probe proved the *mechanism*; this batch proves the gate on *real keys*
+  by mutating then driving them: `select_all; delete` (instances 10→0, pushes undo),
+  then `u` at `semaphore=2` leaves it at 0 (skipped), `u` at `0` restores 10 (fires),
+  `U` redoes back to 0. Observable via `xschem get instances`; fixture restored at the
+  end; semaphore reset to 0 (leaving it high wedges later checks). The destructive
+  siblings (`clear schematic` dialogs; `netlist -erc` writes files) are asserted by
+  their *data rows* only — not key-pressed.
+
+### What's still in the switch after this
+
+The remaining sem-gated keys split into: (a) explicit-guarded clean ones (more of these
+batches — `j`/`k` hilight, `Q` edit-attrs, etc., each needing its observable or a stub);
+(b) *unconditional* symbol keys (`&`,`>`,`<`,`?`,`/`,`*`) — additive-only, can't
+whole-delete (modified-press caveat); (c) semaphore-manipulating ones (`q` quit, `o`
+load, the `e`/`I` *-in-new-window branches) that need more than a skip-when-busy flag.

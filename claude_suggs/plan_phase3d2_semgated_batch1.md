@@ -1,6 +1,6 @@
 # Phase 3d.2 — sem-gated batch 1 (first idle_only command-key migration)
 
-**Status:** proposed (signed off). **Branch:** `feature/action-registry`.
+**Status:** DONE (commit `ac558252`). **Branch:** `feature/action-registry`.
 **Predecessors:** d1 (Tcl-backed actions), d1b (the `idle_only` gate, commit
 `c806149d`), d2 batches 1-3. See `tutorial_action_registry_phase3d.md` and
 `plan_phase3d1b_idle_only.md`.
