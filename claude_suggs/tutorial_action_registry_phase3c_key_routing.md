@@ -160,15 +160,75 @@ handler, which now table-dispatches it.
 5. **A dead branch left as a comment** (the `rstate==0` `f` arm) documents *where*
    the behavior went, which the next migrator needs.
 
+## 9. Batch 2: the arrow keys — when migration is *purely additive*
+
+`f` was deletable: both its `mods==0` contexts (canvas + over_graph) were migrated,
+so the `rstate==0` arm became dead and was removed. The arrow keys are the opposite
+case, and they teach the complement of lesson #5 ("seed rows only where a guard
+existed"): **sometimes you keep the C branch even after migrating, because the chord
+set you migrated is a strict subset of what the branch handles.**
+
+Two wrinkles in the source:
+
+- **`XK_Up` / `XK_Down` check no modifiers at all** — they pan under *any* state.
+- **`XK_Left` / `XK_Right`** split on `state==ControlMask` (tab switch) vs `else`
+  (pan under any non-Ctrl state).
+
+So the "scroll" behavior is reachable under far more than `state==0`: Shift+Up,
+Alt+Down, and — the one that bites — **lock masks** like NumLock (`Mod2Mask`) or
+CapsLock, which ride along in the raw X `state` of an ordinary keypress.
+
+The migration peels off only the **no-modifier** chord:
+
+```c
+set_input_binding(DEV_KEY, XK_Up, 0, ACTX_CANVAS,     "view.scroll_up");
+set_input_binding(DEV_KEY, XK_Up, 0, ACTX_OVER_GRAPH, "graph.forward");
+/* …Down/Left/Right… */
+```
+
+and **leaves the `case XK_Up:` … switch arms intact.** The gate makes this correct
+for free: `kmods = (key < 0xff00) ? rstate : state` → for a named keysym it is the
+*raw* state, so `NumLock+Up` has `kmods == Mod2Mask`, `key_chord_has_binding(XK_Up,
+Mod2Mask)` is false, and the event falls through to the switch and pans — exactly as
+before. Had we *deleted* the cases (as we did for `f`), NumLock+arrow would have
+silently stopped working. The net diff for this batch is **+79 / −0**: four
+`act_scroll_*` fns, four registry rows, eight binding rows, four explanatory
+comments — and not one line of behavior removed.
+
+Decision rule that falls out of `f` vs arrows:
+
+> Delete the C branch only when the rows you seeded **cover every chord the branch
+> could match**. If the branch matches a *family* of modifier states (no check, or
+> "anything except X") and you migrated one member, keep the branch and let the gate
+> shadow just that member.
+
+Naming note: the arrow scroll is a *full* `CADMOVESTEP` and its sign is the historical
+`xorigin += -CADMOVESTEP*zoom` etc. — which is **inverted** relative to the half-step
+wheel `view.pan_*` (pressing Right moves the origin the way the wheel's `pan_left`
+does). Rather than "fix" the sign or overload `view.pan_*`, the actions are new
+(`view.scroll_*`) and named by the *triggering arrow*, so a binding row reads
+naturally (`key <Right> 0 canvas view.scroll_right`) and the arithmetic stays
+byte-for-byte.
+
 ## Appendix: the change
+
+**Batch 1 — `f` (commit `922001f5`)**
 
 | File | What changed |
 |---|---|
 | `src/callback.c` | `act_zoom_full` + `view.zoom_full` registry row; `key_chord_has_binding()`; DEV_KEY dispatch atop `handle_key_press`; 2 `f` default rows; deleted the `rstate==0` guard from `case 'f'` |
 | `tests/headless/test_key_graph_context.tcl` | new (5 checks): `f` over graph vs canvas, live coord mapping |
 | `tests/headless/test_accelerators.tcl` | comment/label clarified: `f` routing is now data, still no Tcl bind |
-| `claude_suggs/refactor_plan_action_registry_phase3.md` | c4/c5/c6 marked first-batch done |
 
-Commit `922001f5`. Next: the arrow keys (pan + graph-forward, handling the
-"arrows ignore mods" wrinkle), then the Group B routing-only sweep (`a`, `A`, `b`,
-`B`, `s`, tab-switch) — over_graph rows + guard deletion, canvas behavior left in C.
+**Batch 2 — arrows (commit `802b2484`)**
+
+| File | What changed |
+|---|---|
+| `src/callback.c` | 4 `act_scroll_*` fns + `view.scroll_*` registry rows; 8 no-modifier arrow default rows (canvas scroll + over_graph forward); arrow switch cases **kept**, each gets a comment (purely additive, +79/−0) |
+| `tests/headless/test_key_graph_context.tcl` | extended to 10 checks: Up=vertical / Right=horizontal scroll on canvas; Up over a graph leaves origin; rows present; no modified-arrow rows |
+| `claude_suggs/refactor_plan_action_registry_phase3.md` | c4/c5/c6 batch-2 notes |
+
+Next: the Group B routing-only sweep (`a`, `A`, `b`, `B`, `s`, tab-switch) — add
+`over_graph` rows + delete the graph guards, leave the dialog/file canvas behavior in
+C. (Those *are* deletable on the graph side because the guard handled exactly the
+over_graph chord.)
