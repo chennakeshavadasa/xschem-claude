@@ -1,122 +1,123 @@
-# Opening prompt for the next session (Phase 3d.2 — batch 3: scope + migrate more keys)
+# Opening prompt for the next session (Phase 3d — pivot decision: d1b vs d3 vs thin d2 tail)
 
 Committed on branch `feature/action-registry`: 3a (wheel), 3b (right-drag zoom
 gesture), 3c (context-routed keys — migration complete), 3d.1 (Tcl-command-backed
 actions; `B` out), 3d.2 dispatch refinement + batch 1 (`H`, Alt-`h`) + batch 2 (`y`,
-`G`, `g`, `T`, `O`). Keys already migrated out of the switch: **B, H, Alt-h, y, G, g,
-T, O**.
+`G`, `g`, `T`, `O`) + batch 3 (`A`, `L`, `=`, `$`). Keys already migrated out of the
+switch: **B, H, Alt-h, y, G, g, T, O, A, L, =, $**.
 
-Paste the block below as the first message of a **fresh** Claude Code session, run
-from this repo directory. Unlike batch 2 (which had a ready plan), batch 3 is
-**scope-then-implement**: you pick the next clean cluster, write a short plan, get
-sign-off, then migrate it the same way.
+**The clean canvas-only command-key well is nearly dry.** After batch 3, what remains
+in `handle_key_press` is mostly: semaphore-gated chords (need d1b), mouse-coord/modal
+placement (stays in C by design), `Z` (blocked on a d4 csv/C id reconciliation —
+`view.zoom_in` means CADZOOMSTEP on the wheel but `view_zoom(0.0)` for Shift+Z), and a
+couple of *unconditional* symbol toggles (`%` draw-grid, `_` change-line-width) that
+can only migrate **additively** (keep the case, add a mods-0 row, let the gate shadow
+it — the arrow-key pattern; low value since the switch doesn't shrink).
+
+So the next session is a **pivot decision**, not another clean-key batch. Paste the
+block below into a fresh Claude Code session from this repo dir.
 
 ---
 
 ```
-Goal for this session: Phase 3d.2 batch 3 of the action-registry input work — scope
-and migrate the NEXT small cluster of clean command keys out of the ~1600-line
-handle_key_press switch into the data-driven binding table, behavior-preserving and
-fully tested, the same way batches 1-2 were done.
+Goal: pick the highest-leverage next step in the action-registry input work and do it.
+The clean canvas-only command-key migration (Phase 3d.2 batches 1-3) has nearly
+exhausted its candidates. Before writing any code, do the pre-flight, then PROPOSE ONE
+of the three directions below with reasoning and get my sign-off.
 
-This batch has no pre-written plan: you scope it. Do the pre-flight, propose a small
-batch (3-5 chords) with my sign-off, write a short plan doc like
-claude_suggs/plan_phase3d2_batch2.md, then implement.
+PRE-FLIGHT (confirm the well is actually dry before pivoting):
+1. Re-grep callback.c line numbers (they shift every batch).
+2. Re-run the cleanliness scan over handle_key_press (per-case counts of
+   `semaphore>=2` / `waves_selected` / mouse-coords mousex_snap|mx_double|infix_interface
+   / modal move_objects|new_*|place_|start_line|ui_state). Already migrated (SKIP):
+   B, H, Alt-h, y, G, g, T, O, A, L, =, $.
+3. Confirm what's left really is sem-gated / modal / additive-only. If you find a
+   genuinely clean, switch-shrinking key I missed, that's a valid small batch-4 instead.
 
-PRE-FLIGHT (do this first, before proposing anything):
-1. Re-grep line numbers — callback.c shifts every batch; remembered numbers are stale.
-2. Re-run the cleanliness classification scan over handle_key_press to find candidate
-   branches with NO `semaphore >= 2`, NO `waves_selected`, NO mouse-coords
-   (mousex_snap/mx_double/infix_interface), NO modal ui_state (move_objects/new_*/
-   place_/start_line/ui_state). Example scan (adjust the NR range to the current
-   handle_key_press bounds):
-     awk 'NR>=A && NR<=B { ... per-case sem/waves/mouse/modal counts ... }' src/callback.c
-   (See the batch-2 scan I ran earlier in the project history for the exact form, or
-   just inspect each candidate case directly.)
-3. Read each candidate case AS IT IS NOW and confirm it's clean before proposing it.
-   Already-migrated keys to SKIP: B, H, h(Alt), y, G, g, T, O.
+THE THREE DIRECTIONS (recommend one):
 
-CANDIDATES worth inspecting (verify, don't trust): `Z` (zoom — view_zoom(0.0); watch
-that you don't conflate it with the existing view.zoom_in/CADZOOMSTEP — replicate the
-exact call), `L` (toggle orthogonal_wiring — it also sets xctx->manhattan_lines, a
-small C state flag, so a C-backed act is fine but read the branch carefully), and any
-other single-fn/single-tcleval branch the scan surfaces. STILL DEFERRED (do NOT pick):
-anything semaphore-gated (-> d1b: plain a/b, s, Ctrl+s/f/r, n, q, ...) or mouse-coord/
-placement/embedded-logic dialogs (insert-symbol file_chooser/load_file_dialog).
+(A) d1b — semaphore `idle_only` flag. HIGHEST LEVERAGE. Unlocks the 6 deferred
+    sem-first chords (plain a/b, s, Ctrl+s/f/r) AND the many sem-gated command keys
+    (n, q, e, i, j/J, k/K, u, ...). Mechanism: add an `idle_only` bit to ActionDef (or
+    the binding), checked at the TOP of the DEV_KEY dispatch BEFORE current_input_ctx/
+    waves_selected (which are side-effectful) — so a busy editor (semaphore>=2) bails
+    exactly like the old `if(sem>=2)break;` did, before any graph side effect fires.
+    Then a sem-gated key migrates cleanly: add its row(s), delete the guard, the
+    idle_only check stands in for the deleted `if(sem>=2)break`. See the 2026-06-08
+    DECISION in project memory action-registry.md and refactor_plan d1b. This is the
+    architecturally meaningful unblock; everything sem-gated is parked behind it.
 
-Warm-start context — read these first instead of re-deriving:
-- CLAUDE.md  (architecture, build, the `xschem` Tcl dispatcher)
-- claude_suggs/plan_phase3d2_batch2.md  (the batch-2 plan — copy its SHAPE for your
-  batch-3 plan: keys table, act_ bodies, wrinkles, ids, case-deletes-whole-vs-branch,
-  test approach, risks, DoD)
-- claude_suggs/design_phase3d1_tcl_backed_actions.md  (how Tcl-backed actions work:
-  the `tcl` field on ActionDef, find_action_def, dispatch, the bind validator)
-- claude_suggs/tutorial_action_registry_phase3d.md  (d1+d2 lessons: the validator
-  gotcha; the canvas-only dispatch refinement and WHY; EQUAL_MODMASK -> two rows; a
-  migrated act must NOT use handle_key_press params — read the source tcl var; test via
-  the state the act changes / stub a Tcl proc)
-- claude_suggs/refactor_plan_action_registry_phase3.md  (overall plan; d2 status; d1b)
-- src/callback.c — RE-GREP, but the machinery is around: ActionDef + action_registry[]
-  + find_action_def (~2280-2330); act_* fns just above the registry (add yours there);
-  init_input_bindings (seed DEV_KEY canvas rows; ~2360-2440); the DEV_KEY dispatch atop
-  handle_key_press (~3000), which sets ae.ctx = find_binding(...,ACTX_OVER_GRAPH) ?
-  current_input_ctx(...) : ACTX_CANVAS (the 3d.2 refinement — canvas-only keys take the
-  CANVAS branch, so do NOT add over_graph rows for canvas-only keys).
-- tests/headless/test_key_graph_context.tcl  (the growing key test — extend it; helpers
-  check / screen (live coords) / keyat / keyats x y keysym state)
-- tests/headless/run.sh  (engine harness — stay 6/6 green)
+(B) d3 — keyboard cheat-sheet generated from `xschem bindings dump`. SELF-CONTAINED,
+    Tcl-side, NO switch edits (low risk, good demo value). Replace/extend the existing
+    `generate_keybindings_text`/`show_keybindings_help` (Help menu) to read the live
+    binding table (`xschem bindings dump`) instead of (or merged with) the accel
+    display strings, flagging migrated chords. Cross-check against actions.csv for the
+    human-readable command names. Test with tests/headless/test_keybindings_help.tcl.
 
-Gotchas already learned (also in project memory action-registry.md):
+(C) Thin d2 tail (additive). `%` (draw_grid) and `_` (change_lw) are unconditional
+    (no mod guard) → migrate the arrow-key way: KEEP the case, add a `mods-0 canvas`
+    row, let the gate shadow the mods-0 chord while the case still handles other mods.
+    C-backed acts (both set xctx flags: change_lw / draw_pixmap-style). LOW VALUE (the
+    switch doesn't shrink) — only worth it as a warm-up. NOTE the behavior-preservation
+    subtlety: deleting these cases whole is WRONG (drops modified-press behavior); the
+    additive approach is the only correct one. Also d4-blocked `Z` lives here.
+
+MY RECOMMENDATION going in: (A) d1b — it's the gate that unblocks the largest set and
+the last structurally-new piece before d4/d5 are mostly mechanical. But run the
+pre-flight and make your own call; (B) is the safe pick if you want a low-risk session.
+
+Warm-start context — read these first:
+- CLAUDE.md (architecture, build, the `xschem` Tcl dispatcher)
+- claude_suggs/refactor_plan_action_registry_phase3.md (overall plan; d1b/d3/d4/d5)
+- claude_suggs/tutorial_action_registry_phase3d.md (d1+d2+d3-of-this-doc lessons:
+  validator gotcha; canvas-only dispatch refinement; graph-routed-but-whole-deletable;
+  id-reuse; don't-reuse-an-id-whose-semantics-differ)
+- claude_suggs/design_phase3d1_tcl_backed_actions.md (Tcl-backed action machinery)
+- claude_suggs/plan_phase3d2_batch3.md (batch-3 shape, if you do option C)
+- src/callback.c — RE-GREP: ActionDef + action_registry[] + find_action_def (~2300-2380);
+  act_* fns above the registry; init_input_bindings (~2400-2510); the DEV_KEY dispatch
+  atop handle_key_press (~3030) — `ae.ctx = find_binding(...,ACTX_OVER_GRAPH) ?
+  current_input_ctx(...) : ACTX_CANVAS`. For d1b the idle_only check goes ABOVE that
+  ae.ctx line (before current_input_ctx is ever called).
+- tests/headless/test_key_graph_context.tcl (the growing key test — extend it; helpers
+  check / screen / keyat / keyats x y keysym state)
+- tests/headless/run.sh (engine harness — stay 6/6)
+
+Gotchas (also in project memory action-registry.md):
 - GUI runs with DISPLAY=:0; capture stdout with --pipe:
-  `DISPLAY=:0 ./src/xschem --pipe --script FILE`. Drive events with
+  `DISPLAY=:0 ./src/xschem --pipe -q --script FILE`. Drive events with
   `xschem callback .drw <evt> <mx> <my> <keysym> <button> 0 <state>` (KeyPress=2;
-  ShiftMask=1, ControlMask=4, Mod1Mask/Alt=8). The keysym, NOT display casing, is what
-  the switch matches (bare letter -> lowercase keysym; Shift'd -> uppercase).
-- mods normalized per key class: letters strip ShiftMask (kmods=rstate); named keys use
-  raw state. Most letter command keys migrate at the rstate==0 (mods 0) chord.
-- A migrated act() takes (const ActionEvent *e) and ignores mouse context; it must NOT
-  read handle_key_press parameters (c_snap, enable_stretch, infix_interface, ...). Read
-  the source instead (tclgetdoublevar("cadsnap"), tclgetboolvar("enable_stretch"), ...).
-  Check whether any local mutation in the old branch is actually dead before preserving it.
-- Migrate only the CLEAN chord(s); leave a case's other branches (Ctrl/Alt loads,
-  dialogs, modal) in C. A single-branch clean case deletes WHOLE; otherwise delete just
-  the branch and keep the case + its `break;`.
-- Backing: call the exact C fn the switch did (C-backed act) OR `tcl` a global command
-  string (Tcl-backed). Don't swap a C fn for its Tcl `xschem ...` equivalent unless you
-  verify they're identical.
-- Test C-backed acts via the state they change (a tcl var that flips/scales); for a
-  Tcl-backed act stub the proc as a counter. Assert rows present + canvas-only (no graph
-  rows). Re-run test_accelerators (checks f/s/w have no Tcl bind). Narrow any older
-  broad count/scope assertion that a new row trips.
+  ShiftMask=1, ControlMask=4, Mod1Mask/Alt=8). Keysym (not display casing) matches.
+- For d1b: semaphore is `xctx->semaphore`; readable via `xschem get`? check — if not,
+  test idle_only by other means (e.g. assert a sem-gated act does NOT fire while a
+  modal op holds the semaphore, vs fires when idle). The 6 sem-first chords' canvas
+  behavior stays in C; d1b only adds the over_graph routing + the idle gate.
+- A migrated act() takes (const ActionEvent *e), ignores mouse context, and must NOT
+  read handle_key_press params — read the source (tcl var / xctx field) instead.
+- Commit code and docs separately, small steps. Don't push or do anything
+  outward-facing without asking.
 
 Definition of done:
-1. A small clean batch scoped + signed off + a short plan doc written.
-2. Keys migrated; whole cases deleted where single-branch-clean; act_* C- or Tcl-backed
-   matching the original exactly; registry + canvas binding rows added.
-3. Verified EMPIRICALLY (observable tcl var / stubbed proc); engine 6/6 + all GUI smokes
-   green. Extend tests/headless/test_key_graph_context.tcl.
-4. Behavior-preserving; commit code and docs separately, small steps. Don't push or do
-   anything outward-facing without asking.
-5. After it lands: update the plan doc d2 status, add a tutorial note, update project
-   memory, and refresh THIS next_session_prompt.md for the following batch.
+1. One direction proposed + signed off (+ a short plan doc if it's a code change).
+2. Implemented behavior-preserving; engine 6/6 + all GUI smokes green; extend the
+   relevant headless test.
+3. After it lands: update the plan/tutorial/memory and refresh THIS prompt.
 
-If the clean-key well is running dry, consider pivoting instead to **d3** (generate the
-keyboard cheat-sheet from `xschem bindings dump` — self-contained, Tcl-side, no switch
-edits) or **d1b** (semaphore `idle_only` flag — unlocks the deferred sem-gated chords).
-Propose the pivot with reasoning if so.
-
-Start with the pre-flight: re-grep, run the scan, inspect candidates, propose the batch.
+Start with the pre-flight, then propose A / B / C with reasoning.
 ```
 
 ---
 
-## Roadmap after batch 3
+## Roadmap after this pivot
 
-More d2 clean keys until the well runs dry, then **d1b** (semaphore `idle_only` —
-unlocks the 6 deferred sem-first chords + sem-gated command keys), **d3** (cheat-sheet
-from `xschem bindings dump`), **d4** (load `keybindings.csv`/`mousebindings.csv` at
-startup; fold the new `edit.toggle_stretch`/`view.snap_*` ids into `actions.csv`),
-**d5** (delete the dead ladders).
+- **d1b** semaphore `idle_only` — unlocks the 6 sem-first chords + sem-gated command keys.
+- **d3** cheat-sheet from `xschem bindings dump` (Tcl-side, no switch edits).
+- **d4** load `keybindings.csv`/`mousebindings.csv` at startup; **fold the C-only ids into
+  `actions.csv`**: `edit.toggle_stretch`, `view.snap_half`, `view.snap_double`,
+  `view.toggle_show_netlist`, `edit.toggle_orthogonal_wiring`, `view.toggle_draw_pixmap`;
+  and **reconcile the `Z` / `view.zoom_in` collision** (wheel CADZOOMSTEP vs Shift+Z
+  view_zoom(0.0) — they need distinct ids).
+- **d5** delete the dead switch ladders.
 
 The running user-facing Q&A lives in `code_analysis/action_registry_faq.md` (stamped
 with phase + HEAD); add to it when the user asks a keep-worthy question.

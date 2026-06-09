@@ -1,6 +1,6 @@
 # Phase 3d.2 — batch 3 plan (clean canvas-only command keys)
 
-**Status:** proposed (signed off). **Branch:** `feature/action-registry`.
+**Status:** DONE (commit `9687d033`). **Branch:** `feature/action-registry`.
 **Predecessors:** d1 (Tcl-backed actions, `design_phase3d1_tcl_backed_actions.md`),
 the d2 dispatch refinement (`525bc94f`), batch 1 (`H`, Alt-`h`, `dd0e5909`) and
 batch 2 (`y/G/g/T/O`, `9a8e517a`). See `tutorial_action_registry_phase3d.md` for

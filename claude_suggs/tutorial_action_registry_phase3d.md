@@ -129,3 +129,36 @@ colorscheme). Two reusable lessons:
 
 Cases `y` and `G` deleted whole; `g`/`T`/`O` kept their `case` (the Ctrl/Alt branches
 do semaphore-manipulating loads or dialogs — deferred to d1b/later).
+
+### Batch 3 — four command keys, the first id-reuse, and a graph-routed whole-delete (commit `9687d033`)
+
+`A` (toggle show-netlist), `L` (toggle orthogonal wiring), `=` (Tcl console), `$`
+(toggle pixmap drawing). Three new lessons:
+
+- **A graph-routed key can still be whole-deleted.** Earlier whole-deletes (`B`, `H`,
+  `y`, `G`) were canvas-only or already-data. `A` was **Group-B graph-routed** — it
+  kept an `over_graph -> graph.forward` row while its canvas behavior stayed in the C
+  switch. Adding the *canvas* row (`view.toggle_show_netlist`) makes the key fully
+  data, so `case 'A'` deletes — **but the over_graph row stays**, so the dispatch keeps
+  computing `current_input_ctx()` for `A` (over a graph it still forwards). The only
+  reason the case could vanish cleanly: its `rstate==ControlMask` branch was already a
+  **canvas no-op** (comment-only; the Ctrl graph cursor is the over_graph row's job).
+  Lesson: "whole-delete" needs *every* chord the case handled to be data **or** a
+  no-op — graph-routing doesn't block it, a live second canvas branch does.
+- **First reuse of an existing `actions.csv` id.** `=` maps to the csv's
+  `tools.execute_tcl_command` (tcl `tclcmd`). Batches 1–2 coined new C-only ids; here
+  the id already existed in the csv, so the registry row just references it Tcl-backed.
+  The d1 validator fix (existence, not fn-presence) is what lets a csv/Tcl id bind.
+- **Don't reuse an id whose semantics differ — even if the name fits.** `Z` (Shift+Z
+  zoom-in) was the obvious 5th key, but the csv maps `view.zoom_in` → Shift+Z →
+  `view_zoom(0.0)` while the C registry **already** binds `view.zoom_in` =
+  `view_zoom(CADZOOMSTEP)` to the mouse **wheel**. Same id, two behaviors. That's a d4
+  csv/C *reconciliation*, not a migration — picking it would force a colliding or
+  duplicate id. Deferred. (Also deferred: `%`/`_`, which are *unconditional* — no mod
+  guard — so a whole-case-delete would silently drop their modified-press behavior.)
+
+Test note: `A`/`L` round-trip their tcl vars (`netlist_show`, `orthogonal_wiring`);
+`=` stubs `proc tclcmd` as a counter; `$` toggles a C-only flag (`draw_pixmap`, no tcl
+var) so it only asserts dispatch-without-error (the `toggle_ignore` pattern). The
+existing Group-B `A` checks had to be **narrowed**: the old "Group B has no canvas
+rows" assertion explicitly excluded `key 65` once `A` gained its canvas row.
