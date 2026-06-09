@@ -2377,6 +2377,7 @@ typedef struct {
   int  code;          /* WHEEL_*, button number, or KeySym */
   int  mods;          /* normalized modifier mask */
   int  ctx;           /* ACTX_* */
+  int  idle_only;     /* Phase 3d.1b: skip this chord while busy (semaphore>=2) */
   char action_id[64];
 } InputBinding;
 
@@ -2404,13 +2405,37 @@ static int set_input_binding(int device, int code, int mods, int ctx, const char
   InputBinding *b = find_binding(device, code, mods, ctx);
   if(b) { my_strncpy(b->action_id, id, S(b->action_id)); return 0; }
   if(num_input_bindings >= MAX_INPUT_BINDINGS) return -1;
-  input_bindings[num_input_bindings].device = device;
-  input_bindings[num_input_bindings].code   = code;
-  input_bindings[num_input_bindings].mods   = mods;
-  input_bindings[num_input_bindings].ctx    = ctx;
+  input_bindings[num_input_bindings].device    = device;
+  input_bindings[num_input_bindings].code      = code;
+  input_bindings[num_input_bindings].mods      = mods;
+  input_bindings[num_input_bindings].ctx       = ctx;
+  input_bindings[num_input_bindings].idle_only = 0;  /* default; set_input_binding_idle flips it */
   my_strncpy(input_bindings[num_input_bindings].action_id, id,
              S(input_bindings[num_input_bindings].action_id));
   num_input_bindings++;
+  return 0;
+}
+
+/* Phase 3d.1b: install a binding marked "idle only" — the DEV_KEY dispatch skips it
+ * (and the side-effectful graph context) while the editor is busy (semaphore>=2),
+ * reproducing the `if(xctx->semaphore>=2) break;` that guarded these switch chords. */
+static int set_input_binding_idle(int device, int code, int mods, int ctx, const char *id)
+{
+  InputBinding *b;
+  int r = set_input_binding(device, code, mods, ctx, id);
+  b = find_binding(device, code, mods, ctx);
+  if(b) b->idle_only = 1;
+  return r;
+}
+
+/* true if any DEV_KEY binding for this chord is idle-only (busy-skip) */
+static int key_chord_is_idle_only(int code, int mods)
+{
+  int i;
+  for(i = 0; i < num_input_bindings; ++i) {
+    InputBinding *b = &input_bindings[i];
+    if(b->device==DEV_KEY && b->code==code && b->mods==mods && b->idle_only) return 1;
+  }
   return 0;
 }
 
@@ -2512,6 +2537,17 @@ static void init_input_bindings(void)
    * Ctrl+t chord, the guard still serves the Ctrl+<other mods> remainder. */
   set_input_binding(DEV_KEY, 't', 0,           ACTX_OVER_GRAPH, "graph.forward"); /* place text */
   set_input_binding(DEV_KEY, 't', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* new schematic */
+  /* Phase 3d.1b: the semaphore-first chords. Their switch branch is
+   * `if(sem>=2)break; if(waves_selected){...;break;} <canvas>`. Migrate ONLY the graph
+   * routing: an idle_only over_graph row forwards to the graph when idle, and the
+   * dispatch skips it at semaphore>=2 (reproducing the deleted break). Canvas behavior
+   * + the `if(sem>=2)break;` stay in C; only the inline waves guard is deleted.
+   * (plain 's' and Ctrl+r are ALSO cadence_compat-gated — the table can't express that
+   * mode — so they stay in C for now.) */
+  set_input_binding_idle(DEV_KEY, 'a', 0,           ACTX_OVER_GRAPH, "graph.forward"); /* make symbol */
+  set_input_binding_idle(DEV_KEY, 'b', 0,           ACTX_OVER_GRAPH, "graph.forward"); /* merge schematic */
+  set_input_binding_idle(DEV_KEY, 'f', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* property search */
+  set_input_binding_idle(DEV_KEY, 's', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* save */
   input_bindings_initialized = 1;
 }
 
@@ -2650,15 +2686,19 @@ static const char *ctx_name(int ctx)
        : ctx==ACTX_OVER_GRAPH ? "graph" : "?";
 }
 
-/* `xschem bind <wheel|button|key> <code> <mods> <ctx> <action_id>` */
+/* `xschem bind <wheel|button|key> <code> <mods> <ctx> <action_id> [idle]` */
 int action_cmd_bind(int argc, const char **argv)
 {
-  int device, code, mods, ctx;
+  int device, code, mods, ctx, idle = 0;
   ensure_input_bindings();
   if(argc < 7) {
     Tcl_SetResult(interp,
-      "usage: xschem bind <wheel|button|key> <code> <mods> <ctx> <action_id>", TCL_STATIC);
+      "usage: xschem bind <wheel|button|key> <code> <mods> <ctx> <action_id> [idle]", TCL_STATIC);
     return TCL_ERROR;
+  }
+  if(argc >= 8) {
+    if(!strcmp(argv[7], "idle")) idle = 1;
+    else { Tcl_AppendResult(interp, "bind: expected 'idle', got '", argv[7], "'", NULL); return TCL_ERROR; }
   }
   device = parse_device(argv[2]);
   if(device < 0) { Tcl_SetResult(interp, "bind: unknown device", TCL_STATIC); return TCL_ERROR; }
@@ -2676,6 +2716,9 @@ int action_cmd_bind(int argc, const char **argv)
     Tcl_SetResult(interp, "bind: binding table full", TCL_STATIC);
     return TCL_ERROR;
   }
+  /* set idle_only to the requested value explicitly, so re-binding a row flips it both
+   * ways (the replace path in set_input_binding leaves other fields untouched). */
+  { InputBinding *b = find_binding(device, code, mods, ctx); if(b) b->idle_only = idle; }
   Tcl_ResetResult(interp);
   return TCL_OK;
 }
@@ -2717,9 +2760,12 @@ int action_cmd_bindings(int argc, const char **argv)
   for(i = 0; i < num_input_bindings; ++i) {
     InputBinding *b = &input_bindings[i];
     char row[160];
-    my_snprintf(row, S(row), "%s %s %s %s %s",
+    /* Phase 3d.1b: idle_only rows carry a trailing " idle" marker (additive — other
+     * rows are unchanged). */
+    my_snprintf(row, S(row), "%s %s %s %s %s%s",
       device_name(b->device), code_name(b->device, b->code),
-      mods_name(b->mods), ctx_name(b->ctx), b->action_id);
+      mods_name(b->mods), ctx_name(b->ctx), b->action_id,
+      b->idle_only ? " idle" : "");
     Tcl_AppendElement(interp, row);
   }
   return TCL_OK;
@@ -3063,7 +3109,13 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
    * (pointer over a graph), find no row, and do nothing. */
   {
     int kmods = (key < 0xff00) ? rstate : state;
-    if(key_chord_has_binding((int)key, kmods)) {
+    /* Phase 3d.1b: an idle-only chord is skipped while the editor is busy
+     * (semaphore>=2), BEFORE current_input_ctx (=waves_selected, side-effectful)
+     * runs — matching the `if(semaphore>=2) break;` that preceded the waves guard in
+     * these branches. Skipping falls through to the switch, whose own sem check (or
+     * absence of a case) reproduces the old no-op. */
+    if(key_chord_has_binding((int)key, kmods) &&
+       !(xctx->semaphore >= 2 && key_chord_is_idle_only((int)key, kmods))) {
       ActionEvent ae;
       ae.device = DEV_KEY; ae.code = (int)key; ae.mods = kmods;
       ae.ctx = find_binding(DEV_KEY, (int)key, kmods, ACTX_OVER_GRAPH)
@@ -3134,10 +3186,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'a':
       if(rstate == 0) { /* make symbol */
         if(xctx->semaphore >= 2) break;
-        if(waves_selected(event, key, state, button)) {
-          waves_callback(event, mx, my, key, button, aux, state);
-          break;
-        }
+        /* graph routing migrated (Phase 3d.1b): idle_only over_graph -> graph.forward.
+         * The waves guard is deleted; the dispatch skips at sem>=2 (handled above). */
         tcleval("tk_messageBox -type okcancel -parent [xschem get topwindow] "
                 "-message {do you want to make symbol view ?}");
         if(strcmp(tclresult(),"ok")==0)
@@ -3159,10 +3209,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'b':
       if(rstate==0) { /* merge schematic */
         if(xctx->semaphore >= 2) break;
-        if(waves_selected(event, key, state, button)) {
-          waves_callback(event, mx, my, key, button, aux, state);
-          break;
-        }
+        /* graph routing migrated (Phase 3d.1b): idle_only over_graph -> graph.forward. */
         merge_file(0, ""); /* 2nd parameter not used any more for merge 25122002 */
       }
       else if(rstate==ControlMask) { /* toggle show text in symbol (graph routing is data) */
@@ -3317,10 +3364,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
        * handled by the DEV_KEY dispatch above. See init_input_bindings (Phase 3c). */
       if(rstate == ControlMask) { /* search */
         if(xctx->semaphore >= 2) break;
-        if(waves_selected(event, key, state, button)) {
-          waves_callback(event, mx, my, key, button, aux, state);
-          break;
-        }
+        /* graph routing migrated (Phase 3d.1b): idle_only over_graph -> graph.forward. */
         tcleval("property_search");
       }
       else if(EQUAL_MODMASK) { /* flip objects around their anchor points 20171208 */
@@ -3893,10 +3937,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       else if(rstate == ControlMask ){ /* save 20121201 */
         if(xctx->semaphore >= 2) break;
-        if(waves_selected(event, key, state, button)) {
-          waves_callback(event, mx, my, key, button, aux, state);
-          break;
-        }
+        /* graph routing migrated (Phase 3d.1b): idle_only over_graph -> graph.forward. */
         /* check if unnamed schematic, use saveas in this case */
         if(!strcmp(xctx->sch[xctx->currsch],"") || strstr(xctx->sch[xctx->currsch], "untitled")) {
           saveas(NULL, SCHEMATIC);

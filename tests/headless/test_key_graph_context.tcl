@@ -37,16 +37,17 @@ proc keyat  {x y ks} { xschem callback .drw 2 $x $y $ks 0 0 0; update idletasks 
 proc wheelat {x y}   { xschem callback .drw 4 $x $y 0 4 0 0; update idletasks }
 set F 102   ;# keysym for 'f'
 
-# --- the data: 'f' rows exist (canvas->zoom_full, over_graph->forward), and
-#     no migrated row for the Ctrl-f / Alt-f chords (they stay in the C switch) -
+# --- the data: 'f' rows exist (canvas->zoom_full, over_graph->forward). Ctrl-f gained
+#     an over_graph routing row in Phase 3d.1b (property-search canvas behavior stays in
+#     C); Alt-f stays entirely in C. So neither has a CANVAS row. -
 set dump [xschem bindings dump]
 check "canvas f -> view.zoom_full row present" \
   [expr {[lsearch -exact $dump {key 102 0 canvas view.zoom_full}] >= 0}] {}
 check "over_graph f -> graph.forward row present" \
   [expr {[lsearch -exact $dump {key 102 0 graph graph.forward}] >= 0}] {}
-check "no Ctrl-f / Alt-f rows (still in C switch)" \
-  [expr {[lsearch -glob $dump {key 102 ctrl *}] < 0 &&
-         [lsearch -glob $dump {key 102 alt *}]  < 0}] {}
+check "no Ctrl-f / Alt-f CANVAS rows (canvas behavior stays in C)" \
+  [expr {[lsearch -glob $dump {key 102 ctrl canvas *}] < 0 &&
+         [lsearch -glob $dump {key 102 alt canvas *}]  < 0}] {}
 
 # perturb the canvas zoom away from "full" so a subsequent zoom_full is observable
 lassign [screen 870 100] cx cy   ;# below the graph: bare canvas
@@ -288,6 +289,45 @@ set n $::tclcmd_calls; keyat $cx $cy 61
 check "= runs tools.execute_tcl_command (tclcmd)" [expr {$::tclcmd_calls == $n + 1}] "(calls=$::tclcmd_calls)"
 # '$' toggles a C-only flag (draw_pixmap, no tcl var): assert it dispatches without error
 check "\$ (toggle_draw_pixmap) dispatches without error" [expr {![catch {keyat $cx $cy 36}]}] {}
+
+# ---- Phase 3d.1b: semaphore idle_only flag. The 4 deferred sem-first chords (plain a,
+#      plain b, Ctrl+f, Ctrl+s) get an idle_only over_graph -> graph.forward row; the
+#      dispatch skips an idle_only chord while the editor is busy (semaphore>=2), BEFORE
+#      the side-effectful current_input_ctx/waves_selected runs. Their destructive canvas
+#      ops stay in C, so the GATE is proven with a non-destructive probe binding. ----
+set d1b [xschem bindings dump]
+check "4 sem-first chords have idle_only over_graph rows" [expr {
+  [lsearch -exact $d1b {key 97 0 graph graph.forward idle}]    >= 0 &&
+  [lsearch -exact $d1b {key 98 0 graph graph.forward idle}]    >= 0 &&
+  [lsearch -exact $d1b {key 102 ctrl graph graph.forward idle}] >= 0 &&
+  [lsearch -exact $d1b {key 115 ctrl graph graph.forward idle}] >= 0 }] {}
+# a non-idle migrated chord (plain f over_graph) carries NO idle marker
+check "non-idle row has no idle marker" [expr {
+  [lsearch -exact $d1b {key 102 0 graph graph.forward}]      >= 0 &&
+  [lsearch -exact $d1b {key 102 0 graph graph.forward idle}] <  0 }] {}
+
+# The idle gate, proven on a safe probe: bind an UNUSED key (96 = grave) idle_only on
+# canvas to the Tcl-backed counter; it must fire when idle and be skipped when busy.
+check "bind accepts the optional 'idle' token" \
+  [expr {![catch {xschem bind key 96 0 canvas tools.execute_tcl_command idle}]}] {}
+check "the probe binding dumps with idle marker" \
+  [expr {[lsearch -exact [xschem bindings dump] {key 96 0 canvas tools.execute_tcl_command idle}] >= 0}] {}
+lassign [screen 870 100] cx cy
+xschem set semaphore 0
+set n $::tclcmd_calls; keyat $cx $cy 96
+check "idle chord FIRES when editor is idle (sem=0)" [expr {$::tclcmd_calls == $n + 1}] "(calls=$::tclcmd_calls)"
+xschem set semaphore 2
+set n $::tclcmd_calls; keyat $cx $cy 96
+check "idle chord is SKIPPED when editor is busy (sem=2)" [expr {$::tclcmd_calls == $n}] "(calls=$::tclcmd_calls)"
+xschem set semaphore 0
+# regression: a NON-idle migrated chord still fires while busy (gate must not over-reach).
+# Bind key 96 again WITHOUT idle, raise the semaphore, and confirm it still dispatches.
+xschem bind key 96 0 canvas tools.execute_tcl_command
+xschem set semaphore 2
+set n $::tclcmd_calls; keyat $cx $cy 96
+check "non-idle chord still fires when busy (sem=2)" [expr {$::tclcmd_calls == $n + 1}] "(calls=$::tclcmd_calls)"
+xschem set semaphore 0
+xschem unbind key 96 0 canvas
 
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
