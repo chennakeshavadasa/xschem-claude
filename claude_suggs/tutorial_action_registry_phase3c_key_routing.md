@@ -296,8 +296,26 @@ they forward and leave the var untouched.
 | `tests/headless/test_key_graph_context.tcl` | extended to 16 checks: canvas `A` toggles netlist_show / `Ctrl+b` toggles sym_txt, over-graph both forward; rows present; no canvas rows |
 | `claude_suggs/refactor_plan_action_registry_phase3.md` | c4/c5/c6 batch-3 notes |
 
+**Batch 4 — Ctrl+arrow routing (commit `de8ca946`)**
+
+| File | What changed |
+|---|---|
+| `src/callback.c` | 2 `over_graph → graph.forward` rows for `{XK_Left,Ctrl}`/`{XK_Right,Ctrl}`; deleted the waves guard from each Ctrl branch (tab-switch stays in C); the non-Ctrl else branches untouched |
+| `tests/headless/test_key_graph_context.tcl` | 20 checks: Ctrl+arrow rows present / no canvas rows; canvas Ctrl+Right doesn't scroll; over a graph it forwards. Narrowed the batch-2 "no modified-arrow rows" assertion to "...CANVAS rows" |
+
+The `Ctrl`+arrows turned out **exact** (`state == ControlMask`), not a family — so
+they took the Group B delete-the-guard path, not the §9 keep-branch path. (Watch the
+distinction: `Ctrl+t` next to them uses `rstate & ControlMask` and *is* a family.)
+One predictable ripple: adding the over_graph routing rows broke a batch-2 test
+assertion that said "no modified-arrow rows at all" — now over-broad, since
+modified-arrow *routing* rows are exactly what we just added. Re-scoped it to "no
+modified-arrow **canvas** rows" (the real invariant: their canvas pan/tab-switch
+behavior stays in C). This is the recurring lesson from c3 restated: **scope an
+assertion to what the test owns, because the next batch will add the thing the broad
+version forbids.**
+
 Next: the deferred chords — the **semaphore-first** ones (plain `a`, plain `b`, `s`,
 `Ctrl+s`, `Ctrl+f`, `Ctrl+r`) need a semaphore-aware dispatch or to keep their guard;
-the **family** ones (`Ctrl+t`, the `Ctrl`+arrows) keep their branch and add a row,
-like §9. Then Phase 3d: let an action id resolve to a Tcl command, generate the
-cheat-sheet from `xschem bindings dump`, and delete the dead ladders.
+the **family** chord `Ctrl+t` keeps its branch and adds a row, like §9. Then Phase 3d:
+let an action id resolve to a Tcl command, generate the cheat-sheet from
+`xschem bindings dump`, and delete the dead ladders.
