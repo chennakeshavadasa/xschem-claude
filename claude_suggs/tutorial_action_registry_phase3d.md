@@ -61,4 +61,50 @@ counter.
   them from CSV is **d4**.
 
 So d2's eligible-now set is exactly: **pure-global `tcleval` branches with no
-semaphore guard.** Start there.
+semaphore guard.** Start there — but mind the canvas-only subtlety below.
+
+## d2 — canvas-only command keys (commits `525bc94f` refinement, `dd0e5909` batch 1)
+
+`B` was *graph-routed* (it had an `over_graph` row), so the dispatch's
+`current_input_ctx()` call matched its original `waves_selected` guard. The next
+clean keys (`H`, Alt-`h`) are **canvas-only** — they never forwarded to a graph — and
+that exposes a gap.
+
+### The canvas-only bug, and the one-line-idea fix
+
+The DEV_KEY dispatch computed `ae.ctx = current_input_ctx(...)` for *every* bound
+chord. `current_input_ctx` calls `waves_selected`, which (a) has side effects and (b)
+returns `ACTX_OVER_GRAPH` when the pointer is over a graph. For a canvas-only key
+whose case you just deleted, that means: pointer over a graph → ctx `OVER_GRAPH` → no
+`over_graph` row → fall through → no case → **the key silently does nothing**.
+
+Fix: consult the graph context **only when the chord actually has an `over_graph`
+row**.
+
+```c
+ae.ctx = find_binding(DEV_KEY, (int)key, kmods, ACTX_OVER_GRAPH)
+         ? current_input_ctx(event, key, state, button)   /* graph-routed, as before */
+         : ACTX_CANVAS;                                    /* canvas-only: no waves_selected */
+```
+
+This is behavior-equivalent for every key that existed before it (they all had
+`over_graph` rows), and it's the prerequisite that makes canvas-only migration both
+correct and side-effect-free. **Lesson: a uniform "always compute context" is wrong
+once some actions have no graph context — compute it only where it can matter.**
+
+### Batch 1: one whole case + one branch, both backing kinds
+
+- `case 'H'` → deleted whole. Two **C-backed** acts (`attach_labels_to_inst(1)`,
+  `make_schematic_symbol_from_sel()`) — call the exact C functions the switch did, not
+  the Tcl menu equivalents, so behavior is identical.
+- Alt-`h` (`schpins_to_sympins`) → **Tcl-backed**; the branch is deleted but `case 'h'`
+  stays (it still owns the modal constrained-drag and Ctrl-h launcher). `EQUAL_MODMASK`
+  is `Alt|Super`, so it becomes **two** rows (`Mod1Mask`, `Mod4Mask`) — the family
+  lesson from §9 again: one source condition can map to several exact rows.
+
+### Testing canvas-only keys
+
+You can't stub a C action, but you can stub the Tcl one: `proc schpins_to_sympins {}
+{ incr ::n }`. The decisive check is pressing Alt-`h` **over a graph** and asserting it
+*still runs* — that's the bug the refinement prevents, and a plain canvas press
+wouldn't catch it.
