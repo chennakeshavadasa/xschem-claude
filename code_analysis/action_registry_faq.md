@@ -9,6 +9,75 @@ Newest entries on top.
 
 ---
 
+## Q2. Can a user remap the mouse wheel — **Ctrl+wheel = zoom, plain wheel = vertical pan, Shift+wheel = horizontal pan** — via `.xschemrc` / `--script`? (And why didn't the original author's `replace_key` snippet work?)
+
+- **Asked:** 2026-06-08
+- **Project state:** branch `feature/action-registry` @ `bfec8793` (Phase 3a wheel
+  fully data-driven; 3b gestures; 3c c4/c5 first key `f`). Wheel dispatch goes
+  through the in-C binding table (`xschem bind wheel ...`).
+
+**Answer: Yes — fully supported and verified.** Put these in `~/.xschem/xschemrc`
+(or `./.xschemrc`, or a `--script` file):
+
+```tcl
+# zoom with Ctrl+wheel
+xschem bind wheel up   ctrl canvas view.zoom_in
+xschem bind wheel down ctrl canvas view.zoom_out
+# vertical pan with plain wheel
+xschem bind wheel up   0    canvas view.pan_up
+xschem bind wheel down 0    canvas view.pan_down
+# Shift+wheel already pans horizontally (view.pan_left / view.pan_right) by default
+```
+
+Verified against observable state after firing synthetic wheel events
+(`xschem callback .drw 4 <mx> <my> 0 <4|5> 0 <state>`; state 0/1/4 = plain/Shift/Ctrl):
+
+| Input | Result | Verdict |
+|---|---|---|
+| plain wheel | `zoom` unchanged, `yorigin` moves | vertical pan ✅ |
+| Ctrl+wheel  | `zoom` changes                   | zoom ✅ |
+| Shift+wheel | `zoom` unchanged, `xorigin` moves | horizontal pan ✅ |
+
+`xschem bindings dump` reflects the swap. (Swap `up`↔`down` for the opposite scroll
+direction.) Timing is safe: `xschem bind` calls `ensure_input_bindings()`, which
+lazily seeds the defaults *then* applies the override; `init_input_bindings()` is
+guarded by `input_bindings_initialized`, so it never re-runs and clobbers the user's
+rows — order of `.xschemrc` vs GUI bring-up does not matter.
+
+**Why the original author's `replace_key` snippet didn't work.** `replace_key` is a
+separate, *older, Tcl/Tk-level* mechanism (`set_replace_key_binding` →
+`key_binding`, xschem.tcl:10994/1121). It installs a more-specific Tk binding such
+as `<Control-Button-4>` that re-emits an `xschem callback` with a **rewritten
+modifier mask** (e.g. mapping `Control-Button-4` → the state of a plain
+`ButtonPress-4`), tricking the C wheel handler into seeing a different chord. It is
+fragile in ways that bite silently:
+
+- **Tk 8.7 / 9.0 deliver the wheel as `<MouseWheel>`, not `<Button-4/5>`**
+  (xschem.tcl:9981 only binds `<MouseWheel>` when `tclversion > 8.7`). On those
+  builds the `<Control-Button-4>` overrides never fire — the physical event isn't a
+  Button-4 event. **Most likely cause of the failure.**
+- Depends on Tk binding-specificity and on which widget (`.drw` vs the toplevel) the
+  generic `<ButtonPress>` (xschem.tcl:9996/9998) vs the `replace_key` binding land
+  on — subtle, easy to get subtly wrong.
+- Piggybacks on the C button-mask stripping (`callback.c:4507`) as an undocumented
+  implementation detail.
+
+**Why the binding table is robust instead.** It dispatches **in C, after** the
+event is normalized to "wheel up/down + clean modifier mask" — independent of Tk
+version or how Tk delivered the event. It is the intended replacement for
+`replace_key` for wheel/button/(now) key remapping.
+
+**Caveats.**
+1. Over a waveform graph, plain/Shift wheel still routes to the graph
+   (`graph.forward` over_graph rows, unchanged); the canvas rebind only affects
+   bare-canvas wheeling. Ctrl+wheel stays canvas-zoom even over a graph (its branch
+   in `handle_mouse_wheel` forces `ctx=ACTX_CANVAS`).
+2. Keep `graph_use_ctrl_key` at its default `0`. Setting it `1` reserves Ctrl+wheel
+   for graph interaction, and `handle_mouse_wheel` returns early for Ctrl — so the
+   canvas zoom binding won't be reached.
+
+---
+
 ## Q1. Can a user remap the zoom-rectangle gesture from RMB-drag to **Ctrl+RMB-drag** with the current code?
 
 - **Asked:** 2026-06-08
