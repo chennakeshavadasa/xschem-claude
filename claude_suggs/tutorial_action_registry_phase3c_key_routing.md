@@ -210,6 +210,66 @@ does). Rather than "fix" the sign or overload `view.pan_*`, the actions are new
 naturally (`key <Right> 0 canvas view.scroll_right`) and the arithmetic stays
 byte-for-byte.
 
+## 10. Batch 3: the Group B routing-only sweep — two gates on *what you may delete*
+
+Group B keys (`a`, `b`, `A`, `B`, …) keep their canvas behavior in C — opening a
+dialog, toggling a Tcl var, saving a file — and migrate only the **routing**: add an
+`over_graph → graph.forward` row, **no canvas row**, and delete the inline waves
+guard. On the canvas the dispatch finds no row, returns 0, and falls through to the
+unchanged switch branch. This is the inverse of `f` (we keep the behavior, move the
+routing) and it deletes real code — six guards gone here.
+
+But "delete the guard" is only safe under two conditions discovered while scoping,
+both about *ordering and exactness*:
+
+**(1) The semaphore-ordering trap.** `callback()` dispatches `KeyPress →
+handle_key_press` with **no semaphore gate** — the per-branch `if(xctx->semaphore >=
+2) break;` checks live *inside* the switch. The DEV_KEY dispatch runs at the *top* of
+`handle_key_press`, i.e. **before** any of those checks. So if a branch reads
+
+```c
+if(rstate == 0) {                 /* e.g. plain 'a' = make symbol */
+  if(xctx->semaphore >= 2) break; /* (A) busy-guard FIRST */
+  if(waves_selected(...)) { waves_callback(...); break; }  /* (B) graph guard */
+  ...
+}
+```
+
+then at `sem >= 2` the old code took (A) and **never forwarded to the graph**. Hoist
+(B) into the top dispatch and it now forwards at `sem >= 2` — a behavior change. So a
+guard is only migratable when **no semaphore check precedes it** in its branch. `f`
+and the arrows passed this by luck (their guard was first). Within Group B, the
+split is real:
+
+| Migrated now (waves-first) | Deferred (semaphore-first) |
+|---|---|
+| `Ctrl+a`, `A`, `Ctrl+A`, `Ctrl+b`, `B`, `Ctrl+B` | plain `a`, plain `b`, `s`, `Ctrl+s`, `Ctrl+f`, `Ctrl+r` |
+
+The deferred ones need either a semaphore-aware dispatch or to keep their guard — a
+later decision, not a silent one.
+
+**(2) Exact chord vs family (again).** Only branches that match an *exact* chord
+(`rstate == 0` or `rstate == ControlMask`) are deletable, because the `over_graph`
+row I seed (`{key, 0|Ctrl, graph}`) fires for exactly the states the branch matched —
+no leakage. `Ctrl+t` uses `rstate & ControlMask` (any combo *containing* Ctrl); a
+single `{t, Ctrl}` row wouldn't cover `Ctrl+Alt+t`, so deleting its guard would drop
+that chord's forwarding. Deferred, same as the arrows' lesson in §9.
+
+The combined rule now reads:
+
+> Migrate a guard to the table only if (a) nothing with different semantics runs
+> before it in its branch — including a semaphore/`ui_state` check — and (b) the row
+> you seed covers exactly the chord(s) the branch matched. Otherwise defer or keep
+> the branch.
+
+Note the two graph-only branches (`Ctrl+A`, `Ctrl+B`): their *entire* body was the
+waves guard, so after deletion they're empty `else if` stubs (kept, with a comment) —
+the cleanest possible routing migration, since there was never any canvas behavior.
+
+Verified with boolean observables rather than dialogs: `A` (Shift+a) flips
+`netlist_show`, `Ctrl+b` flips `sym_txt` — on the canvas they toggle, over a graph
+they forward and leave the var untouched.
+
 ## Appendix: the change
 
 **Batch 1 — `f` (commit `922001f5`)**
@@ -228,7 +288,16 @@ byte-for-byte.
 | `tests/headless/test_key_graph_context.tcl` | extended to 10 checks: Up=vertical / Right=horizontal scroll on canvas; Up over a graph leaves origin; rows present; no modified-arrow rows |
 | `claude_suggs/refactor_plan_action_registry_phase3.md` | c4/c5/c6 batch-2 notes |
 
-Next: the Group B routing-only sweep (`a`, `A`, `b`, `B`, `s`, tab-switch) — add
-`over_graph` rows + delete the graph guards, leave the dialog/file canvas behavior in
-C. (Those *are* deletable on the graph side because the guard handled exactly the
-over_graph chord.)
+**Batch 3 — Group B routing sweep (commit `9033b95c`)**
+
+| File | What changed |
+|---|---|
+| `src/callback.c` | 6 `over_graph → graph.forward` rows for `Ctrl+a`/`A`/`Ctrl+A`/`Ctrl+b`/`B`/`Ctrl+B`; deleted the inline waves guard from each switch branch (canvas behavior stays in C); −30 net switch lines |
+| `tests/headless/test_key_graph_context.tcl` | extended to 16 checks: canvas `A` toggles netlist_show / `Ctrl+b` toggles sym_txt, over-graph both forward; rows present; no canvas rows |
+| `claude_suggs/refactor_plan_action_registry_phase3.md` | c4/c5/c6 batch-3 notes |
+
+Next: the deferred chords — the **semaphore-first** ones (plain `a`, plain `b`, `s`,
+`Ctrl+s`, `Ctrl+f`, `Ctrl+r`) need a semaphore-aware dispatch or to keep their guard;
+the **family** ones (`Ctrl+t`, the `Ctrl`+arrows) keep their branch and add a row,
+like §9. Then Phase 3d: let an action id resolve to a Tcl command, generate the
+cheat-sheet from `xschem bindings dump`, and delete the dead ladders.
