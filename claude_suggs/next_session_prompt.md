@@ -1,27 +1,31 @@
-# Opening prompt for the next session (Phase 3d — sem-gated full-migration batch 2)
+# Opening prompt for the next session (Phase 3d — sem-gated full-migration batch 3, or pivot to d3)
 
 Committed on branch `feature/action-registry`: 3a (wheel), 3b (right-drag zoom
 gesture), 3c (context-routed keys — complete), 3d.1 (Tcl-command-backed actions; `B`
 out), 3d.2 batches 1-3 (`H`, Alt-h, `y`,`G`,`g`,`T`,`O`, `A`,`L`,`=`,`$`), **3d.1b
-(semaphore `idle_only` flag)** (graph routing of `a`,`b`,`Ctrl+f`,`Ctrl+s`), and **3d.2
-sem-gated batch 1** (`n` netlist+clear, `U` redo, `u` undo — first fully-migrated
-sem-gated command keys via idle_only).
+(semaphore `idle_only` flag)** (graph routing of `a`,`b`,`Ctrl+f`,`Ctrl+s`), **3d.2
+sem-gated batch 1** (`n`,`U`,`u`), and **sem-gated batch 2** (`k`,`K` hilight cluster).
 
-Keys/chords out of the switch so far: **B, H, Alt-h, y, G, g, T, O, A, L, =, $, n, U**
-(whole or branch), **u** (branch); plus graph routing for `f`/arrows/Group-B/`t`/the 4
-sem-first chords.
+Keys/chords out of the switch so far: **B, H, Alt-h, y, G, g, T, O, A, L, =, $, n, U,
+k, K** (whole or branch), **u** (branch); plus graph routing for `f`/arrows/Group-B/`t`/
+the 4 sem-first chords.
 
-The pattern is now established (see `plan_phase3d2_semgated_batch1.md`): a sem-gated
-chord migrates by adding an `idle_only` canvas row → its action and deleting the
+The sem-gated full-migration pattern is established (see
+`plan_phase3d2_semgated_batch1.md` / `_batch2.md`): add an `idle_only` canvas row → the
+action (Tcl-backed reusing a verified-identical csv id, or a C act), delete the
 case/branch; the dispatch skips it at `semaphore>=2` like the old `if(sem>=2)break;`.
-**This session = the NEXT such batch.** Paste the block below into a fresh session.
+**This session = the next sem-gated batch, OR pivot to d3 (cheat-sheet) — your call
+after pre-flight** (d3 is attractive now: it can show idle + would fix the Mod4/Super
+dump-display gap noted below). Paste the block below into a fresh session.
 
 ---
 
 ```
 Goal: scope and implement the NEXT batch of fully-migrated SEMAPHORE-GATED command
-keys (sem-gated batch 2), continuing the idle_only pattern from batch 1
-(plan_phase3d2_semgated_batch1.md). Behavior-preserving, tested, the
+keys (sem-gated batch 3), continuing the idle_only pattern from batches 1-2
+(plan_phase3d2_semgated_batch1.md, _batch2.md). OR, if the clean sem-gated well is
+thinning, pivot to d3 (cheat-sheet from `xschem bindings dump`) — propose with
+reasoning. Behavior-preserving, tested, the
 same rhythm as the d2 batches. No pre-written plan — you scope it, propose 3-5 chords
 with my sign-off, write a short plan doc (mirror claude_suggs/plan_phase3d2_batch3.md),
 then implement.
@@ -44,24 +48,30 @@ PRE-FLIGHT:
    that are sem-gated and OTHERWISE clean (no mouse-coords mousex_snap|mx_double|
    infix_interface, no modal move_objects|new_*|place_|start_line|ui_state, no
    cadence_compat / other untable-able mode condition). Inspect each candidate as-is.
-3. SKIP already-migrated (B,H,Alt-h,y,G,g,T,O,A,L,=,$,n,U,u and the routing-only
+3. SKIP already-migrated (B,H,Alt-h,y,G,g,T,O,A,L,=,$,n,U,u,k,K and the routing-only
    a/b/Ctrl+f/Ctrl+s). DEFER anything cadence_compat-gated (plain s, Ctrl+r),
    param-dependent (`\` fullscreen uses win_path), or that manipulates the semaphore
    directly (q quit, o load, the e/I edit-in-new-window branches) until a mechanism
    exists.
 
-STRONG CANDIDATES for batch 2 (verify against scheduler.c, don't trust) — sem-gated,
-EXPLICIT mod guard (so whole/branch delete is exact), single-fn:
-  `j` (print_hilight_net 1/0/4 across plain/Ctrl/Alt — all sem-gated explicit; but the
-  4th SET_MODMASK&&Ctrl branch has no sem guard + murky reachability, read carefully),
-  `k` (hilight_net — but check if it depends on mouse position; Ctrl=unhilight_net),
-  `K` (delete hilighted nets — read it), `Q` (plain edit_property(1) sem-gated; Ctrl
-  edit_property(2) NOT sem-gated — both dialogs, test via gate not by opening them),
-  `J` (print_hilight_net 2). Prefer C-backed acts calling the exact fn; verify any csv
-  Tcl reuse equals the C call (the `e` trap: xschem descend ≠ the key's descend params).
-  AVOID for now: `?`,`/`,`&`,`>`,`<`,`*`,`:` (UNCONDITIONAL — no mod guard — so
-  whole-delete changes modified-press behavior; additive-only, lower value);
-  `%`/`_` (also unconditional).
+STRONG CANDIDATES for batch 3 (verify against scheduler.c, don't trust) — sem-gated,
+EXPLICIT mod guard, single-fn. The clean well is thinning; remaining decent ones:
+  `j`/`J` (print_hilight_net — but `j`'s 4th branch `SET_MODMASK && state&ControlMask`
+  is a FAMILY with no sem guard → `j` can only BRANCH-migrate plain/Ctrl/Alt and keep
+  the case; `J`'s sole guard is `SET_MODMASK`, also a family → additive/branch),
+  `Q` (plain edit_property(1) sem-gated, Ctrl edit_property(2) NOT — both DIALOGS; test
+  via the gate, don't open them), `i`/`I` (descend_symbol etc. — but Ctrl/Alt branches
+  are dialogs / semaphore-save; branch-migrate the clean plain one), `K`-like leftovers.
+  Prefer reusing a csv Tcl id ONLY after verifying it equals the C branch incl. any
+  redraw tail (the `e` trap: xschem descend ≠ the key's descend params; batch 2 verified
+  every hilight cmd's redraw). Else write a C act.
+  AVOID: `?`,`/`,`&`,`>`,`<`,`*`,`:`,`%`,`_` (UNCONDITIONAL — no mod guard — whole-delete
+  changes modified-press behavior; additive-only).
+
+If the clean well is genuinely thin, PIVOT to d3 (cheat-sheet from `xschem bindings
+dump`): Tcl-side, no switch edits, low risk; it can flag idle_only chords and is the
+right place to FIX the cosmetic `mods_name` Mod4/Super gap (dump prints Mod4 rows as
+mods "0"; teach `mods_name` "super" and `parse_mods` "super"/"mod4" for round-trip).
 
 BACKINGS: call the exact C fn the switch did (C-backed act) OR a global tcl command
 string (Tcl-backed). For a tcleval branch, prefer Tcl-backed reusing an actions.csv id

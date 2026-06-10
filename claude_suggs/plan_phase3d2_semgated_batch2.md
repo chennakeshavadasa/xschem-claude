@@ -1,6 +1,6 @@
 # Phase 3d.2 — sem-gated batch 2 (the hilight cluster: `k`, `K`)
 
-**Status:** proposed. **Branch:** `feature/action-registry`.
+**Status:** DONE (commit `107c1524`). **Branch:** `feature/action-registry`.
 **Predecessors:** d1b (`idle_only` gate, `c806149d`), sem-gated batch 1 (`n`/`U`/`u`,
 `ac558252`). Same pattern as batch 1; see `plan_phase3d2_semgated_batch1.md` and
 `tutorial_action_registry_phase3d.md`.

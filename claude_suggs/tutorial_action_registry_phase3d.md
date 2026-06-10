@@ -250,3 +250,30 @@ batches — `j`/`k` hilight, `Q` edit-attrs, etc., each needing its observable o
 (b) *unconditional* symbol keys (`&`,`>`,`<`,`?`,`/`,`*`) — additive-only, can't
 whole-delete (modified-press caveat); (c) semaphore-manipulating ones (`q` quit, `o`
 load, the `e`/`I` *-in-new-window branches) that need more than a skip-when-busy flag.
+
+## d2 sem-gated batch 2 — the hilight cluster `k`/`K`, idle + non-idle on one key (commit `107c1524`)
+
+Two whole-case deletes (`k`, `K`), all five chords reusing existing `actions.csv` ids
+(`xschem hilight`/`unhilight`/`unhilight_all`/`hilight drill`/`select_hilight_net`) —
+each verified byte-identical to the switch branch *including* the `redraw_hilights(0)`/
+`draw()` tail (read the scheduler branch; the redraw matters).
+
+- **A key can mix idle and non-idle chords.** `k` plain/Ctrl are sem-gated (idle_only),
+  but `k` Alt (`select_hilight_net`) has **no** `if(sem>=2)break;` → a **non-idle** row.
+  The gate is per-chord (`key_chord_is_idle_only(code,mods)`), so at `sem>=2` the idle
+  chords are skipped while Alt-`k` still fires — matching the old switch exactly. Use
+  `set_input_binding` vs `set_input_binding_idle` per chord, not per key.
+- **`EQUAL_MODMASK` → two rows, and `select`-driven ops aren't mouse-driven.** Alt =
+  `EQUAL_MODMASK` = `==Mod1 || ==Mod4` → seed both `Mod1Mask` and `Mod4Mask`. And
+  `hilight_net` reads the **selection** (`rebuild_selected_array`), not the pointer — so
+  it's table-migratable (an action gets no mouse coords). Always check *what a command
+  reads* before assuming it's mouse-bound.
+- **Test a hilight via `bbox_hilighted`.** It's `-100 -100 100 100` when nothing is
+  hilighted and a real bbox otherwise — a clean observable: `select instance 0`, then
+  `k` skipped at `sem=2` / fires at `sem=0`, `K` clears. (Like batch 1's undo/redo via
+  instance count: sem-gated tests want a reversible, gettable state.)
+
+> Cosmetic gap surfaced (not fixed here): `mods_name` in `bindings dump` doesn't render
+> `Mod4Mask` (Super) — those rows print mods `0`. The binding *works* (find_binding uses
+> the stored mods); only the dump string is wrong. Pre-existing since Alt-`h`. Fix when
+> d3 builds the cheat-sheet from the dump (and teach `parse_mods` "super"/"mod4" too).
