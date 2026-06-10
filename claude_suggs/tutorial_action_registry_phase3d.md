@@ -327,3 +327,34 @@ The closing move of the "single source of truth" thread, in two halves.
   backtick to `edit.toggle_stretch` and un-binds `y`, loads it, and drives real
   KeyPress events — the var flips on backtick and stops flipping on `y`. Edit a
   file, the keys obey. That was the Phase-3 starting question, answered.
+
+## d5a — retiring the Phase-2 Tk intercept: one mechanism per key (commit `07c1d4d9`)
+
+The transitional layer finally came out. Phase 2 had Tk-bound four chords above C
+(`u`, `Shift+U`, `Shift+Z`, `Ctrl+z`); the Phase-3 pivot left that in place "for now."
+d5a found the *now* had a cost: a Tk key-detail binding pre-empts the generic
+`<KeyPress>`, so those chords never reached the C dispatch in the real GUI —
+
+- the C rows `u`/`U` gained in sem-gated batch 1 were **shadowed**, and
+- the Tk path had **no idle gate**: pressing `u` while the engine was busy ran
+  `xschem undo` where the original switch (and the C row) did nothing. A real,
+  user-visible divergence — invisible to `xschem callback`-driven tests, because
+  callback bypasses Tk bindings entirely.
+
+The retirement was cheap because d4a had already done the hard part: proving
+`view_zoom(0.0) == view_zoom(CADZOOMSTEP)` meant `Shift+Z`/`Ctrl+z` could reuse
+`view.zoom_in`/`view.zoom_out` as-is. Two new canvas rows; `case 'Z'` deleted whole
+(single exact branch); only the exact `Ctrl` branch of `case 'z'` deleted (plain `z`
+is ui_state-conditioned modal zoom-rect start, Alt-`z` is cadence_compat-gated — both
+stay, per the exact-vs-family rule). `migrated_action_ids` is now an empty list (the
+machinery procs stay: tested, inert, available for a future genuinely-Tcl-only accel).
+`keybindings.csv` regenerated — the d4b drift guard failed until it was, exactly as
+designed.
+
+The test pair flipped its invariant. `test_accelerators` now asserts the four
+sequences have **no** Tk binding, that `event generate` on the same physical chords
+produces the same effects *through the C table*, and — the payoff — that `u` at
+`semaphore=2` does nothing and undoes again at 0. `test_remap` proves runtime remap
+at the Tk-event level via `xschem bind` (file persistence is test_bindings_file's
+job). Lesson recorded: two mechanisms serving one chord WILL diverge; retire the
+transitional one deliberately, and test at the layer where the mechanisms meet.

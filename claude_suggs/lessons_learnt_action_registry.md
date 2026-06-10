@@ -201,6 +201,15 @@ one.**
   it's not a source of truth.
 - **"Data-driven" is a claim about *change*, not *origin*** — dispatch can stay in C;
   what matters is that the *binding* is editable data.
+- **Two dispatch mechanisms for one chord WILL diverge — retire the transitional one
+  on purpose, not by attrition** (d5a). The Phase-2 Tk intercept and the C table both
+  "owned" `u`: the Tk key-detail binding pre-empted the generic `<KeyPress>`, silently
+  shadowing the C row *and* bypassing its idle gate — in the GUI, `u` undid while the
+  engine was busy, where the original switch did nothing. The shadow was invisible to
+  every `xschem callback`-driven test (callback bypasses Tk bindings); only Tk-level
+  introspection (`bind .drw <Key-u>`) and `event generate` could see it. When a
+  migration leaves an old mechanism "temporarily" in place, write down the divergence
+  risk and schedule the retirement — and test at the layer where both mechanisms meet.
 - **Generate every *view* from the live source, not a parallel copy.** The cheat-sheet
   (d3) was rebuilt to read `xschem bindings dump` (what the C dispatch actually does)
   instead of the decorative `actions.csv` `accel` column, which had drifted from the

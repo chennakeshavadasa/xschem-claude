@@ -1,111 +1,86 @@
-# Opening prompt for the next session (Phase 3d — d5: retire the Phase-2 Tk intercept; dead-remnant audit)
+# Opening prompt for the next session (Phase 3d — d5b: dead-remnant audit; then choose a new direction)
 
-Goal: Phase 3d.5 — retire the Phase-2 Tcl keyboard interception so ONE mechanism (the
-C binding table) owns every key, then audit/delete dead remnants. d4 is DONE (d4a
-`7cb366f1` csv single-source, d4b `99564587` file loader): every bound id has a csv
-label, and keybindings.csv/mousebindings.csv remap/un-bind chords at startup.
+Goal: d5b — a small, behavior-preserving audit/cleanup of remnants the migrations left
+behind; then STOP and pick the next direction WITH the user. d5a is DONE (`07c1d4d9`):
+the Phase-2 Tk intercept is retired, migrated_action_ids is empty, Z/Ctrl+z are table
+rows, u/U un-shadowed (and the GUI idle-gate divergence fixed). One mechanism per key.
 
-  d5a (recommended first): RETIRE THE PHASE-2 TK INTERCEPT. `migrated_action_ids`
-      (action_registry.tcl) still Tk-binds u/U/Shift+Z/Ctrl+Z via
-      bind_accelerators_from_table — a Tk binding with a key detail PRE-EMPTS the
-      generic <KeyPress>, so in the real GUI those four chords never reach the C
-      dispatch (the C rows for u/U added in sem-gated batch 1 are shadowed; worse, the
-      Tk path has NO idle gate, so `u` during a busy engine runs `xschem undo` where
-      the C row would be skipped — a real behavior divergence between mechanisms).
-      Plan: (1) seed C rows for the two zoom chords — key 90 (Z; Shift folds into the
-      keysym for letters) mods 0 canvas -> view.zoom_in, and key 122 mods ctrl canvas
-      -> view.zoom_out; d4a PROVED view_zoom(0.0) == view_zoom(CADZOOMSTEP) so the csv
-      commands and C acts are identical (one id, one behavior — see
-      plan_phase3d4a_csv_single_source.md "Reconciles" §2). VERIFY first what case
-      'Z'/'z' in the switch do with those exact chords (delete or keep per the
-      exact-vs-family rule; also re-read `xschem zoom_out` = view_unzoom(0.0) ==
-      act_zoom_out anyway). (2) empty migrated_action_ids (keep the Phase-2 machinery
-      procs — bind_accelerators_from_table/remap_action_accel are tested and become
-      no-ops over an empty list). (3) rewrite/retire test_remap + test_accelerators:
-      their job flips from "Tcl intercept works" to "NO Tk key-detail binding shadows
-      the C table"; remap coverage lives in test_bindings_file. (4) u/U regain their
-      idle gate in the real GUI for free — assert no Tk binding exists for <Key-u> so
-      the C path must serve it.
+  d5b candidates (verify each is PROVABLY dead before deleting; inspect as-is first):
+  - Button2 special-casing in the callback skip logic (noted at Phase 3b as a cleanup
+    candidate; it blocked rebinding zoom-rect to button 2). Re-grep callback.c for
+    Button2 near the top of callback(); understand WHY it skips (autorepeat? pan?)
+    before touching — if it's load-bearing for middle-drag pan, leave it + document.
+  - keys.help vs the generated cheat-sheet: two help texts can disagree (keys.help is
+    hand-written; show_keybindings_help reads the live table). Options: point the old
+    Help menu entry at show_keybindings_help, add a "see also" note, or leave + record.
+    Don't delete keys.help (it documents many un-migrated keys the sheet doesn't show).
+  - Stale comments referencing deleted cases / "fold in at d4" / "not yet in csv"
+    (grep callback.c + action_registry.tcl + actions.csv header; most were updated at
+    d4a/d5a but sweep once).
+  - The Phase-2 machinery (accel_to_tk_sequence, bind_accelerators_from_table,
+    remap_action_accel, accel_bound_seqs): now inert over the empty list. DECIDE with
+    evidence: delete (smaller surface; test_remap no longer uses remap_action_accel)
+    or keep (documented escape hatch). If deleting, also drop the accel column? NO —
+    accel is still DISPLAYED in menus/palette; keep the column, delete only the procs
+    nothing calls. grep first: build_menu_from_table uses accel for -accelerator;
+    palette prints it.
 
-  d5b (audit, small): grep for dead/duplicated remnants the migrations left behind —
-      e.g. the Button2 special-casing noted at Phase 3b (callback.c skip logic),
-      keys.help vs the generated cheat-sheet (two help texts; consider pointing the
-      old Help menu entry at show_keybindings_help or just note the overlap), comments
-      referencing already-deleted cases. Delete only what is provably dead.
-
-  AFTER d5: the well of clean key migrations is dry. Remaining un-migrated chords are
-  structurally parked: dialogs (Q edit-attrs, i/I insert-sym), semaphore-manipulating
-  (q quit, o load, e/I new-window branches), unconditional symbol keys
-  (&/>/</?/:/%/_/* — additive-only), cadence_compat-gated (plain s, Ctrl+r — need a
-  mode axis the plan explicitly resists; revisit only on a concrete user ask).
-  Candidate new directions (ask the user): generate more menus from actions.csv (only
-  File is), an `xschem action <id>` dispatcher so label-only rows become
-  palette-runnable, or a customize-shortcuts dialog writing keybindings.csv.
+  AFTER d5b, the refactor plan's checkboxes are complete. Present the user a short
+  decision menu (do NOT pick unilaterally):
+  a) generate more menus from actions.csv (only File is generated; Edit/View/... are
+     hand-written in xschem.tcl build_widgets) — extends the single-source win.
+  b) `xschem action <id>` C dispatcher so label-only rows (view.scroll_* etc.) become
+     palette-runnable (needs a synthesized ActionEvent; refuse graph.forward).
+  c) accel-column truth: derive the DISPLAYED accelerators from the live table (the
+     reverse of the d3 cheat-sheet: menus show what keys actually do; kills the last
+     hand-maintained accel drift).
+  d) continue migrations only on concrete need (dialog keys, cadence_compat axis for
+     plain s / Ctrl+r) — the clean well is dry; each needs new mechanism.
 
 Behavior-preserving, tested, small commits (split code vs docs). Scope -> short plan
-doc (mirror plan_phase3d4a/b) -> implement.
+doc (mirror plan_phase3d5a_retire_tk_intercept.md) -> implement.
 
 PRE-FLIGHT:
 1. Re-grep callback.c line numbers (they shift every batch).
-2. Read case 'Z' and case 'z' in handle_key_press as they are NOW; verify which exact
-   chords they serve and whether Shift+Z / Ctrl+z are exact (deletable) or families.
-3. Read bind_accelerators_from_table + accel_to_tk_sequence + test_remap +
-   test_accelerators BEFORE emptying migrated_action_ids — know exactly what each
-   test asserts so the rewrite keeps real coverage.
-4. Check whether the Z/z switch branches have `if(sem>=2)break;` — if yes the new
-   rows must be idle_only (and the Tk intercept's missing gate was a second
-   divergence worth recording).
+2. For each d5b candidate: read the code as it is NOW; classify keep/document/delete
+   with the reason; propose the batch before editing.
+3. grep for callers before deleting any proc (test_remap was rewritten at d5a and no
+   longer calls remap_action_accel — verify nothing else does).
 
-BACKINGS: reuse csv ids view.zoom_in / view.zoom_out (C-backed acts already in the
-registry, proven == the csv commands). Don't coin new ids.
-
-TEST (extend test_key_graph_context.tcl or a new smoke):
-- rows present for the new chords; cases deleted/kept per exact-vs-family.
-- live: Shift+Z via `xschem callback` divides zoom by 1.2 (zoom-toward-mouse), Ctrl+z
-  multiplies; u/U still undo/redo via callback at sem=0, skipped at sem=2 (reuse
-  batch-1's instance-count pattern).
-- after emptying migrated_action_ids: `bind .drw <Key-u>` etc. return EMPTY (no Tk
-  shadow); the cheat-sheet is unchanged (it reads the dump).
-- engine run.sh 6/6 + ALL smokes incl. test_bindings_file. NB: regenerate
-  keybindings.csv via save_input_bindings_file after seeding the new rows — the
-  drift guard WILL fail until you do; that is it working, not a flake.
-- Watch for older count/glob assertions tripped by new rows (every batch narrows one).
+TEST:
+- engine run.sh 6/6 + ALL smokes (test_accelerators, test_remap, test_bindings_file,
+  test_keybindings_help, test_key_graph_context, test_mouse_bindings,
+  test_gesture_bindings, test_binding_precedence, test_graph_context, test_palette,
+  dump_file_menu). If a proc is deleted, the deletion IS the test change — make sure
+  no smoke references it.
+- The shipped keybindings.csv/mousebindings.csv are GENERATED: after ANY
+  init_input_bindings change, regenerate via save_input_bindings_file ({key} and
+  {wheel button}) or test_bindings_file fails — by design, not a flake.
 
 Warm-start reads:
-- CLAUDE.md; claude_suggs/refactor_plan_action_registry_phase3.md (d4 DONE, d5 last)
-- claude_suggs/lessons_learnt_action_registry.md (READ FIRST — themed lessons; note
-  the new d4 entries: a deferred "collision" is a hypothesis too, drift-guard for
-  generated defaults, label-only rows, idle in two layers, xschemrc ordering)
-- claude_suggs/plan_phase3d4a_csv_single_source.md + plan_phase3d4b_bindings_file_loader.md
-- claude_suggs/tutorial_action_registry_phase3d.md (d1..d4 chronological)
-- src/action_registry.tcl — migrated_action_ids (~l.168), bind_accelerators_from_table,
-  load/save_input_bindings_file (d4b), generate_keybindings_text
-- src/callback.c — action_registry[] + init_input_bindings (re-grep; ~2325-2600)
-- tests/headless/run.sh; test_bindings_file.tcl (the drift guard)
+- CLAUDE.md; claude_suggs/refactor_plan_action_registry_phase3.md (d5a done, d5b last)
+- claude_suggs/lessons_learnt_action_registry.md (READ FIRST; note the d5a lesson:
+  two dispatch mechanisms for one chord WILL diverge — test at the layer where they
+  meet; `xschem callback` bypasses Tk bindings, `bind .drw <seq>` sees them)
+- claude_suggs/plan_phase3d5a_retire_tk_intercept.md (the retirement just landed)
+- claude_suggs/tutorial_action_registry_phase3d.md (d1..d5a chronological)
+- src/action_registry.tcl (Phase-2 remnants near the top; loader/saver; cheat-sheet)
+- src/callback.c — action_registry[] + init_input_bindings (re-grep; ~2330-2620)
 
 Gotchas (also project memory action-registry.md):
 - GUI: DISPLAY=:0, capture with --pipe: `DISPLAY=:0 ./src/xschem --pipe -q --script F`.
   Drive events: `xschem callback .drw 2 <mx> <my> <keysym> 0 0 <state>` (KeyPress=2;
-  Shift=1,Ctrl=4,Alt=8). kmods=(key<0xff00)?rstate:state; letters strip Shift -> the
-  Shift+Z chord is keysym 90 ('Z') with mods 0; Ctrl+z is keysym 122 mods ctrl.
-- `xschem callback` BYPASSES Tk bindings — it proves the C path, NOT the Tk
-  shadowing. The shadowing claim needs `bind .drw <seq>` introspection (or Tk
-  event generate, which is flaky headless — see test_palette).
-- The shipped keybindings.csv/mousebindings.csv are GENERATED; after ANY
-  init_input_bindings change run save_input_bindings_file for {key} and
-  {wheel button} and commit the regenerated files.
-- Whole-delete a case only when EVERY chord it handled is data-or-noop; else delete
-  the branch and keep the case + break.
+  Shift=1,Ctrl=4,Alt=8); kmods=(key<0xff00)?rstate:state, letters strip Shift.
+  `event generate .drw <seq>` works in these smokes (focus -force .drw first).
+- Whole-delete a case only when EVERY chord it handled is data-or-noop.
 - Commit code and docs separately; don't push or do anything outward-facing without
   asking.
 
 DoD:
-1. d5a scoped + signed off + short plan doc; one mechanism per key in the real GUI.
-2. New zoom rows seeded (+ regenerated keybindings.csv); migrated_action_ids empty;
-   Phase-2 tests rewritten to assert the new invariant (no Tk shadows).
-3. Verified empirically (live zoom/undo behavior + bind introspection); engine 6/6 +
-   all smokes green.
-4. Docs chain updated (plan/tutorial/refactor-plan/memory) + refresh THIS prompt.
+1. d5b audited: each candidate keep/document/delete with evidence; small plan doc.
+2. Anything deleted is provably dead (no callers, no test refs); suite green.
+3. Docs chain updated (plan/tutorial/refactor-plan/memory) + refresh THIS prompt with
+   the user's chosen next direction (a/b/c/d above).
 
-Start with the pre-flight: read case Z/z and the Phase-2 test pair, then propose the
-d5a plan.
+Start with the pre-flight: inspect the four d5b candidates and propose the
+keep/document/delete split.

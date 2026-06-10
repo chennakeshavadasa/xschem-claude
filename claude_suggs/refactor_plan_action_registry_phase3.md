@@ -310,7 +310,16 @@ new context tests) stays green.
   against a fresh save (drift guard), proves the no-op re-load, and proves a fixture
   remap+un-bind changes LIVE key behavior. Note: xschemrc is sourced before the
   `xschem` command exists, so these files are *the* file-remap path.
-- [ ] **d5.** Delete the dead hardcoded ladders once parity is proven
+- [~] **d5. d5a DONE** (commit `07c1d4d9`; plan `plan_phase3d5a_retire_tk_intercept.md`):
+  the Phase-2 Tk intercept is retired — `migrated_action_ids` emptied, its four chords
+  now C rows (`Z`→`view.zoom_in` [case 'Z' deleted whole], `Ctrl+z`→`view.zoom_out`
+  [exact branch deleted; plain `z` modal + cadence_compat snap-cursor stay]; `u`/`U`
+  rows already existed and are now un-shadowed). This fixed a real GUI divergence: the
+  Tk path bypassed the idle gate, so `u` undid while the engine was busy. One dispatch
+  mechanism per key. test_accelerators/test_remap rewritten for the flipped invariant
+  (no Tk key-detail shadows; effects via the C table; idle gate proven on the GUI key).
+  **d5b remaining:** dead-remnant audit — Button2 special-casing (3b note), keys.help
+  vs the generated cheat-sheet, stale comments; delete only what is provably dead.
 
 ## Risks & honest trade-offs
 
