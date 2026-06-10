@@ -1,6 +1,6 @@
 # Phase 3d.2 — sem-gated batch 3 (`j` hilight-list, branch migration)
 
-**Status:** proposed. **Branch:** `feature/action-registry`.
+**Status:** DONE (commit `c5f5b909`). **Branch:** `feature/action-registry`.
 **Predecessors:** d1b (`idle_only`), sem-gated batches 1 (`n`/`U`/`u`, `ac558252`) and
 2 (`k`/`K`, `107c1524`). Same pattern; see `lessons_learnt_action_registry.md` and
 `plan_phase3d2_semgated_batch2.md`.

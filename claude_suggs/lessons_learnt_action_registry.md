@@ -77,6 +77,13 @@ unconditional).
   `:` fire for *any* modifier. A whole-case-delete drops their modified-press behavior
   (e.g. `Ctrl+?`), so they can only be migrated additively (keep the case, add a mods-0
   row the gate shadows) — lower value, deferred.
+- **A case can be part-exact, part-family — migrate the exact branches, keep the case
+  for the family one.** `case 'j'` had three exact sem-gated branches (plain/Ctrl/Alt →
+  `print_hilight_net 1/0/4`) and a fourth `SET_MODMASK && Ctrl` *family* branch (no sem
+  guard). Migrate the three to idle_only rows, delete just those branches, and leave the
+  case holding only the family branch. The kept branch keeps working because no exact
+  row covers `Alt+Ctrl+j`, so it falls through to the switch. Don't let one un-migratable
+  branch block the rest of the key.
 
 ## 4. Semaphore-sensitivity: represent it once, in the data (d1b)
 
