@@ -131,6 +131,23 @@ BUT two confounds invalidate the A/B as run:
    environment sources cadence_style_rc — but the user's interactive launch
    recipe may differ and must be pinned down.
 
+### Follow-up (same day, ~15:50) — both confounds now resolved
+- **rc EXONERATED for the interactive breakage**: user clarifies the upstream
+  test used upstream's pristine cadence_style_rc, AND our xschem run with NO
+  cadence_style_rc at all is still broken interactively. The edited rc is a
+  separate (real but minor) issue — the appended `xschem bind` lines can never
+  work from an rc file — but it is not what breaks interactive use.
+- **Stale binary FIXED**: rebuilt `src/xschem` at 15:49 on the
+  feature/action-registry checkout (only scheduler.c differs between our two
+  branches, so this build is pure 003d0d2d code). On this rebuilt binary the
+  engine harness is 6/6 PASS and the callback-driven smokes
+  (binding_precedence, bindings_file, keybindings_help) are ALL PASS.
+- Net position: upstream-works / ours-broken stands as a genuine signal, with
+  the breakage invisible to every headless/callback-driven layer. The missing
+  datum is the PRECISE interactive symptom (keys dead even after clicking the
+  window? rendering? startup errors on the console?) — blocked on user input
+  after the PC reboot.
+
 ### Revised next actions
 1. PC reboot (user, in progress) — may also clear the focus nondeterminism.
 2. Controlled interactive A/B with confounds removed: pristine
