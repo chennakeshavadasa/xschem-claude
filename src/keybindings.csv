@@ -39,6 +39,8 @@ key,61,0,canvas,tools.execute_tcl_command,
 key,36,0,canvas,view.toggle_draw_pixmap,
 key,116,0,graph,graph.forward,
 key,116,ctrl,graph,graph.forward,
+key,90,0,canvas,view.zoom_in,
+key,122,ctrl,canvas,view.zoom_out,
 key,97,0,graph,graph.forward,1
 key,98,0,graph,graph.forward,1
 key,102,ctrl,graph,graph.forward,1

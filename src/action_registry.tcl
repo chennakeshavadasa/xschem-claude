@@ -163,14 +163,13 @@ proc action_reload {} {
 # or whether the mouse is over a waveform graph stay in C and are NOT listed.
 
 # Action ids whose keyboard shortcut is generated from the table (and so bypass
-# the C handle_key_press chain). Grown one small, empirically-verified batch at a
-# time. Anything not listed here is still handled exactly as before by C.
-set migrated_action_ids {
-  edit.undo
-  edit.redo
-  view.zoom_in
-  view.zoom_out
-}
+# the C handle_key_press chain). RETIRED at Phase 3d.5a: the four Phase-2 chords
+# (u undo, Shift+U redo, Shift+Z zoom in, Ctrl+z zoom out) are now rows in the C
+# input-binding table — a Tk key-detail binding pre-empts the generic <KeyPress>,
+# which both shadowed the C rows and bypassed the idle (busy-skip) gate. The list
+# stays (empty) because the machinery below still works and could serve a future
+# genuinely-Tcl-only accelerator; remapping is now `xschem bind` / keybindings.csv.
+set migrated_action_ids {}
 
 # Translate an accelerator DISPLAY string (e.g. "Ctrl+S", "Shift+Z", "Alt-F",
 # "U") into a real Tk event sequence (e.g. <Control-Key-s>, <Shift-Key-Z>,

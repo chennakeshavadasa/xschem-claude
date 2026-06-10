@@ -2556,6 +2556,13 @@ static void init_input_bindings(void)
    * Ctrl+t chord, the guard still serves the Ctrl+<other mods> remainder. */
   set_input_binding(DEV_KEY, 't', 0,           ACTX_OVER_GRAPH, "graph.forward"); /* place text */
   set_input_binding(DEV_KEY, 't', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* new schematic */
+  /* Phase 3d.5a: the zoom chords the Phase-2 Tk intercept used to own (the intercept
+   * is retired — a Tk key-detail binding pre-empted the generic <KeyPress>, hiding
+   * these keys from this table). view_zoom/view_unzoom(0.0) default their factor to
+   * CADZOOMSTEP, so the acts are identical to the old case 'Z' / Ctrl-'z' branches.
+   * Canvas-only, no semaphore guard in the old code -> plain (non-idle) rows. */
+  set_input_binding(DEV_KEY, 'Z', 0,           ACTX_CANVAS, "view.zoom_in");
+  set_input_binding(DEV_KEY, 'z', ControlMask, ACTX_CANVAS, "view.zoom_out");
   /* Phase 3d.1b: the semaphore-first chords. Their switch branch is
    * `if(sem>=2)break; if(waves_selected){...;break;} <canvas>`. Migrate ONLY the graph
    * routing: an idle_only over_graph row forwards to the graph when idle, and the
@@ -4212,9 +4219,9 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         dbg(1, "callback(): zoom_rectangle call\n");
         zoom_rectangle(START);
       }
-      else if(rstate==ControlMask) { /* zoom out */
-        view_unzoom(0.0);
-      }
+      /* Ctrl-'z' (zoom out) migrated to the binding table (Phase 3d.5a): exact chord,
+       * canvas row -> view.zoom_out. Plain 'z' stays (ui_state-conditioned modal
+       * zoom-rect start) and so does the cadence_compat snap-cursor branch below. */
       else if(EQUAL_MODMASK && cadence_compat) { /* toggle snap-cursor option */
         if(tclgetboolvar("snap_cursor")) {
           tclsetvar("snap_cursor", "0");
@@ -4229,11 +4236,9 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'Z':
-      if(rstate == 0) { /* zoom in */
-        view_zoom(0.0);
-      }
-      break;
+    /* case 'Z' fully migrated to the binding table (Phase 3d.5a): canvas ->
+     * view.zoom_in (modified-Z chords were no-ops before and still are; no row
+     * matches them, and there is no case to fall back to). */
 
     case ' ':
       if(xctx->ui_state & STARTMOVE) {
