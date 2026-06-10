@@ -92,7 +92,10 @@ TEST (extend tests/headless/test_key_graph_context.tcl):
 Warm-start reads:
 - CLAUDE.md; claude_suggs/refactor_plan_action_registry_phase3.md (d1b DONE, d2/d3/d4/d5)
 - claude_suggs/plan_phase3d1b_idle_only.md (the gate; the cadence_compat deferral)
-- claude_suggs/tutorial_action_registry_phase3d.md (all d1/d2/d1b lessons)
+- claude_suggs/lessons_learnt_action_registry.md (THE cross-cutting lessons — read first;
+  themed: behavior-preservation, the dispatch gate, exact-vs-family, idle_only, don't-swap-
+  for-an-equivalent, testing, process. Append to it when a batch teaches something.)
+- claude_suggs/tutorial_action_registry_phase3d.md (all d1/d2/d1b lessons, chronological)
 - src/callback.c — RE-GREP: action_registry[] + find_action_def (~2325-2400); act_* fns
   above it; set_input_binding_idle + key_chord_is_idle_only (~2415-2455);
   init_input_bindings (~2435-2545); the DEV_KEY dispatch gate (~3095) — idle term is
