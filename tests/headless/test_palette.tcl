@@ -18,7 +18,9 @@ palette_refilter
 puts "QUERY '' -> [llength $::palette_rows] results (all commands)"
 destroy .cmd_palette
 
-# 3) the keybinding actually opens the palette
+# 3) the keybinding actually opens the palette (KeyPress delivery needs focus)
+focus -force .drw
+update idletasks
 event generate .drw <Control-Shift-Key-P>
 update idletasks
 puts "EVENT opens palette: [expr {[winfo exists .cmd_palette] ? {yes} : {NO}}]"

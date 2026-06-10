@@ -8,3 +8,28 @@ set snap_cursor 1
 set snap_cursor_size 4
 set persistent_command 1
 set use_cursor_for_selection 1
+
+# to get around not being able to zoom in with CTRL-scrollwheel, suggestion from SS:
+# didn't work :( Claude explained why
+
+# Zoom
+# set replace_key(Control-Button-4) ButtonPress-4
+# set replace_key(Control-Button-5) ButtonPress-5
+
+# Horizontal Pan
+# set replace_key(Shift-Button-4) Shift-ButtonPress-4
+# set replace_key(Shift-Button-5) Shift-ButtonPress-5
+
+# Vertical Pan
+# set replace_key(Button-4) Control-ButtonPress-4
+# set replace_key(Button-5) Control-ButtonPress-5
+
+# Claude suggestions : 
+
+# zoom with Ctrl+wheel
+xschem bind wheel up   ctrl canvas view.zoom_in
+xschem bind wheel down ctrl canvas view.zoom_out
+# vertical pan with plain wheel
+xschem bind wheel up   0    canvas view.pan_up
+xschem bind wheel down 0    canvas view.pan_down
+# (Shift+wheel already pans horizontally — view.pan_left/right — by default, no change needed)

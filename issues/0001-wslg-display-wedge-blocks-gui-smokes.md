@@ -1,10 +1,12 @@
 # Issue 0001 — WSLg display wedge blocks the display-dependent GUI smokes
 
 **Opened:** 2026-06-10
-**Status:** OPEN — WSL restart fixed window MAPPING but not keyboard FOCUS (see
-2026-06-10 post-restart update); user reports interactive breakage on our branches
-but not upstream → code regression back in question; PC reboot pending, then a
-controlled re-test with the confounds below removed
+**Status:** RESOLVED 2026-06-10 — two independent problems, both closed:
+(1) the smoke failures were the WSLg wedge, cleared by the PC reboot (full suite
+green post-reboot); (2) the "broken on our branches, clean upstream/fresh-clone"
+interactive symptom was NOT a code regression at all — it was a poisoned
+`{untitled-1.sch} {1x1+32+32}` entry in `~/.xschem/geometry` plus a stray
+`untitled.sch` in the repo root. See Resolution below.
 **Affects:** verification of `refactor/dispatcher-decomposition` batch 1 (`7ba05ba2`);
 any future work relying on `event generate` / window-mapped smokes
 **Severity:** originally judged environment-only; scope widened — see update
@@ -163,3 +165,68 @@ BUT two confounds invalidate the A/B as run:
    bisect feature/action-registry INTERACTIVELY — the smokes evidently do not
    cover whatever "what one sees" means, so capture it as a new test once
    identified.
+
+## Resolution (2026-06-10, post-reboot)
+
+### The "half-centimeter window" — root cause found, NOT a code regression
+
+The interactive symptom ("xschem window half a centimeter in size" on our
+branches, clean from a fresh clone or 07c1d4d9) was a config/cwd interaction:
+
+1. **xschem persists per-filename window geometry** in `~/.xschem/geometry`,
+   restored by `set_geom` (xschem.tcl ~9522). Its sanity check rejects only
+   off-screen *positions* (`dx/dy > screen-100`), never degenerate *sizes* —
+   a `1x1` geometry passes straight through to `wm geometry`.
+2. **The untitled name depends on the cwd**: `load_schematic` with no file
+   (save.c ~3696) stats `untitled.sch`, `untitled-1.sch`, ... and takes the
+   first name NOT present in the current directory. This repo root contains a
+   stray scratch `untitled.sch` (untracked, Jun 5) → a bare launch from the
+   repo root becomes **`untitled-1.sch`**; a launch from `src/` or a fresh
+   clone becomes `untitled.sch`.
+3. During the WSLg wedge, a 1x1-sized window was saved as
+   `{untitled-1.sch} {1x1+32+32}`. From then on, every launch whose cwd made
+   the name `untitled-1.sch` restored 1x1 — and **re-saved 1x1 on every
+   close**, so the entry self-perpetuated across reboots and rebuilds.
+
+Proven by A/B with the SAME binary at the SAME commit:
+- launch from repo root → `sch=untitled-1.sch geom=1x1+32+32` (broken)
+- launch from `src/`   → `sch=untitled.sch geom=2548x1329+-32+-32` (fine)
+
+So every earlier "commit X works / commit Y broken" observation was actually
+"launched from src/ (or a fresh clone) vs launched from the repo root".
+configure/make/clean had nothing to do with it.
+
+**Fix applied**: deleted the `{untitled-1.sch} {1x1+32+32}` line from
+`~/.xschem/geometry`; verified a repo-root launch now opens at a sane default
+and re-saves a sane entry. The stray `untitled.sch` (has real content) was
+left in place — it is harmless now.
+
+**Hardening candidate (not done)**: `set_geom` could reject sizes below a
+minimum (e.g. <100x100) the same way it rejects off-screen positions. This is
+upstream code; consider proposing it separately.
+
+### Post-reboot suite status — ALL GREEN
+
+The reboot cleared the wedge itself. On `refactor/dispatcher-decomposition`
+(`cae50043` + batch 1):
+- engine harness `tests/headless/run.sh`: 6/6 PASS
+- previously-failing five: test_accelerators, test_remap,
+  test_key_graph_context, test_graph_context, dump_file_menu — ALL PASS
+- rest of the smokes: binding_precedence, bindings_file, gesture_bindings,
+  keybindings_help, mouse_bindings — ALL PASS
+- test_palette: event-generate step needed the same `focus -force .drw` the
+  sibling tests already use (test gap, fixed in test_palette.tcl) — PASS
+
+Batch 1 (`7ba05ba2`) verification is now COMPLETE; dispatcher decomposition can
+proceed to letters d+.
+
+### Coda (2026-06-10) — the cadence_style_rc "cleanup" is a non-issue
+
+User's actual launch recipe: `src/xschem --script src/cadence_style_rc`.
+`--script` files execute AFTER initialization, when the `xschem` Tcl command
+already exists — so the appended `xschem bind wheel ...` lines work as
+intended there (confirmed working: Ctrl+wheel zooms, plain wheel pans
+vertically). The earlier "can never work" caveat applies only to rc-style
+sourcing (`--rcfile` / `~/.xschem/xschemrc`, sourced at xinit.c ~2742 before
+the command is created at ~2845). No cleanup needed; the file is used as a
+post-init script, not an rc. Issue fully closed.

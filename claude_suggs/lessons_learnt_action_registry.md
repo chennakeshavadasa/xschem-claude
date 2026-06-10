@@ -281,7 +281,9 @@ one.**
   an `xschem bind` in xschemrc errors at source time — the supported file-remap path is
   `keybindings.csv`/`mousebindings.csv` (d4b), loaded from xschem.tcl top-level where
   the command exists. `xschem bind` itself needs no xctx (only `ensure_input_bindings`),
-  so top-of-xschem.tcl is early enough.
+  so top-of-xschem.tcl is early enough. By contrast `--script FILE` runs *post*-init,
+  so `xschem bind` there works — `src/xschem --script src/cadence_style_rc` is a
+  supported recipe; which side of init a file runs on decides what's available in it.
 
 ---
 
@@ -296,3 +298,14 @@ concrete example (key/commit) so the lesson stays falsifiable.*
   generate. Bisect environment-vs-code by stashing the change and re-running at
   clean HEAD before touching anything; fix = restart WSL. (Surfaced during
   dispatcher-decomposition batch 1, which it briefly framed.)
+- **"Same code behaves differently per checkout" → diff the launch context, not the
+  tree.** xschem restores main-window geometry per *filename* (`set_geom`,
+  `~/.xschem/geometry` — rejects off-screen positions but not degenerate 1x1 sizes),
+  and the untitled name depends on the *cwd* (`load_schematic` stats `untitled.sch`,
+  `untitled-1.sch`, … and takes the first absent). A stray `untitled.sch` in our repo
+  root plus a wedge-era `{untitled-1.sch} {1x1+32+32}` entry made every repo-root
+  launch open a half-centimeter window — and re-save 1x1 on close, so it survived
+  reboots and rebuilds and looked exactly like a code regression (fresh clones and
+  `src/` launches got `untitled.sch` and were fine). Exonerated with a same-binary
+  A/B from two cwds; fix = delete the poisoned geometry line. Per-filename persisted
+  state keyed by cwd-dependent names is invisible to `make clean`. (Issue 0001.)
