@@ -2684,6 +2684,7 @@ static int parse_mods(const char *s)
     else if(!strcmp(tok, "ctrl") || !strcmp(tok, "control") ||
             !strcmp(tok, "Ctrl") || !strcmp(tok, "Control")) mask |= ControlMask;
     else if(!strcmp(tok, "alt") || !strcmp(tok, "Alt") || !strcmp(tok, "mod1")) mask |= Mod1Mask;
+    else if(!strcmp(tok, "super") || !strcmp(tok, "Super") || !strcmp(tok, "mod4")) mask |= Mod4Mask;
     else return -1;
     tok = strtok(NULL, "+");
   }
@@ -2719,6 +2720,7 @@ static const char *mods_name(int mods)
   if(mods & ControlMask) strcat(buf, buf[0] ? "+ctrl"  : "ctrl");
   if(mods & ShiftMask)   strcat(buf, buf[0] ? "+shift" : "shift");
   if(mods & Mod1Mask)    strcat(buf, buf[0] ? "+alt"   : "alt");
+  if(mods & Mod4Mask)    strcat(buf, buf[0] ? "+super" : "super");
   return buf;
 }
 

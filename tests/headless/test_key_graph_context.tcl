@@ -417,6 +417,17 @@ lassign [screen 870 100] cx cy
 xschem set semaphore 0
 check "j Ctrl (create pins) dispatches without error" [expr {![catch {keyats $cx $cy 106 4}]}] {}
 
+# ---- Phase 3d.3a: bindings dump renders Mod4 as "super" (was "0"); xschem bind/parse
+#      accept "super"/"mod4". The EQUAL_MODMASK siblings (Alt-h/Alt-k) seed a Mod4 row. ----
+set d3a [xschem bindings dump]
+check "Mod4/Super EQUAL_MODMASK siblings render as super" [expr {
+  [lsearch -exact $d3a {key 104 super canvas sym.create_symbol_pins_from_selected_schematic_pins}] >= 0 &&
+  [lsearch -exact $d3a {key 107 super canvas hilight.select_hilight_nets_pins}] >= 0 }] {}
+check "xschem bind super ... round-trips" [expr {
+  ![catch {xschem bind key 122 super canvas view.zoom_full}] &&
+  [lsearch -exact [xschem bindings dump] {key 122 super canvas view.zoom_full}] >= 0 &&
+  [xschem unbind key 122 super canvas] == 1 }] {}
+
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
 exit [expr {$fail == 0 ? 0 : 1}]
