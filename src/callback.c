@@ -2365,6 +2365,13 @@ static const ActionDef action_registry[] = {
   { "file.clear_schematic", NULL, "xschem clear schematic",   "Clear the current schematic" },
   { "edit.redo",            NULL, "xschem redo; xschem redraw", "Redo" },
   { "edit.undo",            NULL, "xschem undo; xschem redraw", "Undo" },
+  /* Phase 3d.2 sem-gated batch 2 — the hilight cluster (k, K). Tcl commands verified
+   * byte-identical to the switch C branches (incl. the redraw_hilights/draw calls). */
+  { "hilight.highlight_selected_net_pins",           NULL, "xschem hilight",            "Highlight selected net/pins" },
+  { "hilight.un_highlight_selected_net_pins",        NULL, "xschem unhilight",          "Un-highlight selected net/pins" },
+  { "hilight.select_hilight_nets_pins",              NULL, "xschem select_hilight_net", "Select highlighted nets/pins" },
+  { "hilight.un_highlight_all_net_pins",             NULL, "xschem unhilight_all",      "Un-highlight all net/pins" },
+  { "hilight.propagate_highlight_selected_net_pins", NULL, "xschem hilight drill",      "Propagate highlight (drill)" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
@@ -2562,6 +2569,15 @@ static void init_input_bindings(void)
   set_input_binding_idle(DEV_KEY, 'n', ControlMask, ACTX_CANVAS, "file.clear_schematic"); /* clear schematic */
   set_input_binding_idle(DEV_KEY, 'U', 0,           ACTX_CANVAS, "edit.redo");            /* redo */
   set_input_binding_idle(DEV_KEY, 'u', 0,           ACTX_CANVAS, "edit.undo");            /* undo */
+  /* Phase 3d.2 sem-gated batch 2: the hilight cluster (k, K), both cases deleted whole.
+   * k/K plain+Ctrl are sem-gated -> idle_only; k Alt (select_hilight_net) has NO sem
+   * guard -> non-idle (EQUAL_MODMASK = Mod1 or Mod4 -> two rows). All canvas-only. */
+  set_input_binding_idle(DEV_KEY, 'k', 0,           ACTX_CANVAS, "hilight.highlight_selected_net_pins");
+  set_input_binding_idle(DEV_KEY, 'k', ControlMask, ACTX_CANVAS, "hilight.un_highlight_selected_net_pins");
+  set_input_binding     (DEV_KEY, 'k', Mod1Mask,    ACTX_CANVAS, "hilight.select_hilight_nets_pins"); /* Alt, non-idle */
+  set_input_binding     (DEV_KEY, 'k', Mod4Mask,    ACTX_CANVAS, "hilight.select_hilight_nets_pins"); /* Super, non-idle */
+  set_input_binding_idle(DEV_KEY, 'K', 0,           ACTX_CANVAS, "hilight.un_highlight_all_net_pins");
+  set_input_binding_idle(DEV_KEY, 'K', ControlMask, ACTX_CANVAS, "hilight.propagate_highlight_selected_net_pins");
   input_bindings_initialized = 1;
 }
 
@@ -3557,39 +3573,15 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'k':
-      if(rstate==0) { /* hilight net */
-        if(xctx->semaphore >= 2) break;
-        xctx->enable_drill=0;
-        hilight_net(0);
-        redraw_hilights(0);
-        /* draw_hilight_net(1); */
-      }
-      else if(EQUAL_MODMASK) { /* select whole net (all attached wires/labels/pins) */
-        select_hilight_net();
-      }
-      else if(rstate==ControlMask) { /* unhilight net */
-        if(xctx->semaphore >= 2) break;
-        unhilight_net();
-      }
-      break;
+    /* case 'k' fully migrated to the binding table (Phase 3d.2 sem-gated batch 2):
+     * plain -> hilight.highlight_selected_net_pins (idle), Ctrl ->
+     * hilight.un_highlight_selected_net_pins (idle), Alt -> hilight.select_hilight_nets_pins
+     * (non-idle, Mod1/Mod4). All Tcl-backed, identical to the old C calls.
+     * See init_input_bindings. */
 
-    case 'K':
-      if(rstate == 0) { /* delete hilighted nets */
-        if(xctx->semaphore >= 2) break;
-        xctx->enable_drill=0;
-        clear_all_hilights();
-        /* undraw_hilight_net(1); */
-        draw();
-      }
-      else if(rstate == ControlMask) { /* hilight net drilling thru elements with 'propag=' prop set on pins */
-        if(xctx->semaphore >= 2) break;
-        xctx->enable_drill=1;
-        hilight_net(0);
-        redraw_hilights(0);
-        /* draw_hilight_net(1); */
-      }
-      break;
+    /* case 'K' fully migrated to the binding table (Phase 3d.2 sem-gated batch 2):
+     * plain -> hilight.un_highlight_all_net_pins (idle), Ctrl ->
+     * hilight.propagate_highlight_selected_net_pins (drill, idle). See init_input_bindings. */
 
     case 'l':
       if(/* !xctx->ui_state && */ rstate == 0) { /* start line */

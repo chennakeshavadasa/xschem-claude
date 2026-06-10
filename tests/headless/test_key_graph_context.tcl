@@ -365,6 +365,41 @@ xschem set semaphore 0
 # clear-schematic (Ctrl+n) and netlist (n) are not key-pressed here: clear pops a confirm
 # dialog and netlist -erc writes files — their data rows above are the assertion.
 
+# ---- Phase 3d.2 sem-gated batch 2: hilight cluster k, K (both cases deleted whole).
+#      All Tcl-backed reusing verified-identical csv ids. k/K plain+Ctrl are sem-gated
+#      -> idle_only; k Alt (select_hilight_net) has no sem guard -> non-idle. ----
+set hl [xschem bindings dump]
+check "batch-2 hilight idle_only rows present" [expr {
+  [lsearch -exact $hl {key 107 0 canvas hilight.highlight_selected_net_pins idle}]       >= 0 &&
+  [lsearch -exact $hl {key 107 ctrl canvas hilight.un_highlight_selected_net_pins idle}] >= 0 &&
+  [lsearch -exact $hl {key 75 0 canvas hilight.un_highlight_all_net_pins idle}]          >= 0 &&
+  [lsearch -exact $hl {key 75 ctrl canvas hilight.propagate_highlight_selected_net_pins idle}] >= 0 }] {}
+# Alt-k (select_hilight_net) is NON-idle (no " idle" marker). NOTE: the Mod4/Super row
+# dumps with mods "0" (mods_name doesn't render Mod4 yet — cosmetic, like Alt-h), so we
+# assert the Mod1/alt row only.
+check "batch-2 Alt-k row present and NON-idle" [expr {
+  [lsearch -exact $hl {key 107 alt canvas hilight.select_hilight_nets_pins}]      >= 0 &&
+  [lsearch -glob  $hl {key 107 alt canvas hilight.select_hilight_nets_pins idle}] <  0 }] {}
+check "batch-2 k/K canvas-only (no graph rows)" [expr {
+  [lsearch -glob $hl {key 107 * graph *}] < 0 &&
+  [lsearch -glob $hl {key 75 * graph *}]  < 0 }] {}
+
+# Idle gate on real hilight keys via bbox_hilighted ("-100 -100 100 100" = nothing hilighted).
+lassign [screen 870 100] cx cy
+set none {-100 -100 100 100}
+xschem unhilight_all
+xschem select instance 0
+xschem set semaphore 2
+keyat $cx $cy 107
+check "k (hilight) is SKIPPED when busy (sem=2)" [expr {[xschem get bbox_hilighted] eq $none}] "(bbox=[xschem get bbox_hilighted])"
+xschem set semaphore 0
+keyat $cx $cy 107
+check "k (hilight) FIRES when idle (sem=0)" [expr {[xschem get bbox_hilighted] ne $none}] "(bbox=[xschem get bbox_hilighted])"
+keyat $cx $cy 75
+check "K (clear hilights, idle) clears" [expr {[xschem get bbox_hilighted] eq $none}] "(bbox=[xschem get bbox_hilighted])"
+xschem unhilight_all
+xschem set semaphore 0
+
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
 exit [expr {$fail == 0 ? 0 : 1}]
