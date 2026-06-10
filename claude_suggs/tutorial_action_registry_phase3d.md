@@ -358,3 +358,31 @@ produces the same effects *through the C table*, and — the payoff — that `u`
 at the Tk-event level via `xschem bind` (file persistence is test_bindings_file's
 job). Lesson recorded: two mechanisms serving one chord WILL diverge; retire the
 transitional one deliberately, and test at the layer where the mechanisms meet.
+
+## d5b — the audit that closes the plan (commit `c36437c2`)
+
+Four remnants, four different verdicts — the point of an audit is that "leftover" and
+"dead" are not synonyms:
+
+- **Deleted:** the Phase-2 accel machinery (151 lines). Inert since d5a, and the
+  escape-hatch argument for keeping it dissolved on inspection: a "genuinely Tcl-only
+  accelerator" is served strictly better by a Tcl-backed action id + `xschem bind`
+  row (idle gate, dump, cheat-sheet, file persistence — the Tk path had none of
+  those). The `accel` CSV *column* survives: menus and the palette display it.
+- **Kept + documented:** the Button2 skips in `waves_selected`. They looked like the
+  3b-era wart that blocked rebinding zoom-rect to the middle button, but they're
+  load-bearing: Button2 is the canvas pan gesture, and panning must keep working
+  with the pointer over a waveform graph. The comment now says so, and notes the
+  skips leave with the pan gesture if it's ever table-migrated.
+- **Kept + cross-referenced:** keys.help. It documents *all* defaults, including the
+  many keys still dispatched by the C switch, which the generated sheet (by design)
+  doesn't list. Its new header points at the live sheet and the remap files.
+- **Swept:** the comments that still described the pre-Phase-3 world (the
+  action_registry.tcl header claiming the C keysym dispatcher was "untouched").
+
+With that, every checkbox in the Phase-3 plan is closed: wheel (3a), gestures (3b),
+contexts (3c), Tcl-backed actions + idle gate + batches + cheat-sheet + csv
+unification + file remap + single-mechanism cleanup (3d). What remains in the switch
+is there because the data model can't honestly express it yet — and the next move
+(more generated menus, palette-runnable C actions, accels derived from the live
+table, or nothing) is a product decision, not a refactoring one.

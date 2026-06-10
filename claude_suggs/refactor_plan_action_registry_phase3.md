@@ -318,8 +318,17 @@ new context tests) stays green.
   Tk path bypassed the idle gate, so `u` undid while the engine was busy. One dispatch
   mechanism per key. test_accelerators/test_remap rewritten for the flipped invariant
   (no Tk key-detail shadows; effects via the C table; idle gate proven on the GUI key).
-  **d5b remaining:** dead-remnant audit — Button2 special-casing (3b note), keys.help
-  vs the generated cheat-sheet, stale comments; delete only what is provably dead.
+  **d5b DONE** (commit `c36437c2`; verdicts in `plan_phase3d5b_dead_remnant_audit.md`):
+  Phase-2 accel machinery DELETED (151 lines, strictly superseded by Tcl-backed action
+  ids + `xschem bind`/keybindings.csv; `accel` column stays — display only); Button2
+  skips in `waves_selected` KEPT + documented (middle-drag pan must work over graphs);
+  keys.help KEPT + cross-referenced to the generated sheet; stale-comment sweep.
+
+**PHASE 3 PLAN COMPLETE (2026-06-10).** Remaining un-migrated chords are structurally
+parked (dialogs, semaphore-manipulating, unconditional symbol keys, cadence_compat) —
+revisit on concrete need. Next direction is a user decision: (a) generate more menus
+from actions.csv, (b) `xschem action <id>` palette dispatcher, (c) derive displayed
+accels from the live table, (d) need-driven migrations only.
 
 ## Risks & honest trade-offs
 
