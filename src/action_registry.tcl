@@ -301,6 +301,88 @@ proc remap_action_accel {id new_accel {topwin .drw}} {
   return [accel_to_tk_sequence $new_accel]
 }
 
+# --- loadable input-binding files (Phase 3d.4b) -------------------------------
+# keybindings.csv / mousebindings.csv hold one chord per row,
+#   device,code,mods,ctx,action,idle
+# in exactly the `xschem bind` token vocabulary: device key|wheel|button; code =
+# X keysym number, button number, or up|down (wheel); mods 0 or ctrl|alt|shift|
+# super joined by '+'; ctx canvas|graph|global; idle 1 = skip while busy. An
+# action of '-' UN-binds the chord. The rows are replayed through `xschem bind`/
+# `xschem unbind` once at startup (load_input_bindings below), so editing a file
+# remaps or disables any default without recompiling. The shipped files in
+# XSCHEM_SHAREDIR are GENERATED from the built-in C table by
+# save_input_bindings_file and load as a no-op when untouched; copies in
+# USER_CONF_DIR are loaded after them and win.
+
+# Replay one binding file. Returns the number of rows applied; a malformed row
+# warns on stderr and is skipped (a typo in a user file must not break startup).
+proc load_input_bindings_file {path} {
+  if {![file exists $path]} { return 0 }
+  set fp [open $path r]
+  set data [read $fp]
+  close $fp
+  set n 0
+  set header {}
+  foreach line [split $data "\n"] {
+    if {$line eq {}} continue
+    if {[string index $line 0] eq "#"} continue
+    set fields [action_parse_csv_line $line]
+    if {$header eq {}} { set header $fields; continue }
+    lassign $fields device code mods ctx action idle
+    if {$action eq {}} {
+      puts stderr "input bindings: $path: row without an action: $line"
+      continue
+    }
+    if {$action eq "-"} {
+      set cmd [list xschem unbind $device $code $mods $ctx]
+    } else {
+      set cmd [list xschem bind $device $code $mods $ctx $action]
+      if {$idle eq "1" || $idle eq "idle"} { lappend cmd idle }
+    }
+    if {[catch $cmd err]} {
+      puts stderr "input bindings: $path: $err ($line)"
+      continue
+    }
+    incr n
+  }
+  return $n
+}
+
+# Startup entry point: share-dir defaults first, then the user's overrides.
+proc load_input_bindings {} {
+  global XSCHEM_SHAREDIR USER_CONF_DIR
+  set n 0
+  foreach dir [list $XSCHEM_SHAREDIR $USER_CONF_DIR] {
+    foreach f {keybindings.csv mousebindings.csv} {
+      incr n [load_input_bindings_file [file join $dir $f]]
+    }
+  }
+  return $n
+}
+
+# Write the LIVE binding table (`xschem bindings dump`) as a loadable csv,
+# keeping only the listed devices (e.g. {key} -> keybindings.csv,
+# {wheel button} -> mousebindings.csv). This is the generator for the shipped
+# default files: regenerate them after changing the built-in C table so the
+# files never drift from the builtins (the smoke test diffs them).
+proc save_input_bindings_file {path devices} {
+  set fp [open $path w]
+  puts $fp "# Generated from the built-in binding table by save_input_bindings_file;"
+  puts $fp "# loaded at startup (after which a USER_CONF_DIR copy is loaded and wins)."
+  puts $fp "# Edit a row to remap a chord; set action to '-' to un-bind it."
+  puts $fp "# device key|wheel|button; code = X keysym / button number / up|down;"
+  puts $fp "# mods 0 or ctrl|alt|shift|super joined by '+'; ctx canvas|graph|global;"
+  puts $fp "# idle 1 = chord is skipped while the editor is busy."
+  puts $fp "device,code,mods,ctx,action,idle"
+  foreach row [xschem bindings dump] {
+    lassign $row dev code mods ctx id idle
+    if {[lsearch -exact $devices $dev] < 0} continue
+    set i [expr {$idle eq "idle" ? "1" : ""}]
+    puts $fp "$dev,$code,$mods,$ctx,$id,$i"
+  }
+  close $fp
+}
+
 # --- generated keybindings cheat-sheet ---------------------------------------
 # Phase 3d.3: the cheat-sheet is now a generated *view of the live binding table*
 # (`xschem bindings dump`), so it can never drift from what the C dispatch actually

@@ -1,0 +1,18 @@
+# Generated from the built-in binding table by save_input_bindings_file;
+# loaded at startup (after which a USER_CONF_DIR copy is loaded and wins).
+# Edit a row to remap a chord; set action to '-' to un-bind it.
+# device key|wheel|button; code = X keysym / button number / up|down;
+# mods 0 or ctrl|alt|shift|super joined by '+'; ctx canvas|graph|global;
+# idle 1 = chord is skipped while the editor is busy.
+device,code,mods,ctx,action,idle
+wheel,up,0,canvas,view.zoom_in,
+wheel,down,0,canvas,view.zoom_out,
+wheel,up,shift,canvas,view.pan_left,
+wheel,down,shift,canvas,view.pan_right,
+wheel,up,ctrl,canvas,view.pan_up,
+wheel,down,ctrl,canvas,view.pan_down,
+button,3,0,canvas,view.zoom_rect,
+wheel,up,0,graph,graph.forward,
+wheel,down,0,graph,graph.forward,
+wheel,up,shift,graph,graph.forward,
+wheel,down,shift,graph,graph.forward,

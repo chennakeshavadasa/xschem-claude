@@ -1,0 +1,59 @@
+# Generated from the built-in binding table by save_input_bindings_file;
+# loaded at startup (after which a USER_CONF_DIR copy is loaded and wins).
+# Edit a row to remap a chord; set action to '-' to un-bind it.
+# device key|wheel|button; code = X keysym / button number / up|down;
+# mods 0 or ctrl|alt|shift|super joined by '+'; ctx canvas|graph|global;
+# idle 1 = chord is skipped while the editor is busy.
+device,code,mods,ctx,action,idle
+key,102,0,canvas,view.zoom_full,
+key,102,0,graph,graph.forward,
+key,65362,0,canvas,view.scroll_up,
+key,65362,0,graph,graph.forward,
+key,65364,0,canvas,view.scroll_down,
+key,65364,0,graph,graph.forward,
+key,65361,0,canvas,view.scroll_left,
+key,65361,0,graph,graph.forward,
+key,65363,0,canvas,view.scroll_right,
+key,65363,0,graph,graph.forward,
+key,65361,ctrl,graph,graph.forward,
+key,65363,ctrl,graph,graph.forward,
+key,97,ctrl,graph,graph.forward,
+key,65,0,graph,graph.forward,
+key,65,ctrl,graph,graph.forward,
+key,98,ctrl,graph,graph.forward,
+key,66,0,graph,graph.forward,
+key,66,ctrl,graph,graph.forward,
+key,66,0,canvas,prop.edit_header_license_text,
+key,72,0,canvas,sym.attach_net_labels_to_component_instance,
+key,72,ctrl,canvas,sym.make_schematic_and_symbol_from_selected_components,
+key,104,alt,canvas,sym.create_symbol_pins_from_selected_schematic_pins,
+key,104,super,canvas,sym.create_symbol_pins_from_selected_schematic_pins,
+key,121,0,canvas,edit.toggle_stretch,
+key,103,0,canvas,view.snap_half,
+key,71,0,canvas,view.snap_double,
+key,84,0,canvas,prop.toggle_ignore_attribute_on_selected_instances,
+key,79,0,canvas,view.toggle_colorscheme,
+key,65,0,canvas,view.toggle_show_netlist,
+key,76,0,canvas,edit.toggle_orthogonal_wiring,
+key,61,0,canvas,tools.execute_tcl_command,
+key,36,0,canvas,view.toggle_draw_pixmap,
+key,116,0,graph,graph.forward,
+key,116,ctrl,graph,graph.forward,
+key,97,0,graph,graph.forward,1
+key,98,0,graph,graph.forward,1
+key,102,ctrl,graph,graph.forward,1
+key,115,ctrl,graph,graph.forward,1
+key,110,0,canvas,toolbar.netlist,1
+key,110,ctrl,canvas,file.clear_schematic,1
+key,85,0,canvas,edit.redo,1
+key,117,0,canvas,edit.undo,1
+key,107,0,canvas,hilight.highlight_selected_net_pins,1
+key,107,ctrl,canvas,hilight.un_highlight_selected_net_pins,1
+key,107,alt,canvas,hilight.select_hilight_nets_pins,
+key,107,super,canvas,hilight.select_hilight_nets_pins,
+key,75,0,canvas,hilight.un_highlight_all_net_pins,1
+key,75,ctrl,canvas,hilight.propagate_highlight_selected_net_pins,1
+key,106,0,canvas,sym.list.print_list_of_highlight_nets,1
+key,106,ctrl,canvas,sym.list.create_pins_from_highlight_nets,1
+key,106,alt,canvas,sym.list.create_labels_from_highlight_nets,1
+key,106,super,canvas,sym.list.create_labels_from_highlight_nets,1

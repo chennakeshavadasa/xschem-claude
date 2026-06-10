@@ -10175,6 +10175,11 @@ proc load_raw {{type {}}} {
 # the command palette. Loaded once at startup; build_widgets consumes it per window.
 source $XSCHEM_SHAREDIR/action_registry.tcl
 load_action_table
+# Replay keybindings.csv / mousebindings.csv (share-dir defaults, then the user's
+# USER_CONF_DIR copies) through `xschem bind` -- file-editable input remapping.
+# The shipped defaults mirror the built-in C table, so this is a no-op until a
+# file is edited or a user copy exists (Phase 3d.4b).
+load_input_bindings
 
 proc build_widgets { {topwin {} } } {
   global canvas_height canvas_width
