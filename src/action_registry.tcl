@@ -305,8 +305,10 @@ proc remap_action_accel {id new_accel {topwin .drw}} {
 # Phase 3d.3: the cheat-sheet is now a generated *view of the live binding table*
 # (`xschem bindings dump`), so it can never drift from what the C dispatch actually
 # does. The decorative actions.csv `accel` column is no longer consulted; only the
-# human-readable `label` is joined in (by action id). Rows whose action id isn't in
-# actions.csv yet (C-registered ids, folded in at d4) fall back to showing the id.
+# human-readable `label` is joined in (by action id). Since d4a every bound id has
+# an actions.csv row; the show-the-id fallback below stays as a safety net so a
+# freshly-coined C id is still visible (and flagged by the smoke test) before its
+# csv row lands.
 
 # Render one binding signature (device, keysym/code, mods) as a readable chord, e.g.
 # {key 107 ctrl} -> "Ctrl+k", {wheel up 0} -> "Wheel up", {button 3 0} -> "Button 3".
@@ -392,6 +394,9 @@ proc palette_refilter {} {
   set scored {}
   foreach row $action_table {
     if {[dict get $row type] ne {command}} continue
+    # label-only rows (empty command) describe binding-table-backed actions; they
+    # carry cheat-sheet metadata, not something the palette could run -> skip.
+    if {[dict get $row command] eq {}} continue
     if {$q eq {}} {
       lappend scored [list 0 $row]
       continue

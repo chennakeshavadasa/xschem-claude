@@ -192,13 +192,15 @@ check "over-graph t forwards (no place_text)" \
   "(ui_state $u0 -> [xschem get ui_state])"
 
 # ---- Phase 3d.1: Tcl-command-backed action ('B' = edit header). The whole case 'B'
-#      is gone from the switch; canvas -> sch.edit_header (tcleval), graph -> forward.
+#      is gone from the switch; canvas -> prop.edit_header_license_text (tcleval; id
+#      renamed at d4a to the pre-existing actions.csv id), graph -> forward.
 #      Stub the real proc so the effect is observable without opening the dialog. ----
 set ::hdr_calls 0
 proc update_schematic_header {} { incr ::hdr_calls }
-check "B canvas row -> sch.edit_header" \
-  [expr {[lsearch -exact $dump {key 66 0 canvas sch.edit_header}] >= 0}] {}
-check "bind accepts a Tcl-backed id" [expr {![catch {xschem bind key 66 0 canvas sch.edit_header}]}] {}
+check "B canvas row -> prop.edit_header_license_text" \
+  [expr {[lsearch -exact $dump {key 66 0 canvas prop.edit_header_license_text}] >= 0}] {}
+check "bind accepts a Tcl-backed id" \
+  [expr {![catch {xschem bind key 66 0 canvas prop.edit_header_license_text}]}] {}
 check "bind still rejects an unknown id" [catch {xschem bind key 66 0 canvas no.such.action}] {}
 
 # canvas 'B' runs the Tcl command; over a graph it forwards (command NOT run)

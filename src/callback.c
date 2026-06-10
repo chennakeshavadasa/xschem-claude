@@ -2336,8 +2336,9 @@ static const ActionDef action_registry[] = {
   { "view.scroll_right", act_scroll_right, NULL, "Scroll right (Right arrow)" },
   { "view.zoom_rect", act_zoom_rect_start, NULL, "Zoom to rectangle (drag)" },
   { "graph.forward",  act_graph_forward,   NULL, "Forward event to the waveform graph" },
-  /* Tcl-backed (Phase 3d.1): fn is NULL, the dispatch runs `tcl` via tcleval. */
-  { "sch.edit_header", NULL, "update_schematic_header", "Edit schematic header/license" },
+  /* Tcl-backed (Phase 3d.1): fn is NULL, the dispatch runs `tcl` via tcleval.
+   * (id renamed at d4a to the pre-existing actions.csv id for the same command.) */
+  { "prop.edit_header_license_text", NULL, "update_schematic_header", "Edit schematic header/license" },
   /* Phase 3d.2 — canvas-only symbol commands (C-backed and Tcl-backed). */
   { "sym.attach_net_labels_to_component_instance", act_attach_labels, NULL,
     "Attach net labels to selected instances" },
@@ -2345,16 +2346,16 @@ static const ActionDef action_registry[] = {
     "Make schematic and symbol from selected components" },
   { "sym.create_symbol_pins_from_selected_schematic_pins", NULL, "schpins_to_sympins",
     "Create symbol pins from selected schematic pins" },
-  /* Phase 3d.2 batch 2 — clean canvas-only command keys (C-backed). The two view.snap_*
-   * and edit.toggle_stretch ids are new (not yet in actions.csv; fold in at d4). */
+  /* Phase 3d.2 batch 2 — clean canvas-only command keys (C-backed). All ids below
+   * have actions.csv rows (label/help metadata) since d4a. */
   { "edit.toggle_stretch", act_toggle_stretch, NULL, "Toggle stretching of attached wires" },
   { "view.snap_half",   act_snap_half,   NULL, "Halve the snap factor" },
   { "view.snap_double", act_snap_double, NULL, "Double the snap factor" },
   { "prop.toggle_ignore_attribute_on_selected_instances", act_toggle_ignore, NULL,
     "Toggle *_ignore attribute on selected instances" },
   { "view.toggle_colorscheme", act_toggle_colorscheme, NULL, "Toggle light/dark colorscheme" },
-  /* Phase 3d.2 batch 3 — three C-backed (new ids, fold into actions.csv at d4) plus
-   * `=` reusing the csv id tools.execute_tcl_command (Tcl-backed -> "tclcmd"). */
+  /* Phase 3d.2 batch 3 — three C-backed plus `=` reusing the csv id
+   * tools.execute_tcl_command (Tcl-backed -> "tclcmd"). */
   { "view.toggle_show_netlist", act_toggle_show_netlist, NULL, "Toggle the show-netlist window" },
   { "edit.toggle_orthogonal_wiring", act_toggle_orthogonal_wiring, NULL, "Toggle orthogonal (manhattan) wiring" },
   { "view.toggle_draw_pixmap", act_toggle_draw_pixmap, NULL, "Toggle pixmap (off-screen) drawing" },
@@ -2527,7 +2528,7 @@ static void init_input_bindings(void)
   set_input_binding(DEV_KEY, 'B', ControlMask, ACTX_OVER_GRAPH, "graph.forward"); /* graph-only (hcursor2) */
   /* Phase 3d.1: 'B' canvas behavior is now a Tcl-backed action; with this row the
    * whole `case 'B'` is data and was deleted from the switch (first fully-migrated key). */
-  set_input_binding(DEV_KEY, 'B', 0,           ACTX_CANVAS,     "sch.edit_header");
+  set_input_binding(DEV_KEY, 'B', 0,           ACTX_CANVAS,     "prop.edit_header_license_text");
   /* Phase 3d.2: canvas-only command keys (no over_graph row — they never forwarded
    * to a graph). With the dispatch refinement, a canvas-only chord uses ACTX_CANVAS
    * directly, so deleting their switch cases is correct even over a graph. */
@@ -3279,7 +3280,8 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       break;
 
     /* case 'B' fully migrated to the binding table (Phase 3d.1): canvas ->
-     * sch.edit_header (Tcl-backed), graph -> graph.forward. See init_input_bindings. */
+     * prop.edit_header_license_text (Tcl-backed), graph -> graph.forward.
+     * See init_input_bindings. */
 
     case 'c':
       /* duplicate selection */
