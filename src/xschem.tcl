@@ -9554,8 +9554,10 @@ proc set_geom {win {filename {}}} {
     set n [scan $geom {%dx%d+%d+%d} x y dx dy]
     if {$n == 4} {
       # puts "xmax=$xmax, ymax=$ymax, x=$x, y=$y dx=$dx dy=$dy"
-      # off screen. do not use.
-      if { $dx > $xmax - 100 || $dy > $ymax - 100} {
+      # off screen or degenerate size (e.g. 1x1 saved while a compositor was
+      # wedged — would restore an unusable window and re-save itself on close).
+      # do not use.
+      if { $dx > $xmax - 100 || $dy > $ymax - 100 || $x < 100 || $y < 100} {
         set geom {}
       }
     }

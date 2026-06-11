@@ -201,9 +201,20 @@ configure/make/clean had nothing to do with it.
 and re-saves a sane entry. The stray `untitled.sch` (has real content) was
 left in place — it is harmless now.
 
-**Hardening candidate (not done)**: `set_geom` could reject sizes below a
-minimum (e.g. <100x100) the same way it rejects off-screen positions. This is
-upstream code; consider proposing it separately.
+**Hardening DONE (test-first, follow-up commit)**: `set_geom` now rejects
+sizes below 100x100 in the same sanity block that rejects off-screen
+positions (explicit `-g`/`initial_geometry` is untouched — a user's explicit
+request is honored verbatim). Proven red→green by the new
+`tests/headless/test_geometry_sanity.tcl` (hermetic: temp `USER_CONF_DIR`
+fixture with poisoned 1x1 / 50x500 entries plus a sane positive control) and
+end-to-end with a fake `$HOME` carrying a poisoned geometry file through real
+startup. A second new smoke, `tests/headless/test_launch_context.tcl`, is
+DELIBERATELY non-hermetic: it asserts the invariants of the user's real
+launch context (usable window size from the real `~/.xschem/geometry`,
+`src/cadence_style_rc` sources cleanly post-init, its wheel remaps land in
+the live binding table) — the layer every hermetic test is blind to by
+construction. Upstream-relevant: the `set_geom` change is worth proposing
+separately.
 
 ### Post-reboot suite status — ALL GREEN
 
