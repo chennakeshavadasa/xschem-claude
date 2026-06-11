@@ -187,6 +187,30 @@ one.**
   is healthy (the assertion was over-broad); narrow it to what's still true.
 - **A pure function with a fiddly spec deserves a table-driven test** (e.g. the
   accel→keysym translation from Phase 2).
+- **Record → replay → diff: compare the *invariant the mechanism guarantees*,
+  not the raw absolute state.** The action-log acceptance smoke
+  (`test_action_replay.sh`) records a session in one process, replays the
+  captured log into a *second fresh* process, and diffs state — the only test
+  that proves a log is replayable rather than merely well-formed. The first
+  version diffed absolute zoom and failed: the two processes' post-load
+  baselines differed wildly (0.477 vs 1216) because window mapping is
+  nondeterministic under WSLg. But the *ratios* were bit-identical — the log
+  faithfully reproduces the relative zoom *transform*, not the absolute view.
+  Two lessons fall out. (1) **A false failure here doesn't just annoy — it
+  misrepresents the feature.** The log was *never* meant to reproduce absolute
+  zoom/origin (wheel zoom centers on the mouse, and `xschem zoom_in` doesn't
+  capture the pointer — the same un-replayable-referent gap as click-select,
+  issue 0005). Diffing absolute zoom asserts a guarantee the feature doesn't
+  make. (2) **The robust assertion and the honest assertion turned out to be
+  the same one.** Snapshotting `final/baseline` (rounded to 6 sig figs to divide
+  out last-ULP noise) both survives the environment nondeterminism *and* states
+  exactly what the log promises. When a reproduce-then-compare test is flaky,
+  the question to ask is not "how do I pin the environment" but "what does the
+  mechanism actually guarantee to reproduce" — diff that. Round it out with a
+  vacuous-pass guard (assert the transform is non-trivial, else a no-op session
+  passes trivially) and a check that the captured log holds the expected
+  replayable commands (so a logging regression is distinguishable from a state
+  mismatch).
 
 ## 11. Data modeling (the Phase 1–2 foundations)
 
@@ -265,6 +289,18 @@ one.**
   ./src/xschem --pipe -q --script FILE`. Drive events with `xschem callback .drw <evt>
   <mx> <my> <keysym> <button> 0 <state>` (KeyPress=2, ButtonPress=4; ShiftMask=1,
   ControlMask=4, Mod1Mask/Alt=8). The **keysym** matches the switch, not display casing.
+- **The wheel is a *button*, not its own event — `<evt>` is always ButtonPress=4.**
+  Wheel-up is `callback .drw 4 <mx> <my> 0 4 0 0` and wheel-down is `… 0 5 0 0`: the
+  direction lives in the *button number* (4=up, 5=down), and the event arg stays 4 for
+  both. Writing the direction into the event slot (`callback .drw 5 …`) dispatches
+  nothing and fails *silently* — the action just doesn't fire, no error. (Cost an hour
+  on the replay smoke until the missing `zoom_out` in the log gave it away.)
+- **`-g <geom>` hangs under WSLg — don't use it in tests.** Forcing the toplevel
+  geometry to make view math deterministic seemed natural for the replay smoke, but
+  `-g 700x500+40+40` wedged the process (geometry + WSLg has bitten us before, issues
+  0001/0002). The fix was not to pin geometry at all but to diff a geometry-*independent*
+  quantity (the zoom ratio) — see §10. When the environment fights a knob, prefer an
+  assertion that doesn't need the knob.
 - The `xschem` Tcl dispatcher is `switch(argv[1][0])` on the subcommand's **first
   letter**, then an else-if chain — a new subcommand must go in the case for its first
   letter (`unbind` → `case 'u'`, not next to `bind`).
