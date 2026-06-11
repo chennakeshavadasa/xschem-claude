@@ -17,6 +17,14 @@ proc check {name ok detail} {
   if {$ok} { puts "ok:   $name $detail" } else { puts "FAIL: $name $detail"; incr fail }
 }
 
+# Some canvas actions exercised below (e.g. Shift+A -> view.toggle_show_netlist)
+# pop a modal alert whose stock proc ends in `tkwait window` — with no user to
+# dismiss it the script hangs forever, and under WSLg the dialog's auto-raise is
+# focus-nondeterministic (issue 0001). The assertions only inspect the side
+# effect (a toggled Tcl var), not the dialog, so neutralize the modal — the same
+# way this test stubs every other side-effectful proc it triggers.
+proc alert_ {args} { return 1 }
+
 # no-modifier key consults the graph only when graph_use_ctrl_key is off
 set graph_use_ctrl_key 0
 
