@@ -30,7 +30,7 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 | # | Spec | Implemented? |
 |---|------|--------------|
 | 11 | Every user action is logged | no |
-| 12 | Each logged action line is an executable `xschem …` Tcl command (replayable) | no |
+| 12 | Each logged action line is an executable `xschem …` Tcl command (replayable) | yes |
 | 13 | Granularity = the action's effect; multi-event gestures collapse to one command | no |
 | 14 | RMB click → context-menu pick logged as the chosen action's command | no |
 | 15 | RMB press+drag+release logged as `xschem zoom_box x1 y1 x2 y2` | no |
@@ -45,9 +45,9 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 
 | # | Spec | Implemented? |
 |---|------|--------------|
-| 22 | Layer A: bound keys/buttons/wheel logged at `dispatch_input_action()` | partial (Tcl-backed only; C-backed = row 24) |
+| 22 | Layer A: bound keys/buttons/wheel logged at `dispatch_input_action()` | partial (empty-command ids silent until Phase 3 minting; attach_labels excluded via csv nolog) |
 | 23 | Layer A: Tcl-backed actions log their `d->tcl` verbatim | yes |
-| 24 | Layer A: C-backed actions log the canonical command from the single source (`actions.csv` col 6 / `ActionDef`), never hand-written per call site | no |
+| 24 | Layer A: C-backed actions log the canonical command from the single source (`actions.csv` col 6 / `ActionDef`), never hand-written per call site | yes |
 | 25 | Layer B: context-menu picks emit (cleanest: invoke) the equivalent `xschem …` command | no |
 | 26 | Layer C: zoom-rectangle gesture logged at gesture END with final params | no |
 | 27 | Layer C: move/copy gesture END logged | no |

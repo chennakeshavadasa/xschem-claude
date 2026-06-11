@@ -5826,6 +5826,15 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
      *  -1 : set title, rst floater caches.
      *  -2 : rst floater caches, update simulation button colors (Simulate, Waves, Netlist).
      */
+    /* set_action_log_cmd action_id tcl_cmd
+     *   Action-log Layer A: register the canonical replayable command recorded
+     *   when the C-backed action <action_id> dispatches. Pushed from
+     *   actions.csv by xschem.tcl at startup (single source of commands).
+     *   Returns 1 if the id exists in the C action registry, 0 otherwise. */
+    else if(!strcmp(argv[1], "set_action_log_cmd"))
+    {
+      return action_cmd_set_log_cmd(argc, argv);
+    }
     else if(!strcmp(argv[1], "set_modify"))
     {
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}

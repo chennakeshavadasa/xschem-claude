@@ -1444,6 +1444,7 @@ extern int callback(const char *win_path, int event, int mx, int my, KeySym key,
 /* Phase 3 data-driven input bindings (callback.c); backends for the
  * `xschem bind`/`unbind`/`bindings` subcommands. See
  * claude_suggs/refactor_plan_action_registry_phase3.md */
+extern int action_cmd_set_log_cmd(int argc, const char **argv);
 extern int action_cmd_bind(int argc, const char **argv);
 extern int action_cmd_unbind(int argc, const char **argv);
 extern int action_cmd_bindings(int argc, const char **argv);

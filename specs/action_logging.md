@@ -140,8 +140,16 @@ Window. Not full-featured for v1.
 - **Phase 1 Layer A slice 1 — DONE** (commit `ec8de190`): Tcl-backed actions
   logged at `dispatch_input_action` (verbatim on success, `# failed:` comment
   on error, recorded after evaluation); smoke
-  `tests/headless/test_action_log_dispatch.tcl`. Remaining Layer A: C-backed
-  actions (canonical command from `actions.csv`). Layer B (context menu) open.
+  `tests/headless/test_action_log_dispatch.tcl`. Layer B (context menu) open.
+- **Phase 1 Layer A slice 2 — DONE** (plan
+  `claude_suggs/plan_layerA_slice2_cbacked_logging.md`): C-backed actions log
+  the canonical `actions.csv` command, pushed into the C registry at startup
+  (`xschem set_action_log_cmd`; csv stays the single source). Equivalence
+  audit passed 6 of 7 candidate ids; `attach_labels` excluded via the new csv
+  `nolog` column (key = interactive dialog form, csv command = non-interactive
+  — not equivalent). Empty-command ids (scroll/pan/gesture/routing) stay
+  silent pending Phase 3 minting. Smoke includes the first record→replay
+  assertion (replaying the log restores the zoom).
 - **`--nolog` — DONE** (decisions 8/10 above; plan
   `claude_suggs/plan_nolog_option.md`): resolves issue 0002 by keeping test
   runs from auto-opening short-lived CIWs; adopted by `run.sh` and the GUI

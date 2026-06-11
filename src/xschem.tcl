@@ -10181,6 +10181,18 @@ load_action_table
 # The shipped defaults mirror the built-in C table, so this is a no-op until a
 # file is edited or a user copy exists (Phase 3d.4b).
 load_input_bindings
+# Action-log Layer A: push each row's canonical command into the C action
+# registry as the replay command logged when a C-BACKED action dispatches.
+# The csv is the single source of commands -- nothing is hand-written in C.
+# Skipped rows: empty command (C-only actions, Phase 3 mints theirs) and
+# nolog=1 (csv command not behavior-equivalent to the dispatched C fn).
+# Ids unknown to the C registry (menu-only rows) are ignored by the C side.
+foreach row $action_table {
+  set acmd [dict get $row command]
+  if {$acmd eq {}} continue
+  if {[dict exists $row nolog] && [dict get $row nolog] ne {}} continue
+  xschem set_action_log_cmd [dict get $row id] $acmd
+}
 
 # CIW (Command Interpreter Window): live action-log pane + command entry
 # (specs/action_logging.md section 3). Auto-opened for interactive sessions

@@ -24,11 +24,17 @@
 #             skips it while the editor is busy (semaphore>=2). Informational
 #             mirror of the binding table's idle_only flag (`xschem bindings dump`
 #             appends " idle"); per-chord truth lives in the binding table.
+#   nolog     1 = do NOT push this row's command as the action log's replay
+#             command for the C-backed action of the same id (action-log Layer
+#             A): set when the csv command is NOT behavior-equivalent to the
+#             dispatched C function. Currently only attach_labels (the key runs
+#             attach_labels_to_inst(1) = interactive dialog; the csv/menu
+#             command runs the non-interactive 0 form).
 #
 # A row may have an EMPTY command: the action is C-backed and dispatched only via
 # the input-binding table (callback.c action_registry); the row provides the
 # label/help shown by generated views (cheat-sheet). The palette skips such rows.
-id,type,menu,label,accel,command,submenu,hook,help,idle
+id,type,menu,label,accel,command,submenu,hook,help,idle,nolog
 file.clear_schematic,command,file,Clear Schematic,Ctrl+N,xschem clear schematic,,,Start a new empty schematic,1
 file.clear_symbol,command,file,Clear Symbol,Ctrl+Shift+N,xschem clear symbol,,,Start a new empty symbol,
 file.component_browser,command,file,Component browser,"Shift-Ins, Ctrl-I",action_component_browser,,,Browse and insert a symbol from the library,
@@ -115,7 +121,7 @@ simulation.graph.add_waveform_graph,command,simulation.graph,Add waveform graph,
 sym.make_symbol_from_schematic,command,sym,Make symbol from schematic,A,xschem make_symbol,,,Make symbol from schematic,
 sym.make_schematic_from_symbol,command,sym,Make schematic from symbol,Ctrl+L,xschem make_sch,,,Make schematic from symbol,
 sym.make_schematic_and_symbol_from_selected_components,command,sym,Make schematic and symbol from selected components,Ctrl+Shift+H,xschem make_sch_from_sel,,,Make schematic and symbol from selected components,
-sym.attach_net_labels_to_component_instance,command,sym,Attach net labels to component instance,Shift+H,xschem attach_labels,,,Attach net labels to component instance,
+sym.attach_net_labels_to_component_instance,command,sym,Attach net labels to component instance,Shift+H,xschem attach_labels,,,Attach net labels to component instance,,1
 sym.create_symbol_pins_from_selected_schematic_pins,command,sym,Create symbol pins from selected schematic pins,Alt+H,schpins_to_sympins,,,Create symbol pins from selected schematic pins,
 sym.place_symbol_pin,command,sym,Place symbol pin,Alt+P,xschem add_symbol_pin,,,Place symbol pin,
 sym.place_schematic_input_port,command,sym,Place schematic input port,Ctrl+P,xschem net_label 2,,,Place schematic input port,

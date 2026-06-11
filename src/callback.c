@@ -2323,10 +2323,17 @@ static int act_toggle_draw_pixmap(const ActionEvent *e) {
 /* --- action registry: stable id -> behavior --- */
 /* An action is backed by EITHER a C function (fn) OR a Tcl command (tcl); exactly
  * one is non-NULL. Tcl-backing (Phase 3d) lets the ~60 tcleval keysym branches
- * become data without a throwaway C wrapper per command. */
-typedef struct { const char *id; action_fn fn; const char *tcl; const char *help; } ActionDef;
+ * become data without a throwaway C wrapper per command.
+ * log_cmd (action-log Layer A slice 2) is the canonical replayable Tcl command
+ * recorded when a C-BACKED action dispatches. It is NEVER initialized here:
+ * xschem.tcl pushes it from actions.csv (the single source, col 'command') at
+ * startup via `xschem set_action_log_cmd`, gated by the csv 'nolog' column for
+ * ids whose csv command is not behavior-equivalent to fn. Tcl-backed actions
+ * log their `tcl` directly and ignore this field. */
+typedef struct { const char *id; action_fn fn; const char *tcl; const char *help;
+                 char *log_cmd; } ActionDef;
 
-static const ActionDef action_registry[] = {
+static ActionDef action_registry[] = {
   { "view.zoom_in",   act_zoom_in,   NULL, "Zoom in"   },
   { "view.zoom_out",  act_zoom_out,  NULL, "Zoom out"  },
   { "view.zoom_full", act_zoom_full, NULL, "Zoom full" },
@@ -2647,7 +2654,15 @@ static int dispatch_input_action(const ActionEvent *e)
   if(!b) return 0;
   d = find_action_def(b->action_id);
   if(!d) return 0;
-  if(d->fn)  return d->fn(e);          /* C-backed behavior */
+  if(d->fn) {                          /* C-backed behavior */
+    /* Action log Layer A slice 2: record the canonical csv command, but only
+     * after the fn reports it handled the event (record-after-evaluation, as
+     * for the Tcl branch below). No log_cmd pushed -> silent: gesture starts,
+     * graph routing and the not-yet-mintable view actions (spec: Phase 3). */
+    int ret = d->fn(e);
+    if(ret && d->log_cmd) log_action("%s", d->log_cmd);
+    return ret;
+  }
   if(d->tcl) {                         /* Tcl-backed: run the command (Phase 3d.1) */
     /* Action log Layer A (spec §2): record the canonical command verbatim, AFTER
      * evaluation so a failed one becomes a '#' comment and the log stays
@@ -2757,6 +2772,30 @@ static const char *ctx_name(int ctx)
 }
 
 /* `xschem bind <wheel|button|key> <code> <mods> <ctx> <action_id> [idle]` */
+/* `xschem set_action_log_cmd <action_id> <tcl_cmd>` -- action-log Layer A
+ * slice 2: store the canonical replayable command logged when the C-backed
+ * action <action_id> dispatches. Called by xschem.tcl at startup for every
+ * actions.csv row with a non-empty 'command' and no 'nolog' flag; commands are
+ * never hand-written into C. Result is 1 (stored) or 0 (id not in the C
+ * registry -- menu-only csv ids are legitimate non-matches, not errors). */
+int action_cmd_set_log_cmd(int argc, const char **argv)
+{
+  int i;
+  if(argc < 4) {
+    Tcl_SetResult(interp, "usage: xschem set_action_log_cmd <action_id> <tcl_cmd>", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  for(i = 0; i < num_action_defs; ++i) {
+    if(!strcmp(action_registry[i].id, argv[2])) {
+      my_strdup(_ALLOC_ID_, &action_registry[i].log_cmd, argv[3]);
+      Tcl_SetResult(interp, "1", TCL_STATIC);
+      return TCL_OK;
+    }
+  }
+  Tcl_SetResult(interp, "0", TCL_STATIC);
+  return TCL_OK;
+}
+
 int action_cmd_bind(int argc, const char **argv)
 {
   int device, code, mods, ctx, idle = 0;

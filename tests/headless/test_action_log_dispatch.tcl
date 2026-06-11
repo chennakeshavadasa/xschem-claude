@@ -58,12 +58,41 @@ check "failed action not logged raw" \
   [expr {[lsearch -exact $lines {tclcmd}] < 0}]
 rename __saved_tclcmd tclcmd
 
-# 4) C-backed actions are not logged yet (this slice is Tcl-backed only):
-#    wheel-up on the canvas runs view.zoom_in (C fn) and must add no line.
+# 4) C-backed actions (Layer A slice 2): the canonical actions.csv command is
+#    logged after the fn handles the event. Wheel-up on the canvas dispatches
+#    view.zoom_in (C fn); the file must gain exactly `xschem zoom_in`.
 set n0 [llength [loglines]]
 xschem callback .drw 4 400 300 0 4 0 0
 update idletasks
-check "C-backed action adds no line (yet)" [expr {[llength [loglines]] == $n0}]
+check "C-backed action logs canonical csv command" \
+  [expr {[lsearch -exact [loglines] {xschem zoom_in}] >= $n0}]
+
+# 4b) record -> replay equivalence: zoom_in is relative, so undo it once with a
+#     direct (undispatched, unlogged) zoom_out, then `source` the log -- the
+#     replayed zoom_in must land the zoom exactly back where the wheel left it.
+set z1 [xschem get zoom]
+xschem zoom_out
+check "direct zoom_out disturbed the view" [expr {[xschem get zoom] ne $z1}]
+check "direct scheduler call is not logged" \
+  [expr {[lsearch -exact [loglines] {xschem zoom_out}] < 0}]
+uplevel #0 [list source [xschem get actionlog_filename]]
+check "replaying the log restores the zoom" [expr {[xschem get zoom] eq $z1}]
+
+# 4c) C-backed actions with EMPTY csv command (scroll/pan/gesture/routing) stay
+#     silent this slice (Phase 3 mints their subcommands): Up arrow dispatches
+#     view.scroll_up and must add no line.
+set n0 [llength [loglines]]
+key 65362
+check "empty-command C-backed action adds no line" \
+  [expr {[llength [loglines]] == $n0}]
+
+# 4d) the push subcommand: menu-only ids are ignored (returns 0), registry ids
+#     accept (returns 1; probing with a Tcl-backed id is side-effect-free --
+#     the Tcl dispatch branch never reads log_cmd).
+check "set_action_log_cmd unknown id -> 0" \
+  [expr {[xschem set_action_log_cmd nonsense.id whatever] == 0}]
+check "set_action_log_cmd registry id -> 1" \
+  [expr {[xschem set_action_log_cmd file.clear_schematic {xschem clear schematic}] == 1}]
 
 # 5) the whole file stays source-able (header comment, raw commands, # comments)
 check "file is source-able" \
