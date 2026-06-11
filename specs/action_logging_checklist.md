@@ -1,8 +1,8 @@
 # Action Logging & CIW — spec checklist
 
 One row per smallest checkable spec, derived from `specs/action_logging.md`.
-Update the **Implemented?** column as features land (yes / no / deferred).
-Statuses below verified against the code as of 2026-06-10 (HEAD `80d63eb9`).
+Update the **Implemented?** column as features land (yes / no / partial / deferred).
+Statuses are verified against the code, not the phasing notes, before flipping.
 
 ## 1. Log file (spec §1) — Phase 0
 
@@ -39,8 +39,8 @@ Statuses below verified against the code as of 2026-06-10 (HEAD `80d63eb9`).
 
 | # | Spec | Implemented? |
 |---|------|--------------|
-| 22 | Layer A: bound keys/buttons/wheel logged at `dispatch_input_action()` | no |
-| 23 | Layer A: Tcl-backed actions log their `d->tcl` verbatim | no |
+| 22 | Layer A: bound keys/buttons/wheel logged at `dispatch_input_action()` | partial (Tcl-backed only; C-backed = row 24) |
+| 23 | Layer A: Tcl-backed actions log their `d->tcl` verbatim | yes |
 | 24 | Layer A: C-backed actions log the canonical command from the single source (`actions.csv` col 6 / `ActionDef`), never hand-written per call site | no |
 | 25 | Layer B: context-menu picks emit (cleanest: invoke) the equivalent `xschem …` command | no |
 | 26 | Layer C: zoom-rectangle gesture logged at gesture END with final params | no |

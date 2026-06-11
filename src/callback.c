@@ -2648,7 +2648,21 @@ static int dispatch_input_action(const ActionEvent *e)
   d = find_action_def(b->action_id);
   if(!d) return 0;
   if(d->fn)  return d->fn(e);          /* C-backed behavior */
-  if(d->tcl) { tcleval(d->tcl); return 1; }  /* Tcl-backed: run the command (Phase 3d.1) */
+  if(d->tcl) {                         /* Tcl-backed: run the command (Phase 3d.1) */
+    /* Action log Layer A (spec §2): record the canonical command verbatim, AFTER
+     * evaluation so a failed one becomes a '#' comment and the log stays
+     * source-able (same rule as CIW-typed commands). Tcl_GlobalEval instead of
+     * tcleval because the latter swallows the return code. */
+    if(Tcl_GlobalEval(interp, d->tcl) != TCL_OK) {
+      fprintf(errfp, "dispatch_input_action(): evaluation of script: %s failed\n", d->tcl);
+      fprintf(errfp, "         : %s\n", Tcl_GetStringResult(interp));
+      Tcl_ResetResult(interp);
+      log_action("# failed: %s", d->tcl);
+    } else {
+      log_action("%s", d->tcl);
+    }
+    return 1;
+  }
   return 0;
 }
 
