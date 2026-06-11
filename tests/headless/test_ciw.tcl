@@ -74,6 +74,31 @@ if {[focus] eq {.ciw.c.e}} {
 }
 .ciw.c.e delete 1.0 end
 
+# 5c) Ctrl-Backspace deletes the previous word, shell-style (drive the proc
+# directly -- key synthesis would need focus, see 5b)
+.ciw.c.e insert end {xschem zoom_full   }
+ciw_delete_word
+check "Ctrl-BackSpace eats trailing space + word" \
+  [expr {[.ciw.c.e get 1.0 end-1c] eq {xschem }}]
+.ciw.c.e delete 1.0 end
+check "Ctrl-BackSpace bound" [expr {[bind .ciw.c.e <Control-BackSpace>] ne {}}]
+
+# 5d) Up/Down history: recall, walk older, and restore the stashed draft
+.ciw.c.e insert end {set ciw_hist_probe_1 1}
+ciw_exec
+.ciw.c.e insert end {set ciw_hist_probe_2 2}
+ciw_exec
+.ciw.c.e insert end {half-typed draft}
+ciw_hist_move -1
+check "Up recalls newest command"  [expr {[.ciw.c.e get 1.0 end-1c] eq {set ciw_hist_probe_2 2}}]
+ciw_hist_move -1
+check "Up again walks older"       [expr {[.ciw.c.e get 1.0 end-1c] eq {set ciw_hist_probe_1 1}}]
+ciw_hist_move 1
+ciw_hist_move 1
+check "Down restores stashed draft" [expr {[.ciw.c.e get 1.0 end-1c] eq {half-typed draft}}]
+.ciw.c.e delete 1.0 end
+check "Up/Down bound" [expr {[bind .ciw.c.e <Up>] ne {} && [bind .ciw.c.e <Down>] ne {}}]
+
 # 6) error path: error text shown error-tagged
 .ciw.c.e insert end {this_is_not_a_command}
 ciw_exec

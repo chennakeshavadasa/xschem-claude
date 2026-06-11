@@ -80,6 +80,7 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 | 65 | Entry-area height follows the sash; long commands wrap into view | yes |
 | 66 | Return in the entry executes, never inserts a newline | yes |
 | 67 | Neither CIW pane can be collapsed below a minimum size | yes |
+| 68 | Ctrl-Backspace in the entry deletes the previous word (shell-style) | yes |
 
 ## 5. Tests (spec §5)
 
@@ -96,7 +97,7 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 | 51 | `xschem select_at x y` exposing `find_closest_obj()` → replayable click-select | deferred |
 | 52 | Stable Tcl referents for pins and text | deferred |
 | 53 | Faithful full-session replay (causal chain: selections, descend/go_back, load) | deferred |
-| 54 | CIW command history | deferred |
+| 54 | CIW command history (Up/Down, draft stash, dup collapse) | yes |
 | 55 | CIW multi-line entry | deferred |
 | 56 | CIW search/filter in the log pane | deferred |
 | 57 | rc toggle for CIW auto-open | deferred |

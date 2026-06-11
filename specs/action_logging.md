@@ -88,7 +88,12 @@ Window. Not full-featured for v1.
     whose height follows the sash** (an `entry` cannot grow — dragging just
     left dead space), so long commands wrap into view in a taller entry area;
     **Return executes** (never inserts a newline); neither pane can be
-    collapsed below a minimum.
+    collapsed below a minimum. Shell-style line editing (2026-06-11, pulled
+    forward from §6): **Ctrl-Backspace** deletes the previous word
+    (whitespace-skipping); **Up/Down** walk the command history
+    (history-always semantics; the first Up stashes the half-typed draft,
+    Down past the newest entry restores it; consecutive duplicates collapse;
+    failed commands are recalled too).
 - **Echo (Virtuoso style):** a typed command appears in the log pane, followed
   by its return value or error message, visually distinct from action-log lines.
 - **File logging of typed commands:** yes (see §2) — commands go to
@@ -154,5 +159,7 @@ Window. Not full-featured for v1.
   replayable; stable Tcl referents for pins and text.
 - Faithful full-session replay (causal chain: selections, descend/go_back,
   load) — v1 is a per-action, replay-where-possible log.
-- CIW niceties: command history, multi-line entry, search/filter in the pane,
-  rc toggle for auto-open.
+- CIW niceties: multi-line entry (composing across lines; the entry already
+  *displays* wrapped lines), search/filter in the pane, rc toggle for
+  auto-open, history persistence across sessions. (Command history itself
+  landed 2026-06-11 — see §3.)
