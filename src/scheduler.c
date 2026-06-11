@@ -2390,52 +2390,12 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
   return TCL_OK;
 }
 
-int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * argv[])
-{
- int i;
- char name[1024]; /* overflow safe 20161122 */
- int cmd_found = 1;
- int retcode = TCL_OK;
 
- Tcl_ResetResult(interp);
- if(argc < 2) {
-   Tcl_SetResult(interp, "Missing arguments.", TCL_STATIC);
-   return TCL_ERROR;
- }
- if(debug_var>=2) {
-   int i;
-   fprintf(errfp, "xschem():");
-   for(i=0; i<argc; ++i) {
-     fprintf(errfp, "%s ", argv[i]);
-   }
-   fprintf(errfp, "\n");
- }
- /*
-  * ********** xschem commands  IN SORTED ORDER !!! *********
-  */
-  switch(argv[1][0]) {
-    case 'a': /*----------------------------------------------*/
-    retcode = xschem_cmds_a(interp, argc, argv, &cmd_found);
-    break;
-    case 'b': /*----------------------------------------------*/
-    retcode = xschem_cmds_b(interp, argc, argv, &cmd_found);
-    break;
-    case 'c': /*----------------------------------------------*/
-    retcode = xschem_cmds_c(interp, argc, argv, &cmd_found);
-    break;
-    case 'd': /*----------------------------------------------*/
-    retcode = xschem_cmds_d(interp, argc, argv, &cmd_found);
-    break;
-    case 'e': /*----------------------------------------------*/
-    retcode = xschem_cmds_e(interp, argc, argv, &cmd_found);
-    break;
-    case 'f': /*----------------------------------------------*/
-    retcode = xschem_cmds_f(interp, argc, argv, &cmd_found);
-    break;
-    case 'g': /*----------------------------------------------*/
-    retcode = xschem_cmds_g(interp, argc, argv, &cmd_found);
-    break;
-    case 'h': /*----------------------------------------------*/
+/* `xschem h...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_h(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* hash_file file [skip_path_lines]
      *   Do a simple hash of 'file'
      *   'skip_path_lines' is an integer (default: 0) passed to hash_file() */
@@ -2577,9 +2537,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       }
       Tcl_SetResult(interp, ret ? "1" : "0" , TCL_STATIC);
     }
-    else { cmd_found = 0;}
-    break;
-    case 'i': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem i...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_i(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     #if HAS_CAIRO==1
     /* image [invert|white_transp|black_transp|transp_white|transp_black|write_back|
      *        blend_white|blend_black]
@@ -3011,9 +2977,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
         Tcl_SetResult(interp, s, TCL_VOLATILE);
       }
     }
-    else { cmd_found = 0;}
-    break;
-    case 'l': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem l...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* line [x1 y1 x2 y2] [pos] [propstring] [draw]
      * line
      * line gui
@@ -3487,9 +3459,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       }
       Tcl_ResetResult(interp);
     }
-    else { cmd_found = 0;}
-    break;
-    case 'm': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem m...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_m(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* make_sch
      *   Make a schematic from selected symbol */
     if(!strcmp(argv[1], "make_sch")) /* make schematic from selected symbol 20171004 */
@@ -3626,9 +3604,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
 
       }
     }
-    else { cmd_found = 0;}
-    break;
-    case 'n': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem n...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* net_label [type]
      *   Place a new net label
      *   'type': 1: place a 'lab_pin.sym' label
@@ -3819,9 +3803,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
         Tcl_SetResult(interp, s, TCL_VOLATILE);
       }
     }
-    else { cmd_found = 0;}
-    break;
-    case 'o': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem o...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_o(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* only_probes
      * dim schematic to better show highlights */
     if(!strcmp(argv[1], "only_probes"))
@@ -3850,9 +3840,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       }
       Tcl_ResetResult(interp);
     }
-    else { cmd_found = 0;}
-    break;
-    case 'p': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem p...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_p(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* parse_cmd
      *   debug command to test parse_cmd_string()
      *   splits a command string into argv-like arguments
@@ -4326,9 +4322,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       xctx->push_undo();
       Tcl_ResetResult(interp);
     }
-    else { cmd_found = 0;}
-    break;
-    case 'r': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem r...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
 
     /* raw what ...
      *     what = add | clear | datasets | index | info | loaded | list |
@@ -5141,9 +5143,16 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       }
     }
 
-    else { cmd_found = 0;}
-    break;
-    case 's': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem s...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
+  int i;
     /* save [fast]
      *   Save schematic if modified. Does not ask confirmation!
      *   if 'fast' is given it is passed to save_schematic() to avoid
@@ -5768,7 +5777,7 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
             xctx->sym_txt=atoi(argv[3]);
           }
           else {
-            cmd_found = 0;
+            *cmd_found = 0;
           }
         } /* argv[2][0] >= 'n' */
       } /* if(argc > 3 */
@@ -6323,9 +6332,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
         }
       }
     }
-    else { cmd_found = 0;}
-    break;
-    case 't': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem t...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_t(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* tab_list
      *   list all windows / tabs with window pathname and associated filename */
     if(!strcmp(argv[1], "tab_list"))
@@ -6629,9 +6644,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       draw();
       Tcl_ResetResult(interp);
     }
-    else { cmd_found = 0;}
-    break;
-    case 'u': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem u...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_u(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* unbind <device> <code> <mods> <ctx>
      *   Remove an input binding (result = number removed). Pairs with `bind`
      *   under case 'b'. See claude_suggs/refactor_plan_action_registry_phase3.md */
@@ -6755,9 +6776,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       Tcl_SetResult(interp, my_itoa(ret), TCL_VOLATILE);
     }
 
-    else { cmd_found = 0;}
-    break;
-    case 'v': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem v...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_v(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* view_prop
      *   View attributes of selected element (read only)
      *   if multiple selection show the first element (in xschem  array order) */
@@ -6767,9 +6794,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       edit_property(2);
       Tcl_ResetResult(interp);
     }
-    else { cmd_found = 0;}
-    break;
-    case 'w': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem w...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_w(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* warning_overlapped_symbols [sel]
          Highlight or select (if 'sel' set to 1) perfectly overlapped instances
          this is usually an error and difficult to grasp visually */
@@ -6888,9 +6921,15 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       Tcl_ResetResult(interp);
     }
 
-    else { cmd_found = 0;}
-    break;
-    case 'x': /*----------------------------------------------*/
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
+
+/* `xschem x...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_x(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     #ifdef HAS_XCB
     /* xcb_info
      *   For debug */
@@ -6898,10 +6937,16 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
     {
       dbg(0, "maximum xcb req length=%u\n", xcb_get_maximum_request_length(xcb_conn));
     }
-    else { cmd_found = 0;}
+    else { *cmd_found = 0;}
     #endif
-    break;
-    case 'z': /*----------------------------------------------*/
+  return TCL_OK;
+}
+
+/* `xschem z...` commands, moved verbatim from the xschem() dispatcher
+ * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
+ * matches no command in this group; early returns propagate unchanged. */
+static int xschem_cmds_z(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
+{
     /* zoom_box [x1 y1 x2 y2] [factor]
      *   Zoom to specified coordinates, if 'factor' is given reduce view (factor < 1.0)
      *   or add border (factor > 1.0)
@@ -6991,9 +7036,98 @@ int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * arg
       zoom_full(1, 1, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97);
       Tcl_ResetResult(interp);
     }
-    else { cmd_found = 0;}
-    break;
+    else { *cmd_found = 0;}
+  return TCL_OK;
+}
 
+int xschem(ClientData clientdata, Tcl_Interp *interp, int argc, const char * argv[])
+{
+ int cmd_found = 1;
+ int retcode = TCL_OK;
+
+ Tcl_ResetResult(interp);
+ if(argc < 2) {
+   Tcl_SetResult(interp, "Missing arguments.", TCL_STATIC);
+   return TCL_ERROR;
+ }
+ if(debug_var>=2) {
+   int i;
+   fprintf(errfp, "xschem():");
+   for(i=0; i<argc; ++i) {
+     fprintf(errfp, "%s ", argv[i]);
+   }
+   fprintf(errfp, "\n");
+ }
+ /*
+  * ********** xschem commands  IN SORTED ORDER !!! *********
+  */
+  switch(argv[1][0]) {
+    case 'a': /*----------------------------------------------*/
+    retcode = xschem_cmds_a(interp, argc, argv, &cmd_found);
+    break;
+    case 'b': /*----------------------------------------------*/
+    retcode = xschem_cmds_b(interp, argc, argv, &cmd_found);
+    break;
+    case 'c': /*----------------------------------------------*/
+    retcode = xschem_cmds_c(interp, argc, argv, &cmd_found);
+    break;
+    case 'd': /*----------------------------------------------*/
+    retcode = xschem_cmds_d(interp, argc, argv, &cmd_found);
+    break;
+    case 'e': /*----------------------------------------------*/
+    retcode = xschem_cmds_e(interp, argc, argv, &cmd_found);
+    break;
+    case 'f': /*----------------------------------------------*/
+    retcode = xschem_cmds_f(interp, argc, argv, &cmd_found);
+    break;
+    case 'g': /*----------------------------------------------*/
+    retcode = xschem_cmds_g(interp, argc, argv, &cmd_found);
+    break;
+    case 'h': /*----------------------------------------------*/
+    retcode = xschem_cmds_h(interp, argc, argv, &cmd_found);
+    break;
+    case 'i': /*----------------------------------------------*/
+    retcode = xschem_cmds_i(interp, argc, argv, &cmd_found);
+    break;
+    case 'l': /*----------------------------------------------*/
+    retcode = xschem_cmds_l(interp, argc, argv, &cmd_found);
+    break;
+    case 'm': /*----------------------------------------------*/
+    retcode = xschem_cmds_m(interp, argc, argv, &cmd_found);
+    break;
+    case 'n': /*----------------------------------------------*/
+    retcode = xschem_cmds_n(interp, argc, argv, &cmd_found);
+    break;
+    case 'o': /*----------------------------------------------*/
+    retcode = xschem_cmds_o(interp, argc, argv, &cmd_found);
+    break;
+    case 'p': /*----------------------------------------------*/
+    retcode = xschem_cmds_p(interp, argc, argv, &cmd_found);
+    break;
+    case 'r': /*----------------------------------------------*/
+    retcode = xschem_cmds_r(interp, argc, argv, &cmd_found);
+    break;
+    case 's': /*----------------------------------------------*/
+    retcode = xschem_cmds_s(interp, argc, argv, &cmd_found);
+    break;
+    case 't': /*----------------------------------------------*/
+    retcode = xschem_cmds_t(interp, argc, argv, &cmd_found);
+    break;
+    case 'u': /*----------------------------------------------*/
+    retcode = xschem_cmds_u(interp, argc, argv, &cmd_found);
+    break;
+    case 'v': /*----------------------------------------------*/
+    retcode = xschem_cmds_v(interp, argc, argv, &cmd_found);
+    break;
+    case 'w': /*----------------------------------------------*/
+    retcode = xschem_cmds_w(interp, argc, argv, &cmd_found);
+    break;
+    case 'x': /*----------------------------------------------*/
+    retcode = xschem_cmds_x(interp, argc, argv, &cmd_found);
+    break;
+    case 'z': /*----------------------------------------------*/
+    retcode = xschem_cmds_z(interp, argc, argv, &cmd_found);
+    break;
     default:
     cmd_found = 0;
     break;
