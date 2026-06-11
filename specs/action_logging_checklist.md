@@ -76,6 +76,10 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 | 45 | Closing the CIW does not exit xschem; file logging continues regardless | yes |
 | 46 | `xschem log_action [-noecho] <text>` subcommand | yes |
 | 47 | `xschem get actionlog_filename` subcommand | yes |
+| 64 | Sash is a wide, visible grab target (not the Tk hairline default) | yes |
+| 65 | Entry-area height follows the sash; long commands wrap into view | yes |
+| 66 | Return in the entry executes, never inserts a newline | yes |
+| 67 | Neither CIW pane can be collapsed below a minimum size | yes |
 
 ## 5. Tests (spec §5)
 

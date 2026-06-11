@@ -1,8 +1,9 @@
 ## File: ciw.tcl
 ##
 ## CIW (Command Interpreter Window, after Virtuoso's) -- a standalone toplevel
-## with a live view of the action log plus a one-line command entry evaluated
-## by the xschem Tcl interpreter. Spec: specs/action_logging.md section 3.
+## with a live view of the action log plus a command entry evaluated by the
+## xschem Tcl interpreter (starts at one line; dragging the sash grows it).
+## Spec: specs/action_logging.md section 3.
 ##
 ## Sourced from xschem.tcl at startup; ciw_create is called automatically for
 ## interactive sessions (spec decision 8). The C action-log sink (log_action()
@@ -28,7 +29,9 @@ proc ciw_create {} {
   ## log so a later ciw_create just re-shows it
   wm protocol .ciw WM_DELETE_WINDOW {wm withdraw .ciw}
 
-  panedwindow .ciw.p -orient vertical
+  ## fat raised sash: the default is a near-invisible few-pixel strip that is
+  ## both undiscoverable and a poor drag target
+  panedwindow .ciw.p -orient vertical -sashwidth 8 -sashrelief raised
 
   # upper pane: read-only log display, fed by ciw_echo
   frame .ciw.l
@@ -41,18 +44,24 @@ proc ciw_create {} {
   pack .ciw.l.yscroll -side right -fill y
   pack .ciw.l.t -side top -fill both -expand yes
 
-  # lower pane: one-line command entry, padded for aesthetics
+  # lower pane: command entry. A text widget (not an entry) so its height
+  # actually FOLLOWS the sash: dragging the sash up gives a taller entry area
+  # where long commands wrap visibly. It still starts at one line (decision 9)
+  # and Return executes instead of inserting a newline ('break' stops the
+  # class binding that would).
   frame .ciw.c
-  entry .ciw.c.e -font {Monospace 10}
-  bind .ciw.c.e <Return> ciw_exec
-  pack .ciw.c.e -side top -fill x -padx 3 -pady 5
+  text .ciw.c.e -height 1 -font {Monospace 10} -wrap char -undo 1
+  bind .ciw.c.e <Return>   {ciw_exec; break}
+  bind .ciw.c.e <KP_Enter> {ciw_exec; break}
+  pack .ciw.c.e -side top -fill both -expand yes -padx 3 -pady 5
 
   .ciw.p add .ciw.l .ciw.c
   ## -stretch needs Tk >= 8.5; without it the default (last pane stretches)
-  ## merely makes resizes grow the entry pane instead of the log pane
+  ## merely makes resizes grow the entry pane instead of the log pane.
+  ## -minsize keeps either pane from being collapsed to nothing by the sash.
   catch {
-    .ciw.p paneconfigure .ciw.l -stretch always
-    .ciw.p paneconfigure .ciw.c -stretch never
+    .ciw.p paneconfigure .ciw.l -stretch always -minsize 60
+    .ciw.p paneconfigure .ciw.c -stretch never  -minsize 34
   }
   pack .ciw.p -side top -fill both -expand yes
 }
@@ -75,9 +84,9 @@ proc ciw_echo {line {tag {}}} {
 ## source-able: a command that errored is written as a '# failed:' comment
 ## (replaying it would abort the source), a successful one is written raw.
 proc ciw_exec {} {
-  set cmd [string trim [.ciw.c.e get]]
+  set cmd [string trim [.ciw.c.e get 1.0 end-1c]]
   if {$cmd eq {}} return
-  .ciw.c.e delete 0 end
+  .ciw.c.e delete 1.0 end
   ciw_echo "> $cmd" input
   if {[catch {uplevel #0 $cmd} res]} {
     ciw_echo $res error

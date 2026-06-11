@@ -82,7 +82,13 @@ Window. Not full-featured for v1.
   - **Lower pane — command entry.** Starts at one line in height (slightly
     taller/padded for aesthetics). The user enters commands that are fed to the
     xschem Tcl interpreter. Dragging the sash resizes the two panes (e.g. to
-    grow the entry area or give the log more room).
+    grow the entry area or give the log more room). UX refinements (2026-06-11,
+    user feedback): the sash is a **wide raised bar** (the Tk default hairline
+    was undiscoverable and a poor drag target); the entry is a **text widget
+    whose height follows the sash** (an `entry` cannot grow — dragging just
+    left dead space), so long commands wrap into view in a taller entry area;
+    **Return executes** (never inserts a newline); neither pane can be
+    collapsed below a minimum.
 - **Echo (Virtuoso style):** a typed command appears in the log pane, followed
   by its return value or error message, visually distinct from action-log lines.
 - **File logging of typed commands:** yes (see §2) — commands go to

@@ -45,7 +45,7 @@ check "still no new log after that"   [no_new_logs]
 ciw_create
 update idletasks
 check "manual ciw_create still builds the CIW" [winfo exists .ciw]
-.ciw.c.e insert 0 { xschem get instances }
+.ciw.c.e insert end { xschem get instances }
 ciw_exec
 check "typed command runs and echoes" \
   [expr {[string first {> xschem get instances} [.ciw.l.t get 1.0 end]] >= 0}]

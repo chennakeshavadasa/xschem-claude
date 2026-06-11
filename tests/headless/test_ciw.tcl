@@ -16,7 +16,22 @@ check "CIW toplevel exists"      [winfo exists .ciw]
 check "panedwindow split"        [expr {[winfo exists .ciw.p] && [winfo class .ciw.p] eq {Panedwindow}}]
 check "log pane is a text"       [expr {[winfo exists .ciw.l.t] && [winfo class .ciw.l.t] eq {Text}}]
 check "log pane is read-only"    [expr {[.ciw.l.t cget -state] eq {disabled}}]
-check "entry pane exists"        [expr {[winfo exists .ciw.c.e] && [winfo class .ciw.c.e] eq {Entry}}]
+check "entry pane exists"        [expr {[winfo exists .ciw.c.e] && [winfo class .ciw.c.e] eq {Text}}]
+check "entry is editable (log pane is not)" [expr {[.ciw.c.e cget -state] eq {normal}}]
+check "sash has a fat grab target" [expr {[.ciw.p cget -sashwidth] >= 6}]
+
+# the entry AREA grows when the sash is dragged up (the original entry widget
+# kept its one-line height and left dead space -- the UX bug). Drive the sash
+# programmatically: window must be mapped with settled geometry first.
+update
+set h0 [winfo height .ciw.c.e]
+set sxy [.ciw.p sash coord 0]
+.ciw.p sash place 0 [lindex $sxy 0] [expr {[lindex $sxy 1] - 120}]
+update
+set h1 [winfo height .ciw.c.e]
+check "entry height follows the sash" [expr {$h1 > $h0}]
+.ciw.p sash place 0 [lindex $sxy 0] [lindex $sxy 1]
+update
 
 # 2) the action log is open (interactive session) and its path is queryable
 set logf [xschem get actionlog_filename]
@@ -35,16 +50,32 @@ set pane [.ciw.l.t get 1.0 end]
 check "tricky line verbatim in pane" [expr {[string first $tricky $pane] >= 0}]
 
 # 5) typed command: echoed input-tagged, result shown result-tagged, entry cleared
-.ciw.c.e insert 0 { xschem get instances }
+.ciw.c.e insert end { xschem get instances }
 ciw_exec
 set pane [.ciw.l.t get 1.0 end]
 check "typed cmd echoed with > prefix" [expr {[string first {> xschem get instances} $pane] >= 0}]
 check "input tag used"             [expr {[llength [.ciw.l.t tag ranges input]] > 0}]
 check "result tag used"            [expr {[llength [.ciw.l.t tag ranges result]] > 0}]
-check "entry cleared after exec"   [expr {[.ciw.c.e get] eq {}}]
+check "entry cleared after exec"   [expr {[.ciw.c.e get 1.0 end-1c] eq {}}]
+
+# 5b) Return executes and does NOT leave a newline in the entry (the 'break'
+# in the binding stops the Text class binding that would insert one).
+# Synthesized key events need the widget focused (issue 0001 lesson); guard
+# the check on focus actually landing so a focus-starved environment skips
+# rather than false-fails, and clear the entry either way so nothing cascades.
+.ciw.c.e insert end { xschem get zoom }
+focus -force .ciw.c.e
+update
+if {[focus] eq {.ciw.c.e}} {
+  event generate .ciw.c.e <Return>
+  check "Return executes, no stray newline" [expr {[.ciw.c.e get 1.0 end-1c] eq {}}]
+} else {
+  puts "skip: Return-key check (no X focus -- environment, see issue 0001)"
+}
+.ciw.c.e delete 1.0 end
 
 # 6) error path: error text shown error-tagged
-.ciw.c.e insert 0 {this_is_not_a_command}
+.ciw.c.e insert end {this_is_not_a_command}
 ciw_exec
 set pane [.ciw.l.t get 1.0 end]
 check "error text shown"           [expr {[string first {invalid command name} $pane] >= 0}]
