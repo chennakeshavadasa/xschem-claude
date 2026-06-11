@@ -69,6 +69,11 @@ check "C-backed action adds no line (yet)" [expr {[llength [loglines]] == $n0}]
 check "file is source-able" \
   [expr {![catch {uplevel #0 [list source [xschem get actionlog_filename]]} err]}]
 
+# clean RAIL teardown (issue 0002 hardening): destroy the auto-opened CIW and
+# let the event loop deliver it while the client is still alive, THEN exit
+destroy .ciw
+update
+
 puts [expr {$::fails == 0 ? "RESULT: ALL PASS" : "RESULT: $::fails FAILED"}]
 flush stdout
 exit [expr {$::fails != 0}]

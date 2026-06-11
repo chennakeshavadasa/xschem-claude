@@ -1258,6 +1258,7 @@ extern char cli_opt_plotfile[PATH_MAX];
 extern char cli_opt_diff[PATH_MAX];
 extern char cli_opt_netlist_dir[PATH_MAX];
 extern char cli_opt_logdir[PATH_MAX];
+extern int cli_opt_nolog;
 extern char cli_opt_filename[PATH_MAX];
 extern int cli_opt_no_readline;
 extern char *cli_opt_tcl_command;

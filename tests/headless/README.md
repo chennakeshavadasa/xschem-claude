@@ -45,6 +45,27 @@ Exit status is `0` on PASS, non-zero on any mismatch — usable directly in scri
 - `gold/` — committed golden baseline (normalized).
 - `results/` — per-run output and `*.diff` files (git-ignored).
 
+## GUI smokes (`test_*.tcl`)
+
+The `test_*.tcl` files are unattended-but-windowed smokes: they open the real Tk
+window (they need a display) but are driven entirely by script. Standard
+invocation:
+
+```sh
+DISPLAY=:0 ../../src/xschem --pipe -q --nolog --script test_<name>.tcl
+```
+
+**Pass `--nolog` unless the test's subject IS logging/the CIW.** It disables the
+action log (no `Xschem.log` litter in the launch cwd) and the CIW auto-open
+(short-lived toplevels leak WSLg ghost frames — see
+`issues/0002-wslg-ghost-window-survives-xkill.md`). The exceptions —
+`test_ciw.tcl` and `test_action_log_dispatch.tcl` — use `--logdir $(mktemp -d)`
+instead, and destroy the CIW before exiting. `run.sh` already passes `--nolog`.
+
+Most smokes print `RESULT: ALL PASS` / `RESULT: N FAILED` and exit nonzero on
+failure (`test_palette.tcl` predates the convention and prints per-check lines
+only).
+
 ## Workflow for a bug fix
 
 1. `./run.sh` to confirm a clean PASS baseline.

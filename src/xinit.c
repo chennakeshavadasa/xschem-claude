@@ -2471,6 +2471,8 @@ int Tcl_AppInit(Tcl_Interp *inter)
    Tk_Init(interp);
    tclsetvar("has_x","1");
  }
+ /* mirror --nolog so xschem.tcl can skip the CIW auto-open (issue 0002) */
+ tclsetvar("cli_opt_nolog", cli_opt_nolog ? "1" : "0");
  Tcl_CreateExitHandler(tclexit, 0);
 #ifdef __unix__
  /* ROBUST XSCHEM_SHAREDIR DETECTION */

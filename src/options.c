@@ -134,6 +134,10 @@ static int check_opt(char *opt, char *optval, int type)
         dbg(1, "process_options(): action log directory: %s\n", optval ? optval : "<NULL>");
         if(optval) my_strncpy(cli_opt_logdir, optval, S(cli_opt_logdir));
 
+    } else if( (type == LONG && !strcmp("nolog", opt)) ) {
+        dbg(1, "process_options(): action logging disabled (--nolog)\n");
+        cli_opt_nolog = 1;
+
     } else if( (type == SHORT && *opt == 'N') || (type == LONG && !strcmp("netlist_filename", opt)) ) {
         dbg(1, "process_options(): set netlist name to %s\n", optval);
         if(optval) my_strncpy(cli_opt_initial_netlist_name, optval, S(cli_opt_initial_netlist_name));

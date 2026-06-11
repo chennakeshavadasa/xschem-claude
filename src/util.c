@@ -286,7 +286,9 @@ void dbg(int level, char *fmt, ...)
  *
  * Phase-0 policy: only open the log for an interactive session (has_x) or when
  * --logdir was given explicitly. This keeps headless/script/test runs from
- * littering the cwd, while letting automation opt in by passing --logdir. */
+ * littering the cwd, while letting automation opt in by passing --logdir.
+ * --nolog disables logging entirely (and, on the Tcl side, the CIW auto-open;
+ * see issue 0002): combining it with --logdir is contradictory and fatal. */
 void init_action_log(void)
 {
   char dir[PATH_MAX];
@@ -294,6 +296,13 @@ void init_action_log(void)
   struct stat buf;
   int i;
 
+  if(cli_opt_nolog) {
+    if(cli_opt_logdir[0]) {
+      fprintf(stderr, "xschem: --nolog and --logdir are mutually exclusive, aborting.\n");
+      exit(EXIT_FAILURE);
+    }
+    return;
+  }
   if(!has_x && !cli_opt_logdir[0]) return;
 
   if(cli_opt_logdir[0]) {

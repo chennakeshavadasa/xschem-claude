@@ -24,6 +24,12 @@ The plan doc holds the codebase analysis and implementation phasing.
 - The log is opened only for an **interactive session (`has_x`) OR when
   `--logdir` is given explicitly** — headless script/netlist/test runs don't
   litter the cwd, while automation can opt in.
+- **`--nolog`** disables the feature entirely: no log file AND no CIW auto-open
+  (§3). For test/automation runs, where short-lived windows also leak WSLg
+  ghost frames (issue 0002). Combining it with `--logdir` is contradictory →
+  xschem **exits with an error** (exit 1). Manual `ciw_create` still works
+  under `--nolog` as a plain command console (commands run and echo pane-side,
+  nothing is recorded).
 - The log has its **own `FILE*`** (`actionlog_fp`), strictly separate from the
   `--log`/`errfp` debug stream: replayable commands must never be mixed with
   debug output.
@@ -101,9 +107,12 @@ Window. Not full-featured for v1.
 7. **CIW typed commands** are written to the log file; results are not. Failed
    commands are recorded as `# failed: <cmd>` comments so the file stays
    source-able.
-8. **CIW auto-opens** at startup of interactive sessions.
+8. **CIW auto-opens** at startup of interactive sessions, **unless `--nolog`**
+   was given; test/automation runs pass `--nolog`.
 9. **CIW pane split is user-adjustable** (draggable `panedwindow` sash); the
    entry pane merely *starts* at one line.
+10. **`--nolog` + `--logdir` is fatal** (exit 1) — explicitly asking for a log
+    location while disabling logging is a confusion worth surfacing.
 
 ## 5. Status / phasing
 
@@ -117,7 +126,16 @@ Window. Not full-featured for v1.
   substituted into the eval string); new subcommands `xschem log_action
   [-noecho] <text>` and `xschem get actionlog_filename`; smoke
   `tests/headless/test_ciw.tcl`.
-- **Phase 1** — Layer A (`dispatch_input_action`) + Layer B (context menu).
+- **Phase 1 Layer A slice 1 — DONE** (commit `ec8de190`): Tcl-backed actions
+  logged at `dispatch_input_action` (verbatim on success, `# failed:` comment
+  on error, recorded after evaluation); smoke
+  `tests/headless/test_action_log_dispatch.tcl`. Remaining Layer A: C-backed
+  actions (canonical command from `actions.csv`). Layer B (context menu) open.
+- **`--nolog` — DONE** (decisions 8/10 above; plan
+  `claude_suggs/plan_nolog_option.md`): resolves issue 0002 by keeping test
+  runs from auto-opening short-lived CIWs; adopted by `run.sh` and the GUI
+  smoke invocation pattern; smokes `tests/headless/test_nolog.tcl` + extended
+  `test_action_log.sh`.
 - **Phase 2** — Layer C (gesture END hooks).
 - **Phase 3** — mint `pan`/`scroll`/`snap` subcommands to close coverage gaps.
 - **Acceptance test (the real one):** record → replay → diff. Drive gestures via

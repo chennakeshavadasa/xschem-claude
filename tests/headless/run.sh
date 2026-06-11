@@ -68,10 +68,12 @@ echo "   binary: $XSCHEM"
 echo "   driver: $DRIVER"
 
 # Run xschem headless. Pin the netlist dir, use the hermetic rcfile, quit after.
+# --nolog: no action log (this dir was getting littered with Xschem.log) and no
+# CIW auto-open (short-lived toplevels leak WSLg ghost frames -- issue 0002).
 set +e
 REPO="$REPO" CASES_FILE="$CASES_FILE" \
   "$XSCHEM" --rcfile "$HERE/minrc" --netlist_path "$NETLISTS" \
-            --pipe -q --script "$DRIVER" \
+            --pipe -q --nolog --script "$DRIVER" \
             > "$RESULTS/state.txt" 2> "$RESULTS/stderr.log"
 rc=$?
 set -e

@@ -75,6 +75,11 @@ ciw_create
 update idletasks
 check "ciw_create re-shows"        [expr {[wm state .ciw] eq {normal}}]
 
+# clean RAIL teardown (issue 0002 hardening): destroy the toplevel and let the
+# event loop deliver it while the client is still alive, THEN exit
+destroy .ciw
+update
+
 puts [expr {$::fails == 0 ? "RESULT: ALL PASS" : "RESULT: $::fails FAILED"}]
 flush stdout
 exit [expr {$::fails != 0}]

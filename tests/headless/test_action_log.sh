@@ -44,6 +44,19 @@ WD="$TMP/work"; mkdir -p "$WD"
 ( cd "$WD" && run )
 if ls "$WD"/Xschem.log* >/dev/null 2>&1; then bad "headless run littered the cwd with a log"; else ok "headless w/o --logdir creates no log (no litter)"; fi
 
+# 5) --nolog beats even an explicit-opt-in environment: no file is ever created
+ND="$TMP/nolog"; mkdir -p "$ND"
+( cd "$ND" && run --nolog )
+if ls "$ND"/Xschem.log* >/dev/null 2>&1; then bad "--nolog run still created a log"; else ok "--nolog creates no log"; fi
+
+# 6) --nolog + --logdir is contradictory: fatal, nonzero exit, clear message
+rc=$(timeout 30 "$XSCHEM" --pipe -q -x --nolog --logdir "$TMP/conflict" >/dev/null 2>&1; echo $?)
+if [ "$rc" != "0" ]; then ok "--nolog + --logdir exits nonzero (rc=$rc)"; else bad "--nolog + --logdir did not abort"; fi
+if timeout 30 "$XSCHEM" --pipe -q -x --nolog --logdir "$TMP/conflict" 2>&1 | grep -qi "mutually exclusive"; then
+  ok "--nolog + --logdir prints an error message"
+else bad "no error message for --nolog + --logdir"; fi
+if [ -d "$TMP/conflict" ]; then bad "conflicting run still created the logdir"; else ok "conflicting run created nothing"; fi
+
 rm -rf "$TMP"
 if [ "$fail" -eq 0 ]; then echo "RESULT: ALL PASS"; else echo "RESULT: $fail FAILED"; fi
 [ "$fail" -eq 0 ]

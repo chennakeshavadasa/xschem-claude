@@ -18,6 +18,12 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 | 8 | Log has its own `FILE*` (`actionlog_fp`), separate from `--log`/`errfp` | yes |
 | 9 | Header line is a Tcl comment → file source-able from line 1 | yes |
 | 10 | `--logdir` documented in `xschem.help` | yes |
+| 58 | `--nolog` disables the log file (even in interactive sessions) | yes |
+| 59 | `--nolog` suppresses the CIW auto-open | yes |
+| 60 | `--nolog` + `--logdir` → error message + exit 1 | yes |
+| 61 | Test invocations pass `--nolog` (`run.sh`, GUI smoke pattern; exceptions: the logging/CIW smokes) | yes |
+| 62 | Manual `ciw_create` under `--nolog` = plain console, nothing recorded | yes |
+| 63 | `--nolog` documented in `xschem.help` | yes |
 
 ## 2. What gets logged (spec §2)
 

@@ -1,8 +1,19 @@
 # Issue 0002 — the ghost window that survived xkill
 
 **Opened:** 2026-06-11
-**Status:** OPEN — root cause identified, fix proposed (suppress CIW auto-open in
-scripted runs), not yet applied
+**Status:** RESOLVED 2026-06-11 (pending user observation over the next few
+sweeps — the ghost lives on the Windows desktop, invisible from inside WSL).
+Fix shipped: explicit **`--nolog`** option (no action log + no CIW auto-open),
+adopted by `run.sh` and the GUI-smoke invocation pattern; the two
+logging-subject smokes destroy the CIW cleanly before exit. This supersedes
+§7's auto-detect-`--script` proposal with a simpler explicit opt-out (user's
+call). Plan: `claude_suggs/plan_nolog_option.md`. Residual trigger budget: 2
+CIW mappings per sweep (test_ciw, test_action_log_dispatch), both with clean
+`destroy + update` teardown, vs ~16 map-then-die windows before.
+Bonus found while fixing: the engine harness (`run.sh`, which runs with X and
+no `--logdir`) had been BOTH littering `tests/headless/Xschem.log{,.N}`
+(masked by .gitignore) AND auto-opening a CIW per run since Phase 0 — it was a
+ghost trigger too, now also covered by `--nolog`.
 **Affects:** any WSLg session that runs the GUI smoke suite after commit `80d63eb9`
 **Sibling:** issue 0001 (the WSLg display wedge) — same environment layer,
 different failure mode; this doc assumes no prior knowledge of that one

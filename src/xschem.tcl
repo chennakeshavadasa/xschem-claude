@@ -11691,9 +11691,11 @@ if { ( $OS== "Windows" || [string length [lindex [array get env DISPLAY] 1] ] > 
   # allow user to modify key bindings
   set_replace_key_binding
 
-  # CIW auto-opens for every interactive session (specs/action_logging.md
-  # decision 8); closing it merely withdraws the window
-  ciw_create
+  # CIW auto-opens for every interactive session unless --nolog was given
+  # (specs/action_logging.md decision 8; issue 0002 -- test runs pass --nolog
+  # so short-lived windows don't leak WSLg ghost frames); closing it merely
+  # withdraws the window
+  if {![info exists cli_opt_nolog] || !$cli_opt_nolog} { ciw_create }
 
   # update
   # xschem windowid . ;# set icon for window

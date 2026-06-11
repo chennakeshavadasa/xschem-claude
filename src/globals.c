@@ -209,6 +209,7 @@ char cli_opt_plotfile[PATH_MAX] = "";
 char cli_opt_diff[PATH_MAX] = "";
 char cli_opt_netlist_dir[PATH_MAX] = "";
 char cli_opt_logdir[PATH_MAX] = ""; /* dir for the action log, given with --logdir <dir> */
+int cli_opt_nolog = 0; /* --nolog: no action log AND no CIW auto-open (headless tests) */
 char cli_opt_filename[PATH_MAX] = ""; /* filename given on cmdline */
 int cli_opt_no_readline=0;
 char *cli_opt_tcl_command = NULL; /* tcl command given on command line with --tcl <script> */

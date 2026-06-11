@@ -49,6 +49,9 @@ Options:
   --logdir <path>      Directory for the action log (Xschem.log[.N], a replayable
                        log of user actions). Created if absent (fatal if it
                        cannot be created). Default: current working directory.
+  --nolog              Disable the action log and the CIW (live log window)
+                       auto-open. For test/automation runs. Mutually exclusive
+                       with --logdir (fatal if both are given).
   -d <n>
   --debug <n>          Set debug level:  1,  2,  3,..  C program debug.
                                        -1, -2, -3...  TCL frontend debug.
