@@ -28,8 +28,26 @@
     still green.
   - NOTE: `mkdir` is single-level (matches `create_tmpdir`); a `--logdir` with
     missing *intermediate* dirs would fail. Acceptable for now; revisit if needed.
+- **CIW — DONE** (2026-06-10, user-requested insert before Phase 1; spec in
+  `specs/action_logging.md` §3). Virtuoso-style Command Interpreter Window:
+  `src/ciw.tcl` — toplevel, vertical `panedwindow` (user-adjustable sash),
+  read-only log pane + one-line command entry; auto-opened at startup for
+  interactive sessions from `xschem.tcl`. `log_action()` (`util.c`) mirrors
+  every file line to the pane via a guarded `tcleval` (text passed through a
+  Tcl var, never substituted — brace/bracket/$ safe). Typed commands: echoed
+  input-tagged, evaluated `uplevel #0`, result/error pane-only; recorded in
+  the file AFTER eval (raw on success, `# failed: <cmd>` comment on error, so
+  the file stays source-able). New subcommands: `xschem log_action [-noecho]
+  <text>` (scheduler `l` block; -noecho = file-only, used by the CIW entry
+  which echoes itself) and `xschem get actionlog_filename`. Smoke:
+  `tests/headless/test_ciw.tcl` (24 checks incl. record→source round-trip of
+  the produced file). Suite green (headless harness + all 12 GUI smokes +
+  Phase-0 smoke). NOTE: `tests/run_regression.tcl` is NOT runnable in this
+  environment (resolves XSCHEM_SHAREDIR to the non-existent install dir) —
+  pre-existing, unrelated.
 - **Next: Phase 1** — Layer A (`dispatch_input_action`) + context menu, emitting
-  real `xschem …` lines via `log_action()`.
+  real `xschem …` lines via `log_action()`. The CIW makes these visible live;
+  `xschem get actionlog_filename` gives tests the file path.
 
 ---
 

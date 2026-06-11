@@ -330,9 +330,43 @@ void init_action_log(void)
   dbg(1, "init_action_log(): logging actions to %s\n", fname);
 }
 
-/* Append one action to the log as a single line. No-op when logging is
- * disabled. Each call is one line; the trailing newline is added here. */
+/* Mirror one already-formatted action line to the CIW log pane (ciw.tcl).
+ * The text travels through a Tcl variable and is never substituted into the
+ * eval string, so arbitrary content (braces, brackets, $) cannot be
+ * re-interpreted. Safe no-op before the interpreter / the CIW exist. */
+static void log_action_echo(const char *str)
+{
+  if(!has_x || !interp) return;
+  tclsetvar("ciw_line", str);
+  tcleval("if {[info procs ciw_echo] ne {}} {ciw_echo $ciw_line}");
+}
+
+/* Append one action to the log as a single line and mirror it to the CIW
+ * log pane. No-op when logging is disabled. Each call is one line; the
+ * trailing newline is added here. */
 void log_action(const char *fmt, ...)
+{
+  char buf[4096]; /* pane copy only; the file write below is unbounded */
+  va_list args;
+  if(!actionlog_fp) return;
+  va_start(args, fmt);
+  vfprintf(actionlog_fp, fmt, args);
+  va_end(args);
+  fputc('\n', actionlog_fp);
+  va_start(args, fmt);
+#ifdef HAS_SNPRINTF
+  vsnprintf(buf, S(buf), fmt, args);
+#else
+  vsprintf(buf, fmt, args); /* action lines are short xschem commands */
+#endif
+  va_end(args);
+  log_action_echo(buf);
+}
+
+/* log_action without the CIW mirror: used for commands typed INTO the CIW
+ * entry, which ciw_exec already echoes itself (input-tagged) -- mirroring
+ * would show them twice. */
+void log_action_noecho(const char *fmt, ...)
 {
   va_list args;
   if(!actionlog_fp) return;

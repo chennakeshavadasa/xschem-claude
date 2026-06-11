@@ -10182,6 +10182,11 @@ load_action_table
 # file is edited or a user copy exists (Phase 3d.4b).
 load_input_bindings
 
+# CIW (Command Interpreter Window): live action-log pane + command entry
+# (specs/action_logging.md section 3). Auto-opened for interactive sessions
+# in the build-widgets block below.
+source $XSCHEM_SHAREDIR/ciw.tcl
+
 proc build_widgets { {topwin {} } } {
   global canvas_height canvas_width
   global XSCHEM_SHAREDIR tabbed_interface simulate_bg OS sim
@@ -11685,6 +11690,10 @@ if { ( $OS== "Windows" || [string length [lindex [array get env DISPLAY] 1] ] > 
 
   # allow user to modify key bindings
   set_replace_key_binding
+
+  # CIW auto-opens for every interactive session (specs/action_logging.md
+  # decision 8); closing it merely withdraws the window
+  ciw_create
 
   # update
   # xschem windowid . ;# set icon for window

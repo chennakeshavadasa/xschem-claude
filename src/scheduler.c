@@ -1453,6 +1453,12 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
     {
       if(argc > 2) {
         switch(argv[2][0]) {
+          case 'a':
+          if(!strcmp(argv[2], "actionlog_filename")) { /* path of the open action log, empty if disabled */
+            Tcl_SetResult(interp, actionlog_filename, TCL_VOLATILE);
+          }
+          break;
+
           case 'b':
           if(!strcmp(argv[2], "backlayer")) { /* number of background layer */
             Tcl_SetResult(interp, my_itoa(BACKLAYER), TCL_VOLATILE);
@@ -3338,6 +3344,19 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
         else dbg(0, "xschem log: problems opening file %s\n", f);
     }
       else if(argc==2 && errfp != stderr) { fclose(errfp); errfp=stderr; }
+    }
+
+    /* log_action [-noecho] text
+     *   Append 'text' as one line to the ACTION log (Xschem.log, the replayable
+     *   session record -- distinct from the 'log'/'log_write' debug stream) and
+     *   mirror it to the CIW log pane. With -noecho the line goes to the file
+     *   only: used by the CIW command entry, which echoes typed commands itself.
+     *   No-op when action logging is disabled. */
+    else if(!strcmp(argv[1], "log_action"))
+    {
+      if(argc > 3 && !strcmp(argv[2], "-noecho")) log_action_noecho("%s", argv[3]);
+      else if(argc > 2) log_action("%s", argv[2]);
+      Tcl_ResetResult(interp);
     }
 
     /* load_symbol [symbol_file]
