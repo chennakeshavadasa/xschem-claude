@@ -42,6 +42,8 @@ extern size_t my_strncat(int id, char **str, size_t n, const char *append_str);
 extern void *my_calloc(int id, size_t nmemb, size_t size);
 extern void *my_malloc(int id, size_t size);
 extern void dbg(int level, char *fmt, ...);
+extern void init_action_log(void);
+extern void log_action(const char *fmt, ...);
 extern void my_realloc(int id, void *ptr,size_t size);
 extern void my_strndup(int id, char **dest, const char *src, size_t n);
 

@@ -130,6 +130,10 @@ static int check_opt(char *opt, char *optval, int type)
     } else if( (type == SHORT && *opt == 'o') || (type == LONG && !strcmp("netlist_path", opt)) ) {
         if(optval) my_strncpy(cli_opt_netlist_dir, optval, S(cli_opt_netlist_dir));
 
+    } else if( (type == LONG && !strcmp("logdir", opt)) ) {
+        dbg(1, "process_options(): action log directory: %s\n", optval ? optval : "<NULL>");
+        if(optval) my_strncpy(cli_opt_logdir, optval, S(cli_opt_logdir));
+
     } else if( (type == SHORT && *opt == 'N') || (type == LONG && !strcmp("netlist_filename", opt)) ) {
         dbg(1, "process_options(): set netlist name to %s\n", optval);
         if(optval) my_strncpy(cli_opt_initial_netlist_name, optval, S(cli_opt_initial_netlist_name));
@@ -232,6 +236,9 @@ int process_options(int argc, char *argv[])
               optval = argv[++i];
             }
             else if(!strcmp("netlist_path", opt)) {
+              optval = argv[++i];
+            }
+            else if(!strcmp("logdir", opt)) {
               optval = argv[++i];
             }
             else if(!strcmp("rcfile", opt)) {

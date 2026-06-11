@@ -1225,6 +1225,8 @@ extern int fix_mouse_coord;
 extern int help;
 extern char *cad_icon[];
 extern FILE *errfp;
+extern FILE *actionlog_fp;
+extern char actionlog_filename[PATH_MAX];
 extern int exit_code;
 extern const char *xschem_library_path[];
 extern char home_dir[PATH_MAX]; /* home dir obtained via getpwuid */
@@ -1255,6 +1257,7 @@ extern int cli_opt_flat_netlist;
 extern char cli_opt_plotfile[PATH_MAX];
 extern char cli_opt_diff[PATH_MAX];
 extern char cli_opt_netlist_dir[PATH_MAX];
+extern char cli_opt_logdir[PATH_MAX];
 extern char cli_opt_filename[PATH_MAX];
 extern int cli_opt_no_readline;
 extern char *cli_opt_tcl_command;

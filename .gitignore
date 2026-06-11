@@ -23,6 +23,10 @@ src/eval_expr.c
 src/parselabel.c
 src/parselabel.h
 
+# Action log (created at runtime in the cwd)
+Xschem.log
+Xschem.log.*
+
 # Executables
 *.exe
 src/rawtovcd

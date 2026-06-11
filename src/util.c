@@ -271,6 +271,76 @@ void dbg(int level, char *fmt, ...)
     va_end(args);
   }
 }
+
+/* Action log (Phase 0).
+ *
+ * Opens a per-session log of user actions, each line a replayable `xschem ...`
+ * Tcl command (call sites are added in later phases). The file is a SEPARATE
+ * stream from errfp (the debug/stderr log) so replayable commands never mix
+ * with debug output.
+ *
+ * Location: the directory given by --logdir (created if absent; if it cannot be
+ * created this is fatal, per spec), else the current working directory.
+ * Name: the first free name in the sequence Xschem.log, Xschem.log.1, ...
+ * (same idiom as the untitled.sch namer in save.c).
+ *
+ * Phase-0 policy: only open the log for an interactive session (has_x) or when
+ * --logdir was given explicitly. This keeps headless/script/test runs from
+ * littering the cwd, while letting automation opt in by passing --logdir. */
+void init_action_log(void)
+{
+  char dir[PATH_MAX];
+  char fname[PATH_MAX];
+  struct stat buf;
+  int i;
+
+  if(!has_x && !cli_opt_logdir[0]) return;
+
+  if(cli_opt_logdir[0]) {
+    my_strncpy(dir, cli_opt_logdir, S(dir));
+    if(stat(dir, &buf)) {            /* does not exist (or not accessible) */
+      if(mkdir(dir, 0777)) {         /* create it; honors umask */
+        fprintf(stderr, "xschem: cannot create log directory '%s', aborting.\n", dir);
+        exit(EXIT_FAILURE);
+      }
+    } else if(!S_ISDIR(buf.st_mode)) {
+      fprintf(stderr, "xschem: log path '%s' exists but is not a directory, aborting.\n", dir);
+      exit(EXIT_FAILURE);
+    }
+  } else {
+    my_strncpy(dir, ".", S(dir));
+  }
+
+  for(i = 0; ; ++i) {               /* first free name in the increment sequence */
+    if(i == 0) my_snprintf(fname, S(fname), "%s/Xschem.log", dir);
+    else       my_snprintf(fname, S(fname), "%s/Xschem.log.%d", dir, i);
+    if(stat(fname, &buf)) break;    /* name is free */
+  }
+
+  actionlog_fp = fopen(fname, "w");
+  if(!actionlog_fp) {
+    /* Not fatal (only directory creation is, per spec): disable logging. */
+    fprintf(stderr, "xschem: cannot open log file '%s', action logging disabled.\n", fname);
+    return;
+  }
+  setvbuf(actionlog_fp, NULL, _IOLBF, 0); /* line-buffered, like errfp */
+  my_strncpy(actionlog_filename, fname, S(actionlog_filename));
+  /* header is a Tcl comment so the log stays source-able for replay */
+  fprintf(actionlog_fp, "# xschem action log\n");
+  dbg(1, "init_action_log(): logging actions to %s\n", fname);
+}
+
+/* Append one action to the log as a single line. No-op when logging is
+ * disabled. Each call is one line; the trailing newline is added here. */
+void log_action(const char *fmt, ...)
+{
+  va_list args;
+  if(!actionlog_fp) return;
+  va_start(args, fmt);
+  vfprintf(actionlog_fp, fmt, args);
+  va_end(args);
+  fputc('\n', actionlog_fp);
+}
 #ifdef HAS_SNPRINTF
 size_t my_snprintf(char *str, size_t size, const char *fmt, ...)
 {

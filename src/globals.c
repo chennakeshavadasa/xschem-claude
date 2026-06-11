@@ -171,6 +171,8 @@ int debug_var=-10;  /* will be set to 0 in xinit.c */
 int help=0; /* help option set to global scope, printing help is deferred */
             /* when configuration xschemrc has been read 20140406 */
 FILE *errfp = NULL;
+FILE *actionlog_fp = NULL; /* action log stream (replayable xschem commands), NULL = disabled */
+char actionlog_filename[PATH_MAX] = ""; /* resolved path of the open action log, "" = none */
 int exit_code = 0; /* success */
 const char *xschem_library_path[] = XSCHEM_LIBRARY_PATH;
 char home_dir[PATH_MAX]; /* home dir obtained via getpwuid */
@@ -206,6 +208,7 @@ int cli_opt_flat_netlist = 0;
 char cli_opt_plotfile[PATH_MAX] = "";
 char cli_opt_diff[PATH_MAX] = "";
 char cli_opt_netlist_dir[PATH_MAX] = "";
+char cli_opt_logdir[PATH_MAX] = ""; /* dir for the action log, given with --logdir <dir> */
 char cli_opt_filename[PATH_MAX] = ""; /* filename given on cmdline */
 int cli_opt_no_readline=0;
 char *cli_opt_tcl_command = NULL; /* tcl command given on command line with --tcl <script> */
