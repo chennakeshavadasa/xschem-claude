@@ -2067,11 +2067,51 @@ static int edit_polygon_point(int state)
   return 0;
 }
 
+/* Action-log Layer B (spec section 2): the replayable command recorded when a
+ * context-menu pick fires, indexed by the menu's retval (1..21). One table, the
+ * complete classification, so the log call below stays a single line:
+ *   "xschem ..."  logged verbatim -- a replayable command;
+ *   "# ..."       logged as a non-replayable marker (dialog / object-ref gap);
+ *   NULL          nothing logged -- gesture-starts, whose replayable form is the
+ *                 gesture END (Layer C / Phase 2, shared with their key/toolbar
+ *                 twins), and abort (no replayable effect).
+ * The selection/cursor/hierarchy-dependent commands (cut/copy/delete/
+ * descend_symbol/go_back/paste) are the real action taken; their replay fidelity
+ * is bounded by the click-select gap (issue 0005), exactly as for the Layer A
+ * hilight commands. 'load recent' is dynamic (the filename) and is logged at its
+ * own case instead of here. */
+static const char *ctxmenu_log_cmd[] = {
+  NULL,                          /*  0  (unused: retval is 1-based)        */
+  NULL,                          /*  1  place symbol      -> Layer C       */
+  NULL,                          /*  2  place wire        -> Layer C       */
+  NULL,                          /*  3  place line        -> Layer C       */
+  NULL,                          /*  4  place rectangle   -> Layer C       */
+  NULL,                          /*  5  place polygon     -> Layer C       */
+  NULL,                          /*  6  place text        -> Layer C       */
+  "xschem cut",                  /*  7  cut selection -> clipboard         */
+  "xschem paste",                /*  8  paste clipboard at mouse           */
+  NULL,                          /*  9  load recent  (dynamic; see case 9) */
+  "# context-menu: edit attributes (dialog, not replayable)",            /* 10 */
+  "# context-menu: edit attributes in editor (dialog, not replayable)",  /* 11 */
+  "# context-menu: descend to schematic (not replayable: needs object reference, issue 0005)", /* 12 */
+  "xschem descend_symbol",       /* 13  descend into symbol                */
+  "xschem go_back",              /* 14  go back up the hierarchy           */
+  "xschem copy",                 /* 15  copy selection -> clipboard        */
+  NULL,                          /* 16  move selection    -> Layer C       */
+  NULL,                          /* 17  duplicate selection -> Layer C     */
+  "xschem delete",               /* 18  delete selection                   */
+  NULL,                          /* 19  place arc         -> Layer C       */
+  NULL,                          /* 20  place circle      -> Layer C       */
+  NULL                           /* 21  abort (no replayable effect)       */
+};
+
 static void context_menu_action(double mx, double my)
 {
   int ret;
   const char *status;
   int prev_state;
+  const char *logcmd = NULL;     /* action-log Layer B: what this pick records */
+  char loadbuf[PATH_MAX + 32];   /* case 9 builds a dynamic 'xschem load' here */
   xctx->semaphore++;
   status = tcleval("context_menu");
   xctx->semaphore--;
@@ -2132,6 +2172,16 @@ static void context_menu_action(double mx, double my)
       break;
     case 9: /* load most recent file */
       tclvareval("xschem load -gui [lindex $tctx::recentfile 0]", NULL);
+      /* action-log Layer B: record the RESOLVED filename (not the
+       * $tctx::recentfile lookup, whose value differs at replay time). Braces
+       * keep a path with spaces a single Tcl word; the load is replayable. */
+      {
+        const char *f = tcleval("lindex $tctx::recentfile 0");
+        if(f && f[0]) {
+          my_snprintf(loadbuf, S(loadbuf), "xschem load {%s}", f);
+          logcmd = loadbuf;
+        }
+      }
       break;
     case 10: /* edit attributes */
       edit_property(0);
@@ -2189,6 +2239,12 @@ static void context_menu_action(double mx, double my)
     default:
       break;
   }
+  /* action-log Layer B: record the pick AFTER it ran (record-after-evaluation,
+   * as in Layer A / the CIW). case 9 set logcmd dynamically; otherwise the
+   * classification table decides (command, # marker, or NULL = nothing). */
+  if(!logcmd && ret > 0 && ret < (int)(sizeof(ctxmenu_log_cmd)/sizeof(ctxmenu_log_cmd[0])))
+    logcmd = ctxmenu_log_cmd[ret];
+  if(logcmd) log_action("%s", logcmd);
 }
 
 /* ===========================================================================

@@ -141,6 +141,18 @@ Window. Not full-featured for v1.
   logged at `dispatch_input_action` (verbatim on success, `# failed:` comment
   on error, recorded after evaluation); smoke
   `tests/headless/test_action_log_dispatch.tcl`. Layer B (context menu) open.
+- **Phase 1 Layer B — DONE (replayable subset)** (commit pending; plan
+  `claude_suggs/plan_layerB_context_menu_logging.md`): `context_menu_action`
+  (`callback.c`) records each pick via a single classification table indexed by
+  the menu's retval, logged after the action runs. Logged as commands:
+  cut/copy/delete/paste/descend_symbol/go_back (selection/cursor-dependent —
+  fidelity bounded by issue 0005) and load-recent (resolved filename). `#`
+  markers: edit-attributes dialogs, and descend-to-schematic (the `xschem
+  descend` subcommand hardcodes args that don't match the menu's
+  `descend_schematic(0,1,1,1)` — audit-confirmed mismatch). DEFERRED to Layer C:
+  the 10 gesture-start picks (place symbol/wire/line/rect/poly/text/arc/circle,
+  move, duplicate) — their replayable form is the gesture END, shared with the
+  key/toolbar twins. Smoke `tests/headless/test_context_menu_log.tcl`.
 - **Phase 1 Layer A slice 2 — DONE** (plan
   `claude_suggs/plan_layerA_slice2_cbacked_logging.md`): C-backed actions log
   the canonical `actions.csv` command, pushed into the C registry at startup
