@@ -2520,9 +2520,16 @@ static int act_toggle_draw_pixmap(const ActionEvent *e) { (void)e; toggle_draw_p
  * xschem.tcl pushes it from actions.csv (the single source, col 'command') at
  * startup via `xschem set_action_log_cmd`, gated by the csv 'nolog' column for
  * ids whose csv command is not behavior-equivalent to fn. Tcl-backed actions
- * log their `tcl` directly and ignore this field. */
+ * log their `tcl` directly and ignore this field.
+ * nolog (Phase 3 slice D) suppresses Layer A logging for TCL-backED actions
+ * too -- set from the same csv column via `xschem set_action_nolog`. Used by
+ * the gesture-START ids (xschem wire / move_objects / place_symbol ...):
+ * their effect is logged at the gesture END (Layer C), so the start would be
+ * a second line for the same gesture -- and two of them open dialogs when a
+ * log is sourced. An aborted gesture thus leaves no trace, which matches the
+ * spec's granularity rule (log the effect; an abort has none). */
 typedef struct { const char *id; action_fn fn; const char *tcl; const char *help;
-                 char *log_cmd; } ActionDef;
+                 char *log_cmd; int nolog; } ActionDef;
 
 static ActionDef action_registry[] = {
   { "view.zoom_in",   act_zoom_in,   NULL, "Zoom in"   },
@@ -2863,9 +2870,9 @@ static int dispatch_input_action(const ActionEvent *e)
       fprintf(errfp, "dispatch_input_action(): evaluation of script: %s failed\n", d->tcl);
       fprintf(errfp, "         : %s\n", Tcl_GetStringResult(interp));
       Tcl_ResetResult(interp);
-      log_action("# failed: %s", d->tcl);
+      if(!d->nolog) log_action("# failed: %s", d->tcl);
     } else {
-      log_action("%s", d->tcl);
+      if(!d->nolog) log_action("%s", d->tcl);
     }
     return 1;
   }
@@ -2979,6 +2986,28 @@ int action_cmd_set_log_cmd(int argc, const char **argv)
   for(i = 0; i < num_action_defs; ++i) {
     if(!strcmp(action_registry[i].id, argv[2])) {
       my_strdup(_ALLOC_ID_, &action_registry[i].log_cmd, argv[3]);
+      Tcl_SetResult(interp, "1", TCL_STATIC);
+      return TCL_OK;
+    }
+  }
+  Tcl_SetResult(interp, "0", TCL_STATIC);
+  return TCL_OK;
+}
+
+/* `xschem set_action_nolog <action_id>` -- action-log Phase 3 slice D: mark
+ * the action as not-to-be-logged at dispatch (csv 'nolog' column, pushed by
+ * xschem.tcl at startup; see the ActionDef comment). Same return convention
+ * as set_action_log_cmd: 1 = flagged, 0 = id not in the C registry. */
+int action_cmd_set_nolog(int argc, const char **argv)
+{
+  int i;
+  if(argc < 3) {
+    Tcl_SetResult(interp, "usage: xschem set_action_nolog <action_id>", TCL_STATIC);
+    return TCL_ERROR;
+  }
+  for(i = 0; i < num_action_defs; ++i) {
+    if(!strcmp(action_registry[i].id, argv[2])) {
+      action_registry[i].nolog = 1;
       Tcl_SetResult(interp, "1", TCL_STATIC);
       return TCL_OK;
     }

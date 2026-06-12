@@ -10184,13 +10184,20 @@ load_input_bindings
 # Action-log Layer A: push each row's canonical command into the C action
 # registry as the replay command logged when a C-BACKED action dispatches.
 # The csv is the single source of commands -- nothing is hand-written in C.
-# Skipped rows: empty command (C-only actions, Phase 3 mints theirs) and
-# nolog=1 (csv command not behavior-equivalent to the dispatched C fn).
+# nolog=1 rows are flagged in the registry instead (Phase 3 slice D): the
+# dispatch logs nothing for them, C- or Tcl-backed. Two reasons a row is
+# nolog: the csv command is not behavior-equivalent to the dispatched C fn
+# (attach_labels), or it is a gesture START whose effect is logged at the
+# gesture END (Layer C) -- a start line would double-log the gesture, and
+# place_symbol/place_text open dialogs when a log is sourced.
 # Ids unknown to the C registry (menu-only rows) are ignored by the C side.
 foreach row $action_table {
+  if {[dict exists $row nolog] && [dict get $row nolog] ne {}} {
+    xschem set_action_nolog [dict get $row id]
+    continue
+  }
   set acmd [dict get $row command]
   if {$acmd eq {}} continue
-  if {[dict exists $row nolog] && [dict get $row nolog] ne {}} continue
   xschem set_action_log_cmd [dict get $row id] $acmd
 }
 

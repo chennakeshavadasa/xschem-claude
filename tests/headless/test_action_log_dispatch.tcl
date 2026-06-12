@@ -95,6 +95,27 @@ check "set_action_log_cmd unknown id -> 0" \
 check "set_action_log_cmd registry id -> 1" \
   [expr {[xschem set_action_log_cmd file.clear_schematic {xschem clear schematic}] == 1}]
 
+# 4e) the nolog gate (Phase 3 slice D): `xschem set_action_nolog <id>` makes
+#     dispatch log NOTHING for that id, including Tcl-backed ones (the csv
+#     nolog column is pushed through this at startup). The 14 gesture-start
+#     rows are csv-nolog'd but not yet in the C registry (their keys are
+#     un-migrated C cases, so they cannot even be bound today -- the flag
+#     becomes live the moment a future migration registers them). Prove the
+#     gate on a registry id: k = hilight.highlight_selected_net_pins, whose
+#     Tcl command logs normally, then goes silent once flagged.
+check "set_action_nolog unknown id -> 0" \
+  [expr {[xschem set_action_nolog nonsense.id] == 0}]
+set n0 [llength [loglines]]
+key 107                                         ;# k -> xschem hilight (logged)
+check "tcl-backed id logs before nolog" \
+  [expr {[lsearch -exact [loglines] {xschem hilight}] >= $n0}]
+check "set_action_nolog registry id -> 1" \
+  [expr {[xschem set_action_nolog hilight.highlight_selected_net_pins] == 1}]
+set n0 [llength [loglines]]
+key 107
+check "nolog'd tcl-backed dispatch logs nothing" \
+  [expr {[llength [loglines]] == $n0}]
+
 # 5) the whole file stays source-able (header comment, raw commands, # comments)
 check "file is source-able" \
   [expr {![catch {uplevel #0 [list source [xschem get actionlog_filename]]} err]}]

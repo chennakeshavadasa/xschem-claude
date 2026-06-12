@@ -5911,6 +5911,14 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
     {
       return action_cmd_set_log_cmd(argc, argv);
     }
+    /* set_action_nolog action_id
+     *   Action-log Phase 3: suppress Layer A logging for this action id
+     *   (csv 'nolog' column; gesture-start commands whose effect is logged
+     *   at the gesture END). Returns 1 if the id exists, 0 otherwise. */
+    else if(!strcmp(argv[1], "set_action_nolog"))
+    {
+      return action_cmd_set_nolog(argc, argv);
+    }
     else if(!strcmp(argv[1], "set_modify"))
     {
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}

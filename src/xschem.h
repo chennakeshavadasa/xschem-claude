@@ -1454,6 +1454,7 @@ extern void toggle_draw_pixmap_cmd(void);
  * `xschem bind`/`unbind`/`bindings` subcommands. See
  * claude_suggs/refactor_plan_action_registry_phase3.md */
 extern int action_cmd_set_log_cmd(int argc, const char **argv);
+extern int action_cmd_set_nolog(int argc, const char **argv);
 extern int action_cmd_bind(int argc, const char **argv);
 extern int action_cmd_unbind(int argc, const char **argv);
 extern int action_cmd_bindings(int argc, const char **argv);
