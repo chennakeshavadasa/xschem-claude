@@ -1,13 +1,87 @@
 # Action-registry FAQ
 
 Running Q&A about the input action-registry / binding-table work (branch
-`feature/action-registry`) and its follow-on, the action-logging / CIW work
-(branch `feature/action-logging`). Each entry records the **project state when
-it was asked** (branch + HEAD commit + phase), because answers are tied to how
-much of the refactor had landed at that moment — a later phase may make an old
-"no" a "yes."
+`feature/action-registry`) and its follow-ons: the action-logging / CIW work
+(branch `feature/action-logging`) and the scriptability / stable-object-handles
+work (branch `feature/stable-object-handles`). Each entry records the
+**project state when it was asked** (branch + HEAD commit + phase), because
+answers are tied to how much of the refactor had landed at that moment — a
+later phase may make an old "no" a "yes."
 
 Newest entries on top.
+
+---
+
+## Q7. Toward "anything through code": what is the *first* thing to address in the code?
+
+- **Asked:** 2026-06-12
+- **Project state:** branch `feature/stable-object-handles` @ `cdf9bd9e`. The
+  Tcl-introspection analysis (`tcl_introspection_wire.md`) and the C-vs-C++
+  objects tutorial are committed; no design or implementation yet.
+- **Context:** the end goal is SKILL-class scriptability — the user can query
+  and drive everything from code. Wires were the probe specimen. What's the
+  keystone change?
+
+**Not the handles themselves — the fact that the object store has no owner.**
+The expectation was that `storeobject()` (`store.c:226`) is the single factory
+for wires. Grepping disproved it: `xctx->wires++` also happens at **four
+sites inside `check.c`** (236, 520, 595, 685 — the connectivity checker
+splits and creates wires directly), and `xctx->instances++` happens in
+`paste.c`, `move.c` and `actions.c`. Deletion/compaction is similarly
+scattered (`check.c:298,399`, `move.c:147`, `select.c:513`).
+
+Every capability the goal decomposes into — stable ids, coherent caches,
+undo-safe references, mutation logging, change events — needs to hook the
+same three events: *object born, object died, object moved in memory*. Today
+those events have half a dozen doors each. So the first move is a **pure,
+behavior-identical refactor: funnel object lifecycle through one chokepoint
+per event.** It is the same move that already paid off twice in this
+codebase: the `scheduler()` command funnel made action-logging nearly free,
+and the binding-table funnel made key remapping free. xschem funnels
+*commands*; it has never funneled *state mutation* — that is the missing
+half of the architecture.
+
+Build order that falls out by dependency: (1) census + funnel (verbatim,
+characterization-tested); (2) identity — stamp a monotonic id at the funnel's
+birth point, maintain id→index at death/compact; (3) coherence — cache
+invalidation moves into the funnel, killing the stale-query bug class
+wholesale; (4) only then the user-visible uniform API (`xschem object @id`,
+selection as ids). Constraints carried from day one: both undo backends must
+round-trip identity (memory undo copies structs — free; disk undo
+round-trips through the `.sch` format — needs a decision), and the drawing
+hot path stays untouched (the funnel costs one call on human-speed mutation
+only).
+
+---
+
+## Q6. Is it true C is a subset of C++?
+
+- **Asked:** 2026-06-12
+- **Project state:** branch `feature/stable-object-handles` @ `cdf9bd9e`,
+  right after the C-vs-C++ objects tutorial (`objects_in_c_vs_cpp.md`) landed.
+
+**Almost, but not literally — and the gap runs in three layers** (all
+demonstrated live with gcc/g++ during the session):
+
+1. **Valid C that C++ rejects:** `int *new = malloc(n)` fails twice over —
+   `new` is one of ~30 extra C++ keywords, and C++ forbids the implicit
+   `void *` conversion every C `malloc` call relies on. `char *s = "hello"`
+   loses the `const`. Plus implicit function declarations, K&R definitions,
+   tentative definitions — the C89 idioms.
+2. **Valid C that C++ never adopted:** VLAs, `restrict`, flexible array
+   members, `_Generic`, compound literals, full C99 designated initializers.
+   Modern C is not contained in modern C++ either.
+3. **The dangerous layer — compiles in both, means different things:**
+   `sizeof('a')` is **4 in C** (character constants are `int`) and **1 in
+   C++** (`char`); file-scope `const` linkage differs; enum conversions
+   differ. No diagnostic fires.
+
+What people correctly mean is the pragmatic version: a large common dialect
+("Clean C") compiles identically under both, and xschem's C89 is a few
+mechanical fixes from it. For the handles work the relevant direction is:
+everything in the tutorial — factory functions, deep-copy discipline,
+accessor-only mutation, generational handles — is expressible in C89. We
+borrow C++'s *design ideas*, not its syntax.
 
 ---
 
