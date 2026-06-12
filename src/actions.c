@@ -602,6 +602,11 @@ void saveas(const char *f, int type) /*  changed name from ask_save_file to save
     if(!res[0]) return;
     dbg(1, "saveas(): res = %s\n", res);
     save_schematic(res, 0);
+    /* action-log (file-menu plan): record the RESOLVED save-as, after the
+     * save ran. Only the dialog path (!f) logs: a replayed/typed
+     * `xschem saveas path` passes f and is already in the log. */
+    if(!f && tcl_braceable(res))
+      log_action("xschem saveas {%s} %s", res, type == SYMBOL ? "symbol" : "schematic");
     tclvareval("update_recent_file {", res,"}",  NULL);
     return;
 }
@@ -646,6 +651,11 @@ void ask_new_file(int in_new_window, char *filename)
           xctx->xorigin=CADINITIALX;
           xctx->yorigin=CADINITIALY;
           load_schematic(1, f, 1, 1);
+          /* action-log (file-menu plan): record the RESOLVED open, after the
+           * load ran. Only the dialog path comes through here with !filename;
+           * a replayed/typed `xschem load f` goes through the scheduler and
+           * never re-enters this function -> no double-log. */
+          if(!filename && tcl_braceable(f)) log_action("xschem load {%s}", f);
           tclvareval("update_recent_file {", f, "}", NULL);
           if(xctx->portmap[xctx->currsch].table) str_hash_free(&xctx->portmap[xctx->currsch]);
           my_strdup(_ALLOC_ID_, &xctx->sch_path[xctx->currsch],".");
@@ -655,6 +665,9 @@ void ask_new_file(int in_new_window, char *filename)
         } else { /* load in new window/tab */
           tclvareval("update_recent_file {", f, "}", NULL);
           tclvareval("xschem load_new_window {", f, "}", NULL);
+          /* the with-filename arm of load_new_window does not log (it is the
+           * replay form); record this dialog-resolved new-window open here */
+          if(!filename && tcl_braceable(f)) log_action("xschem load_new_window {%s}", f);
         }
       }
     }

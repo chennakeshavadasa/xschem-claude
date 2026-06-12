@@ -1177,6 +1177,13 @@ static int xschem_cmds_e(Tcl_Interp *interp, int argc, const char *argv[], int *
             if(force || !xctx->modified || !strcmp(tclresult(), "ok")) {
                if(closewindow) {
                  char s[40];
+                 /* action-log (file-menu plan): the session ends here -- the
+                  * one place every quit path (menu Close/Quit, WM close
+                  * button, typed `xschem exit`) funnels through before the
+                  * process dies. Logged with closewindow+force so a sourced
+                  * full-session replay terminates deterministically, with no
+                  * confirm dialog. */
+                 log_action("xschem exit closewindow force");
                  my_snprintf(s, S(s), "exit %s", exit_status); /* xwin_exit() saves window geometry */
                  tcleval(s);
                }
@@ -1212,6 +1219,13 @@ static int xschem_cmds_e(Tcl_Interp *interp, int argc, const char *argv[], int *
             if(!has_x || force || !xctx->modified || !strcmp(tclresult(), "ok")) {
                if(closewindow) {
                  char s[40];
+                 /* action-log (file-menu plan): the session ends here -- the
+                  * one place every quit path (menu Close/Quit, WM close
+                  * button, typed `xschem exit`) funnels through before the
+                  * process dies. Logged with closewindow+force so a sourced
+                  * full-session replay terminates deterministically, with no
+                  * confirm dialog. */
+                 log_action("xschem exit closewindow force");
                  my_snprintf(s, S(s), "exit %s", exit_status); /* xwin_exit() saves window geometry */
                  tcleval(s);
                }
@@ -3260,6 +3274,11 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
             } else {
               first_loaded = 1;
               ret = load_schematic(load_symbols, f, undo_reset, !force);
+              /* action-log (file-menu plan): -gui marks the interactive menu
+               * invocations (recent / last-closed / most-recent / context
+               * menu / file_chooser) whose filename resolves here. Replay
+               * lines never carry -gui, so replays don't re-log. */
+              if(!force && has_x && tcl_braceable(f)) log_action("xschem load {%s}", f);
               dbg(1, "xschem load: f=%s, ret=%d\n", f, ret);
               if(undo_reset) {
                 tclvareval("update_recent_file {", f, "}", NULL);
@@ -3332,6 +3351,9 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
           if(f[0]) {
            dbg(1, "f=%s\n", f);
            new_schematic("create", "noconfirm", f, 1);
+           /* action-log (file-menu plan): dialog-resolved new-window open;
+            * the with-filename arm above is the replay form and stays silent */
+           if(tcl_braceable(f)) log_action("xschem load_new_window {%s}", f);
            tclvareval("update_recent_file {", f, "}", NULL);
           } else {
             new_schematic("create", NULL, NULL, 1);

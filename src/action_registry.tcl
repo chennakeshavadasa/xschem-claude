@@ -104,7 +104,16 @@ proc build_menu_from_table {topwin menukey} {
         $m add separator
       }
       command {
-        set opts [list -label $label -command [dict get $row command]]
+        # action-log (file-menu plan): a menu pick whose command is replayable
+        # as-is is recorded after it runs. nolog rows stay silent here: their
+        # effect is logged at a resolution hook instead (dialog-resolved
+        # load/saveas, the C exit hook) or has no faithful line (dialogs).
+        set mcmd [dict get $row command]
+        set nolog [expr {[dict exists $row nolog] && [dict get $row nolog] ne {}}]
+        if {$mcmd ne {} && !$nolog} {
+          set mcmd [list menu_action_logged $mcmd]
+        }
+        set opts [list -label $label -command $mcmd]
         if {$accel ne {}} { lappend opts -accelerator $accel }
         $m add command {*}$opts
       }
@@ -146,7 +155,21 @@ proc action_component_browser {} {
 proc action_reload {} {
   if {[alert_ "Are you sure you want to reload?" {} 0 1] == 1} {
     xschem reload
+    # action-log: record the confirmed reload (the menu row is nolog so the
+    # cancelled case leaves no line)
+    xschem log_action {xschem reload}
   }
+}
+
+# action-log (file-menu plan): run a menu pick's command and record it,
+# after evaluation -- a failed pick becomes a '#' comment so the log file
+# stays source-able (same rule as CIW-typed commands and Layer A).
+proc menu_action_logged {cmd} {
+  if {[catch {uplevel #0 $cmd} err]} {
+    xschem log_action "# failed: $cmd"
+    error $err
+  }
+  xschem log_action $cmd
 }
 
 # --- (removed) Phase-2 Tcl-intercept accelerators ------------------------------

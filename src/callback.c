@@ -1421,7 +1421,7 @@ static int waves_callback(int event, int mx, int my, KeySym key, int button, int
  * word with no reparse risk? Conservative: refuse braces and backslashes
  * outright rather than balance-check, so the log file ALWAYS stays
  * source-able (the Layer B invariant). */
-static int tcl_braceable(const char *s)
+int tcl_braceable(const char *s)
 {
   for(; *s; s++) if(*s == '{' || *s == '}' || *s == '\\') return 0;
   return 1;
@@ -2216,7 +2216,6 @@ static void context_menu_action(double mx, double my)
   const char *status;
   int prev_state;
   const char *logcmd = NULL;     /* action-log Layer B: what this pick records */
-  char loadbuf[PATH_MAX + 32];   /* case 9 builds a dynamic 'xschem load' here */
   xctx->semaphore++;
   status = tcleval("context_menu");
   xctx->semaphore--;
@@ -2276,17 +2275,10 @@ static void context_menu_action(double mx, double my)
       merge_file(2,".sch");
       break;
     case 9: /* load most recent file */
+      /* action-log: the resolved filename is recorded by the scheduler load
+       * branch's -gui hook (file-menu logging), shared with the File menu's
+       * recent/last-closed picks -- nothing to log here anymore. */
       tclvareval("xschem load -gui [lindex $tctx::recentfile 0]", NULL);
-      /* action-log Layer B: record the RESOLVED filename (not the
-       * $tctx::recentfile lookup, whose value differs at replay time). Braces
-       * keep a path with spaces a single Tcl word; the load is replayable. */
-      {
-        const char *f = tcleval("lindex $tctx::recentfile 0");
-        if(f && f[0]) {
-          my_snprintf(loadbuf, S(loadbuf), "xschem load {%s}", f);
-          logcmd = loadbuf;
-        }
-      }
       break;
     case 10: /* edit attributes */
       edit_property(0);
@@ -2345,8 +2337,8 @@ static void context_menu_action(double mx, double my)
       break;
   }
   /* action-log Layer B: record the pick AFTER it ran (record-after-evaluation,
-   * as in Layer A / the CIW). case 9 set logcmd dynamically; otherwise the
-   * classification table decides (command, # marker, or NULL = nothing). */
+   * as in Layer A / the CIW). The classification table decides (command,
+   * # marker, or NULL = nothing). */
   if(!logcmd && ret > 0 && ret < (int)(sizeof(ctxmenu_log_cmd)/sizeof(ctxmenu_log_cmd[0])))
     logcmd = ctxmenu_log_cmd[ret];
   if(logcmd) log_action("%s", logcmd);
