@@ -4,7 +4,11 @@ Branch: `feature/stable-object-handles`.
 Status: Phase A DONE (26 checks green at clean HEAD; two facts characterized
 along the way: disk undo round-trips a save byte-identically, memory undo
 loses the multi-line v{} header — CH5c locks the body-level invariant).
-Phases B–E pending.
+Phase B DONE (`code_analysis/wire_lifecycle_census.md`: 7 births, 4 deaths,
+2 bulk resets, 2 reorders, 3 growth sites — incl. two found only by the
+struct-write sweep: change_elem_order swap, mem_pop_undo bulk replace;
+banked for D: memory undo struct-copies ids for free, disk undo re-loads
+through load_wire). Phases C–E pending.
 Prereqs: `code_analysis/tcl_introspection_wire.md` (the why),
 `code_analysis/objects_in_c_vs_cpp.md` §5 (the how),
 FAQ Q7 (why the funnel comes before the handle).
