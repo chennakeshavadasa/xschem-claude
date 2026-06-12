@@ -1,6 +1,10 @@
 # Plan: stable object handles — step 1 (wire lifecycle funnel + ids), TDD
 
-Branch: `feature/stable-object-handles`. Status: PLANNED (this doc).
+Branch: `feature/stable-object-handles`.
+Status: Phase A DONE (26 checks green at clean HEAD; two facts characterized
+along the way: disk undo round-trips a save byte-identically, memory undo
+loses the multi-line v{} header — CH5c locks the body-level invariant).
+Phases B–E pending.
 Prereqs: `code_analysis/tcl_introspection_wire.md` (the why),
 `code_analysis/objects_in_c_vs_cpp.md` §5 (the how),
 FAQ Q7 (why the funnel comes before the handle).
