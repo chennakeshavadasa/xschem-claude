@@ -167,17 +167,25 @@ click1 260 240
 check "text drop logs xschem text ... {HELLO} ..." \
   [expr {[lsearch -glob [newlines $n0] {xschem text * {HELLO} *}] >= 0}]
 
-# --- 9. polygon close => '#' marker (no coordinate subcommand yet) ----------
+# --- 9. polygon close => xschem polygon x1 y1 ... (Phase 3 slice B) ---------
 set n0 [llength [loglines]]
+set layer [xschem get rectcolor]
+set g0 [xschem get polygons $layer]
 motion 400 400
 xschem polygon gui
 motion 500 400; click1 500 400
 motion 500 480; click1 500 480
 motion 400 400; click1 400 400      ;# click first point again -> close & store
-check "polygon close logs a '# place polygon' marker" \
-  [expr {[lsearch -glob [newlines $n0] {# place polygon (*}] >= 0}]
-check "polygon close logs NO xschem command" \
-  [expr {[lsearch -glob [newlines $n0] {xschem *}] < 0}]
+set lines [newlines $n0]
+set i [lsearch -glob $lines {xschem polygon *}]
+check "polygon close logs xschem polygon with points" [expr {$i >= 0}]
+check "polygon gesture stored a polygon" [expr {[xschem get polygons $layer] == $g0 + 1}]
+# replay the logged line: places a second polygon
+if {$i >= 0} {
+  eval [lindex $lines $i]
+  check "logged polygon line replays (stores another polygon)" \
+    [expr {[xschem get polygons $layer] == $g0 + 2}]
+}
 catch {xschem abort_operation}
 
 # --- 10. the whole file stays source-able (the Layer B invariant) -----------

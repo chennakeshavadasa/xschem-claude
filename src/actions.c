@@ -3646,8 +3646,20 @@ void new_polygon(int what, double mousex_snap, double mousey_snap)
      xctx->push_undo();
      drawtemppolygon(xctx->gctiled, NOW, xctx->nl_polyx, xctx->nl_polyy, xctx->nl_points+1, 0);
      store_poly(-1, xctx->nl_polyx, xctx->nl_polyy, xctx->nl_points, xctx->rectcolor, 0, NULL);
-     log_action("# place polygon (%d points; no coordinate subcommand yet, Phase 3)",
-       xctx->nl_points);
+     /* action-log Layer C: the stored point list replays through the
+      * `xschem polygon x1 y1 ...` coordinate form (Phase 3 slice B);
+      * dynamic length, so the line is assembled before logging */
+     {
+       char *logcmd = NULL, chunk[128];
+       int i;
+       my_strdup(_ALLOC_ID_, &logcmd, "xschem polygon");
+       for(i = 0; i < xctx->nl_points; ++i) {
+         my_snprintf(chunk, S(chunk), " %.16g %.16g", xctx->nl_polyx[i], xctx->nl_polyy[i]);
+         my_strcat(_ALLOC_ID_, &logcmd, chunk);
+       }
+       log_action("%s", logcmd);
+       my_free(_ALLOC_ID_, &logcmd);
+     }
      /* fprintf(errfp, "new_poly: finish: nl_points=%d\n", xctx->nl_points); */
      drawtemppolygon(xctx->gc[xctx->rectcolor], NOW, xctx->nl_polyx, xctx->nl_polyy, xctx->nl_points, 0);
      xctx->ui_state &= ~STARTPOLYGON;

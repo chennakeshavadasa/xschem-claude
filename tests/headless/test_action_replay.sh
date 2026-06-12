@@ -95,6 +95,18 @@ xschem place_symbol lab_pin.sym
 xschem callback .drw 6 180 140 0 0 0 0
 xschem callback .drw 4 180 140 0 1 0 0
 xschem callback .drw 5 180 140 0 1 0 256
+# polygon draw (close by clicking the first point again) -> xschem polygon ...
+xschem callback .drw 6 400 400 0 0 0 0
+xschem polygon gui
+xschem callback .drw 6 500 400 0 0 0 0
+xschem callback .drw 4 500 400 0 1 0 0
+xschem callback .drw 5 500 400 0 1 0 256
+xschem callback .drw 6 500 480 0 0 0 0
+xschem callback .drw 4 500 480 0 1 0 0
+xschem callback .drw 5 500 480 0 1 0 256
+xschem callback .drw 6 400 400 0 0 0 0
+xschem callback .drw 4 400 400 0 1 0 0
+xschem callback .drw 5 400 400 0 1 0 256
 update idletasks
 $SNAP
 # normalize the derived net-name cache (lab=...) before saving: the gesture
@@ -117,6 +129,7 @@ if grep -qx "xschem toggle_colorscheme" "$LOG" 2>/dev/null; then ok "log has tog
 if grep -q "^xschem wire " "$LOG" 2>/dev/null; then ok "log has gesture wire"; else bad "log missing gesture wire"; fi
 if grep -q "^xschem rect " "$LOG" 2>/dev/null; then ok "log has gesture rect"; else bad "log missing gesture rect"; fi
 if grep -q "^xschem instance {lab_pin.sym} " "$LOG" 2>/dev/null; then ok "log has placed instance"; else bad "log missing placed instance"; fi
+if grep -q "^xschem polygon " "$LOG" 2>/dev/null; then ok "log has gesture polygon"; else bad "log missing gesture polygon"; fi
 
 # the recorded actions actually moved the view (guard against a vacuous pass:
 # a no-op session would record zoomxform==1 and still "match" on replay)

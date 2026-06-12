@@ -1717,6 +1717,21 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
           if(!strcmp(argv[2], "pinlayer")) { /* layer number for pins */
             Tcl_SetResult(interp, my_itoa(PINLAYER),TCL_VOLATILE);
           }
+          else if(!strcmp(argv[2], "polygons")) { /* (xschem get polygons n) number of polygons on layer 'n' */
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            if(argc > 3) {
+              int c = atoi(argv[3]);
+              if(c >=0 && c < cadlayers) {
+                Tcl_SetResult(interp, my_itoa(xctx->polygons[c]),TCL_VOLATILE);
+              } else {
+                Tcl_SetResult(interp, "xschem get polygons n: layer number out of range", TCL_STATIC);
+                return TCL_ERROR;
+              }
+            } else {
+              Tcl_SetResult(interp, "xschem get polygons needs a layer number", TCL_STATIC);
+              return TCL_ERROR;
+            }
+          }
           break;
           case 'r':
           if(!strcmp(argv[2], "raw_level")) { /* hierarchy level where raw file was loaded */
@@ -4029,14 +4044,50 @@ static int xschem_cmds_p(Tcl_Interp *interp, int argc, const char *argv[], int *
       Tcl_ResetResult(interp);
     }
 
-    /* polygon [gui]
+    /* polygon x1 y1 x2 y2 x3 y3 ... [prop]
+     *   Place a polygon with the given points on the current layer
+     *   (rectcolor); an odd trailing argument is the attribute string.
+     *   This is the replay form of a drawn polygon in the action log
+     *   (Phase 3 slice B). Coordinates are stored as given -- pass the first
+     *   point again as the last to close the polygon.
+     * polygon [gui]
      *   Start a GUI placement of a polygon
      *   if `gui` argument is given start a polygon GUI placement with 1st point
      *   set to current mouse coordinates */
     else if(!strcmp(argv[1], "polygon"))
     {
+      char *endp;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
-      if(argc > 2 && !strcmp(argv[2], "gui")) {
+      if(argc > 7 && (strtod(argv[2], &endp), endp != argv[2])) {
+        int i, points = 0, save;
+        const char *prop = NULL;
+        double *px, *py;
+        for(i = 2; i + 1 < argc; i += 2) {     /* count leading coordinate pairs */
+          strtod(argv[i], &endp);
+          if(endp == argv[i]) break;
+          points++;
+        }
+        if(i < argc) prop = argv[i];           /* odd trailing arg = attributes */
+        if(points < 3) {
+          Tcl_SetResult(interp, "xschem polygon: need at least 3 x y points", TCL_STATIC);
+          return TCL_ERROR;
+        }
+        px = my_malloc(_ALLOC_ID_, points * sizeof(double));
+        py = my_malloc(_ALLOC_ID_, points * sizeof(double));
+        for(i = 0; i < points; ++i) {
+          px[i] = atof(argv[2 + 2*i]);
+          py[i] = atof(argv[3 + 2*i]);
+        }
+        store_poly(-1, px, py, points, xctx->rectcolor, 0, (char *)prop);
+        save = xctx->draw_window; xctx->draw_window = 1;
+        drawpolygon(xctx->rectcolor, NOW, px, py, points, 0, 0, 0.0, 0);
+        xctx->draw_window = save;
+        my_free(_ALLOC_ID_, &px);
+        my_free(_ALLOC_ID_, &py);
+        set_modify(1);
+        Tcl_ResetResult(interp);
+      }
+      else if(argc > 2 && !strcmp(argv[2], "gui")) {
         int infix_interface = tclgetboolvar("infix_interface");
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
