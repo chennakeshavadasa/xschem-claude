@@ -1230,6 +1230,9 @@ proc load_recent_file {} {
   global USER_CONF_DIR has_x
   # recent files
   set tctx::recentfile {}
+  # directories visited through the file dialog File: entry / Recent drop-down;
+  # an older recent_files conf without this variable leaves the empty default
+  set tctx::recentdirs {}
   if { [file exists $USER_CONF_DIR/recent_files] } {
     if {[catch { source $USER_CONF_DIR/recent_files } err] } {
       puts "Problems opening recent_files: $err"
@@ -1270,6 +1273,24 @@ proc update_recent_file {f {topwin {} } } {
   if { [info exists has_x] } {setup_recent_menu $topwin}
 }
 
+# remember a directory visited through the file dialog File: entry or its
+# Recent drop-down (most recent first, deduped, capped like tctx::recentfile,
+# persisted in the same recent_files conf file)
+proc update_recent_dir {d} {
+  set d [file normalize $d]
+  if { ![info exists tctx::recentdirs] } { set tctx::recentdirs {} }
+  set old $tctx::recentdirs
+  set tctx::recentdirs [list $d]
+  foreach i $old {
+    if {$i ne $d} { lappend tctx::recentdirs $i }
+  }
+  # tcl8.4 errors if using lreplace past the last element
+  if { [llength $tctx::recentdirs] > 10 } {
+    set tctx::recentdirs [lreplace $tctx::recentdirs 10 end]
+  }
+  write_recent_file
+}
+
 proc write_recent_file {} {
   global USER_CONF_DIR
 
@@ -1280,6 +1301,9 @@ proc write_recent_file {} {
     return
   }
   puts $fd "set tctx::recentfile {$tctx::recentfile}"
+  if { [info exists tctx::recentdirs] } {
+    puts $fd "set tctx::recentdirs {$tctx::recentdirs}"
+  }
 
   if {[info exists c_toolbar::c_t]} {
     set hash $c_toolbar::c_t(hash)
@@ -4509,6 +4533,109 @@ proc load_file_dialog_up {dir} {
   }
 }
 
+# navigate the file dialog into directory d, typed in the File: entry or
+# picked from the Recent drop-down; mirrors load_file_dialog_up
+proc file_dialog_navigate {d} {
+  global file_dialog_dir1
+  if { ![file isdirectory $d] } return
+  bind .load.l.paneright.draw <Expose> {}
+  bind .load.l.paneright.draw <Configure> {}
+  .load.l.paneright.draw configure -background white
+  file_dialog_set_home $d
+  setglob $d
+  file_dialog_set_colors2
+  set file_dialog_dir1 $d
+  update_recent_dir $d
+  .load.buttons_bot.entry delete 0 end
+}
+
+# Return key in the File: entry (also used when picking a Recent item).
+# A directory navigates the dialog into it; an existing file (absolute,
+# ~ prefixed, relative to the browsed directory, to the cwd or to the library
+# search path) is accepted as the dialog result through the normal
+# file_dialog_retval + destroy route, so file_dialog_getresult still runs its
+# is_xschem_file checks. In load mode a path that resolves nowhere pops an
+# error and keeps the dialog open; in save mode it is accepted unchanged
+# (saving under a new name is the normal case there); in place-symbol mode
+# only the directory navigation applies.
+proc file_dialog_entry_enter {} {
+  global file_dialog_dir1 file_dialog_loadfile
+  set p [string trim [.load.buttons_bot.entry get]]
+  if {$p eq {}} return
+  if { [string index $p 0] eq {~} } { catch {set p [file normalize $p]} }
+  set resolved {}
+  if { [regexp {^https?://} $p] } {
+    set resolved $p
+  } elseif { [regexp {^/} $p] } {
+    if { [file exists $p] } { set resolved $p }
+  } else {
+    regsub {/*$} $file_dialog_dir1 {/} dir1
+    if { [file exists "$dir1$p"] } {
+      set resolved "$dir1$p"
+    } elseif { [file exists $p] } {
+      set resolved [file normalize $p]
+    } else {
+      set q [abs_sym_path $p]
+      if { $q ne {} && [file exists $q] } { set resolved $q }
+    }
+  }
+  if { $resolved ne {} && ![regexp {^https?://} $resolved] &&
+       [file isdirectory $resolved] } {
+    file_dialog_navigate $resolved
+    return
+  }
+  if { $file_dialog_loadfile == 2 } return
+  if { $resolved eq {} } {
+    if { $file_dialog_loadfile == 1 } {
+      tk_messageBox -type ok -icon error -parent .load \
+        -message "No such file or directory:\n$p"
+      return
+    }
+    # save mode: keep the typed name, file_dialog_getresult resolves it
+    # against the browsed directory
+    set resolved $p
+  }
+  .load.buttons_bot.entry delete 0 end
+  .load.buttons_bot.entry insert 0 $resolved
+  .load.buttons_bot.ok invoke
+}
+
+# (re)populate the file dialog Recent menu: recent files first (full paths, so
+# same-named cells from different projects stay distinguishable), then recent
+# directories: the explicitly visited ones plus the recent files' directories
+proc file_dialog_fill_recent_menu {m} {
+  $m delete 0 end
+  set nfiles 0
+  if { [info exists tctx::recentfile] } {
+    foreach f $tctx::recentfile {
+      $m add command -label $f -command [list file_dialog_recent_pick $f]
+      incr nfiles
+    }
+  }
+  set dirs {}
+  if { [info exists tctx::recentdirs] } { set dirs $tctx::recentdirs }
+  if { [info exists tctx::recentfile] } {
+    foreach f $tctx::recentfile {
+      set d [file dirname [abs_sym_path $f]]
+      if { [lsearch -exact $dirs $d] < 0 } { lappend dirs $d }
+    }
+  }
+  if { [llength $dirs] && $nfiles } { $m add separator }
+  foreach d $dirs {
+    $m add command -label $d/ -command [list file_dialog_recent_pick $d]
+  }
+  if { !$nfiles && ![llength $dirs] } {
+    $m add command -label {(no recent files)} -state disabled
+  }
+}
+
+# picking a Recent item behaves exactly like typing it and pressing Enter
+proc file_dialog_recent_pick {path} {
+  if { ![winfo exists .load] } return
+  .load.buttons_bot.entry delete 0 end
+  .load.buttons_bot.entry insert 0 $path
+  file_dialog_entry_enter
+}
 
 proc file_dialog_getresult {loadfile confirm_overwrt} {
   global file_dialog_dir1 file_dialog_retval file_dialog_ext has_x
@@ -4912,9 +5039,17 @@ proc load_file_dialog {{msg {}} {ext {}} {global_initdir {INITIALINSTDIR}}
     .load.l.paneleft.list selection set $file_dialog_index1
   }
   label .load.buttons_bot.label  -text { File:}
-  entry .load.buttons_bot.entry -highlightcolor red -highlightthickness 2 -takefocus 0 \
+  entry .load.buttons_bot.entry -highlightcolor red -highlightthickness 2 \
     -highlightbackground [option get . background {}]
   entry_replace_selection .load.buttons_bot.entry
+  if { $loadfile == 1 } {
+    # recent files / recent directories drop-down; .load.l.recent is taken
+    # (insert symbol mode), hence the buttons_bot parent
+    menubutton .load.buttons_bot.recent -text Recent -relief raised \
+      -indicatoron 1 -takefocus 0 -menu .load.buttons_bot.recent.m
+    menu .load.buttons_bot.recent.m -tearoff 0 \
+      -postcommand {file_dialog_fill_recent_menu .load.buttons_bot.recent.m}
+  }
   label .load.buttons_bot.srclab  -text { Search:}
   entry .load.buttons_bot.src -width 18 -highlightcolor red -highlightthickness 2 \
     -highlightbackground [option get . background {}]
@@ -4944,6 +5079,8 @@ proc load_file_dialog {{msg {}} {ext {}} {global_initdir {INITIALINSTDIR}}
     # set to something different to any file to force a new placement in file_dialog_place_symbol
     set file_dialog_retval {   }
   }
+  # break: don't fall through to the generic bind .load <Return> below
+  bind .load.buttons_bot.entry <Return> {file_dialog_entry_enter; break}
 
   label .load.buttons_bot.fzflab -text { Fuzzy:}
   entry .load.buttons_bot.fzf -width 18 -highlightcolor red -highlightthickness 2 \
@@ -4998,6 +5135,7 @@ proc load_file_dialog {{msg {}} {ext {}} {global_initdir {INITIALINSTDIR}}
   pack .load.buttons_bot.fzf -side left
   pack .load.buttons_bot.label -side left
   pack .load.buttons_bot.entry -side left -fill x -expand true
+  if { $loadfile == 1 } { pack .load.buttons_bot.recent -side left -padx 2 }
 
   pack  .load.l.paneright.f.yscroll -side right -fill y
   pack  .load.l.paneright.f.xscroll -side bottom -fill x
@@ -5039,8 +5177,13 @@ proc load_file_dialog {{msg {}} {ext {}} {global_initdir {INITIALINSTDIR}}
     destroy .load
     set $global_initdir \"\$file_dialog_dir1\"
   "
-  bind .load <KeyPress-H> {.load.buttons.home invoke }
-  bind .load <KeyPress-U> {.load.buttons.up invoke }
+  # don't hijack H/U typed into one of the entry widgets
+  bind .load <KeyPress-H> {
+    if { [focus] eq {} || [winfo class [focus]] ne {Entry} } {.load.buttons.home invoke}
+  }
+  bind .load <KeyPress-U> {
+    if { [focus] eq {} || [winfo class [focus]] ne {Entry} } {.load.buttons.up invoke}
+  }
   ### update
 
   if { [info exists file_dialog_v_sp0] } {
@@ -5120,8 +5263,13 @@ proc load_file_dialog {{msg {}} {ext {}} {global_initdir {INITIALINSTDIR}}
   if { [info exists file_dialog_yview]} {
    .load.l.paneright.f.list yview moveto  [lindex $file_dialog_yview 0]
   }
-  focus .load.buttons_bot.src
-  .load.buttons_bot.src selection range 0 end
+  if {$loadfile == 1} {
+    # open/merge/compare: the File: entry is the type/paste-a-path fast path
+    focus .load.buttons_bot.entry
+  } else {
+    focus .load.buttons_bot.src
+    .load.buttons_bot.src selection range 0 end
+  }
   if {$loadfile != 2} {
     tkwait window .load
     xschem set semaphore [expr {[xschem get semaphore] -1}]
@@ -9725,7 +9873,7 @@ set tctx::global_list {
  show_hidden_texts show_infowindow show_infowindow_after_netlist simconf_default_geometry
  simconf_vpos simulate_bg snap_cursor snap_cursor_size spiceprefix split_files svg_colors
  svg_font_name sym_txt symbol symbol_width tabstop tclcmd_txt tclstop
- tctx::colors tctx::delay_flag tctx::hsize tctx::recentfile
+ tctx::colors tctx::delay_flag tctx::hsize tctx::recentfile tctx::recentdirs
  tctx::selected_mode tctx::old_selected_mode tctx::old_selected_tok tctx::selected_tok
  tctx::rcode tctx::vsize tctx::tctx::retval tctx::retval_orig
  tclcmd_default_geometry text_line_default_geometry text_replace_selection text_tabs_setting
