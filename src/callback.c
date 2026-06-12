@@ -1497,6 +1497,26 @@ static void end_move_copy_logged(int is_copy)
   }
 }
 
+/* action-log Layer C (Phase 3 slice C): a drag-pan has no single completion
+ * function -- pan(RUBBER) shifts the origin continuously and the two un-pan
+ * sites only clear STARTPAN. The START wrapper snapshots the origin; the END
+ * hook logs the accumulated shift as its replay form `xschem pan dx dy`
+ * (record-after-evaluation: the shift has already happened). */
+static double pan_log_xorig, pan_log_yorig;
+static void start_pan_logged(int mx, int my)
+{
+  pan_log_xorig = xctx->xorigin;
+  pan_log_yorig = xctx->yorigin;
+  pan(START, mx, my);
+  xctx->ui_state |= STARTPAN;
+}
+static void log_pan_end(void)
+{
+  double dx = xctx->xorigin - pan_log_xorig;
+  double dy = xctx->yorigin - pan_log_yorig;
+  if(dx != 0. || dy != 0.) log_action("xschem pan %.16g %.16g", dx, dy);
+}
+
 /* complete the STARTWIRE, STARTRECT, STARTZOOM, STARTCOPY ... operations */
 static int end_place_move_copy_zoom()
 {
@@ -4499,8 +4519,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         if(xctx->semaphore<2) {
           rebuild_selected_array(); /* sets or clears xctx->ui_state SELECTION flag */
         }
-        pan(START, mx, my);
-        xctx->ui_state |= STARTPAN;
+        start_pan_logged(mx, my);
       }
       break;
 
@@ -4894,6 +4913,7 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
    /* terminate a schematic pan action */
    if(xctx->ui_state & STARTPAN) {
      xctx->ui_state &=~STARTPAN;
+     log_pan_end();
      return;
    }
 
@@ -4954,8 +4974,7 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
 
    /* Middle button press (Button2) will pan the schematic. */
    else if(button==Button2 && (state == 0)) {
-     pan(START, mx, my);
-     xctx->ui_state |= STARTPAN;
+     start_pan_logged(mx, my);
    }
 
    /* button1 click to select another instance while edit prop dialog open */
@@ -5249,6 +5268,7 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
 
    if(xctx->ui_state & STARTPAN) {
      xctx->ui_state &=~STARTPAN;
+     log_pan_end();
      /* xctx->mx_save = mx; xctx->my_save = my; */
      /* xctx->mx_double_save=xctx->mousex_snap; */
      /* xctx->my_double_save=xctx->mousey_snap; */

@@ -188,7 +188,39 @@ if {$i >= 0} {
 }
 catch {xschem abort_operation}
 
-# --- 10. the whole file stays source-able (the Layer B invariant) -----------
+# --- 10. middle-button drag-pan => xschem pan dx dy (Phase 3 slice C) -------
+proc near {a b} { expr {abs($a - $b) < 1e-9 * (abs($a) + abs($b) + 1)} }
+set n0 [llength [loglines]]
+set ox0 [xschem get xorigin]; set oy0 [xschem get yorigin]
+xschem callback .drw 4 300 300 0 2 0 0          ;# Button2 press
+xschem callback .drw 6 360 250 0 0 0 512        ;# drag (Button2Mask)
+xschem callback .drw 5 360 250 0 2 0 512        ;# release
+update idletasks
+set lines [newlines $n0]
+set i [lsearch -glob $lines {xschem pan *}]
+check "drag-pan logs xschem pan dx dy" [expr {$i >= 0}]
+if {$i >= 0} {
+  lassign [lrange [lindex $lines $i] 2 3] dx dy
+  check "logged pan delta matches the origin shift" \
+    [expr {[near [expr {[xschem get xorigin] - $ox0}] $dx] &&
+           [near [expr {[xschem get yorigin] - $oy0}] $dy]}]
+  # replay: applies the same shift again
+  set ox1 [xschem get xorigin]; set oy1 [xschem get yorigin]
+  eval [lindex $lines $i]
+  check "logged pan line replays the same shift" \
+    [expr {[near [expr {[xschem get xorigin] - $ox1}] $dx] &&
+           [near [expr {[xschem get yorigin] - $oy1}] $dy]}]
+}
+
+# --- 11. no-motion middle click logs nothing ---------------------------------
+set n0 [llength [loglines]]
+xschem callback .drw 4 200 200 0 2 0 0
+xschem callback .drw 5 200 200 0 2 0 512
+update idletasks
+check "no-motion pan logs nothing" \
+  [expr {[lsearch -glob [newlines $n0] {xschem pan *}] < 0}]
+
+# --- 12. the whole file stays source-able (the Layer B invariant) -----------
 # (sourcing re-executes the commands; harmless: absolute zoom_box, additive
 # placements, selection-dependent move/copy on whatever is then selected)
 check "log file is source-able" \
