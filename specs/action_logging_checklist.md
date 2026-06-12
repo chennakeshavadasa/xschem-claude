@@ -29,7 +29,7 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 
 | # | Spec | Implemented? |
 |---|------|--------------|
-| 11 | Every user action is logged | partial — bounded by design: click-select (issue 0005, row 17), stdin-REPL/TCP commands (issue 0003), menu picks, and keys still living in the un-migrated C switch (they never reach `dispatch_input_action`; they log only where a Layer B/C hook covers their effect) |
+| 11 | Every user action is logged | partial — bounded by design: click-select (issue 0005, row 17), stdin-REPL/TCP commands (issue 0003), non-File menus, and keys still living in the un-migrated C switch (they never reach `dispatch_input_action`; they log only where a Layer B/C/file-menu hook covers their effect) |
 | 12 | Each logged action line is an executable `xschem …` Tcl command (replayable) | yes |
 | 13 | Granularity = the action's effect; multi-event gestures collapse to one command | yes (Layer C: one command/marker per completed gesture; manhattan wire = one line per stored segment) |
 | 14 | RMB click → context-menu pick logged as the chosen action's command | yes (replayable subset, row 25; dialogs/object-ref picks = `#` markers) |
@@ -90,7 +90,18 @@ Statuses are verified against the code, not the phasing notes, before flipping.
 | 49 | CIW smoke: `tests/headless/test_ciw.tcl` | yes |
 | 50 | Acceptance smoke: record → replay (`source` log into fresh instance) → diff state | yes |
 
-## 6. Explicitly not v1 (spec §6)
+## 6. File-menu effects (user request 2026-06-11; plan `plan_file_menu_logging.md`)
+
+| # | Spec | Implemented? |
+|---|------|--------------|
+| 69 | File→Open (any path: menu, toolbar, Ctrl+O, recent/last-closed/most-recent, file_chooser) logged as resolved `xschem load {/abs/path}` after the load | yes |
+| 70 | Open-in-new-window logged as resolved `xschem load_new_window {f}` (multi-window replay fidelity bounded by row 53) | yes |
+| 71 | Save-as (dialog) logged as resolved `xschem saveas {f} schematic\|symbol`; menu Save logged verbatim (`xschem save`) | yes |
+| 72 | Quit (menu Close/Quit, WM close, typed exit) logged as `xschem exit closewindow force`, the log's final line | yes |
+| 73 | Plain File-menu picks logged verbatim via the `build_menu_from_table` wrapper, after evaluation, csv-nolog gated; confirmed reload logged inside `action_reload` | yes |
+| 74 | Dialog/process-spawning File rows (delete_files, new_process, merge pick, component_browser, image exports) silent in v1 | yes (documented) |
+
+## 7. Explicitly not v1 (spec §6)
 
 | # | Spec | Implemented? |
 |---|------|--------------|

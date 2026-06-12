@@ -211,10 +211,32 @@ Window. Not full-featured for v1.
   C registry (their keys are un-migrated switch cases, unbindable today);
   the flag arms automatically when a future migration registers them.
 
+- **File-menu effects — DONE** (commit `105718e1`; plan
+  `claude_suggs/plan_file_menu_logging.md`; user request 2026-06-11): every
+  File-menu effect recorded as its resolved command. Opens →
+  `xschem load {/abs/path}` at the two resolution points (`ask_new_file`
+  dialog arm; scheduler load `-gui` interactive arm — supersedes Layer B's
+  case-9 custom logging); new-window opens → `xschem load_new_window {f}`;
+  save-as → `xschem saveas {f} schematic|symbol` (`saveas()` dialog arm);
+  plain picks (Save, Clear, …) verbatim via the `menu_action_logged` wrapper
+  in `build_menu_from_table` (csv-nolog gated; 19 File rows flagged);
+  confirmed reload inside `action_reload`; quit → `xschem exit closewindow
+  force` at the scheduler exit chokepoint just before process death (catches
+  menu Close/Quit, the WM close button and typed exits exactly once — by
+  necessity logged just-BEFORE evaluation, the only spot that still exists).
+  Accepted caveats: a cancelled clear-confirm still logs the pick (the
+  wrapper cannot see inside; record-the-pick semantics as Layer B); a
+  sourced full-session log terminates the replayer at its final exit line
+  (faithful); `xschem load -gui f` typed into the CIW would double-log
+  (interactive marker, not a replay form). Smoke
+  `tests/headless/test_file_menu_log.sh` (two processes; the quit line must
+  be the log's LAST line).
+
 **The feature is functionally complete.** Remaining gaps, all
 deferred-by-design: click-select marker/replay (row 17, issue 0005),
-stdin-REPL + TCP logging (issue 0003), menu picks and un-migrated C-switch
-keys (log only where a Layer B/C effect hook covers them), rectcolor/layer
+stdin-REPL + TCP logging (issue 0003), non-File menus and un-migrated
+C-switch keys (log only where a Layer B/C/file-menu effect hook covers
+them), rectcolor/layer
 switches not logged (line/rect replay layer = replay-time rectcolor),
 rotate/flip-during-move single-command replay (needs an anchor-preserving
 subcommand).
