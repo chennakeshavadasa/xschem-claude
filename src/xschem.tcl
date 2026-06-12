@@ -4602,12 +4602,17 @@ proc file_dialog_entry_enter {} {
 
 # (re)populate the file dialog Recent menu: recent files first (full paths, so
 # same-named cells from different projects stay distinguishable), then recent
-# directories: the explicitly visited ones plus the recent files' directories
+# directories: the explicitly visited ones plus the recent files' directories.
+# Entries that no longer exist on disk are skipped, not deleted: the stored
+# lists are untouched, so a path on a temporarily unmounted filesystem
+# reappears once it is reachable again (web urls can't be checked and are
+# always shown).
 proc file_dialog_fill_recent_menu {m} {
   $m delete 0 end
   set nfiles 0
   if { [info exists tctx::recentfile] } {
     foreach f $tctx::recentfile {
+      if { ![regexp {^https?://} $f] && ![file exists [abs_sym_path $f]] } continue
       $m add command -label $f -command [list file_dialog_recent_pick $f]
       incr nfiles
     }
@@ -4620,11 +4625,15 @@ proc file_dialog_fill_recent_menu {m} {
       if { [lsearch -exact $dirs $d] < 0 } { lappend dirs $d }
     }
   }
-  if { [llength $dirs] && $nfiles } { $m add separator }
+  set valid_dirs {}
   foreach d $dirs {
+    if { [file isdirectory $d] } { lappend valid_dirs $d }
+  }
+  if { [llength $valid_dirs] && $nfiles } { $m add separator }
+  foreach d $valid_dirs {
     $m add command -label $d/ -command [list file_dialog_recent_pick $d]
   }
-  if { !$nfiles && ![llength $dirs] } {
+  if { !$nfiles && ![llength $valid_dirs] } {
     $m add command -label {(no recent files)} -state disabled
   }
 }

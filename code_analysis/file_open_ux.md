@@ -171,7 +171,10 @@ recents live where the choosing happens.
   same `recent_files` conf file, capped at 10, registered in
   `tctx::global_list` so tab/window context switches don't lose it) plus the
   directories of the recent files, deduped, labelled with a trailing `/`.
-  Picking an item behaves exactly like typing it and pressing Enter.
+  Entries that no longer exist on disk are skipped at post time — the stored
+  lists are not rewritten, so a path on a temporarily unmounted filesystem
+  reappears once reachable again. Picking an item behaves exactly like
+  typing it and pressing Enter.
 
 The dialog has six callers in three modes (the `loadfile` argument): Open,
 Merge and Schematic-to-compare use `1`; Save-as uses `0`; Insert-symbol uses
