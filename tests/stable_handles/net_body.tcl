@@ -167,4 +167,131 @@ set member_insts [lmap row $members {lindex [lindex $row 0] 0}]
 check {NC11c membership lists devices, not the net's own label instance} \
   {[lsearch -glob $member_insts l*] < 0 || [llength $member_insts] > 0}
 
+# ===========================================================================
+# Phase C — the new net-as-object commands (direction c2: a net's durable
+# handle IS the stable id of a wire/label ANCHOR on it). Committed RED first:
+# the NH* tests are xcheck (XFAIL) until xschem net / nets / net_members land,
+# then flip to check. Surface (code_analysis/net_identity_decision.md §5):
+#
+#   xschem net <selector>          -> {name <tok> nwires N npins M anchor {..}}
+#       selector: @wire <id> | @inst <id> <pin> | <token>
+#   xschem nets [-selected]        -> list of net descriptors (deduped by token)
+#   xschem net_members <selector>  -> {wires {<id>..} pins {{<inst-id> <pin>}..}}
+#
+# The handle a script STORES is the anchor (a step-1/2 id, already stable);
+# resolving re-runs connectivity and yields the net's CURRENT token + members.
+# ===========================================================================
+
+proc netcmd  {args} { if {[catch {uplevel 1 [list xschem net {*}$args]} r]} {return -2}; return $r }
+proc netscmd {args} { if {[catch {uplevel 1 [list xschem nets {*}$args]} r]} {return -2}; return $r }
+proc netmem  {args} { if {[catch {uplevel 1 [list xschem net_members {*}$args]} r]} {return -2}; return $r }
+proc dgn {d key {dflt {}}} {
+  if {$d eq "-2" || $d eq ""} {return $dflt}
+  if {[catch {dict get $d $key} v]} {return $dflt}
+  return $v
+}
+
+### NH1 — `net @wire <id>` resolves the net the wire is on, by its STABLE id.
+net_fixture
+set wid [xschem wire_id 0]
+set d [netcmd @wire $wid]
+xcheck {NH1 net @wire <id> -> descriptor naming MYNET} \
+  {[dgn $d name] eq "MYNET"}
+
+### NH2 — `net @inst <id> <pin>` resolves the net at a label/instance pin.
+net_fixture
+set iid [xschem instance_id l1]
+set d [netcmd @inst $iid p]
+xcheck {NH2 net @inst <id> p -> the net at the driver's pin (MYNET)} \
+  {[dgn $d name] eq "MYNET"}
+
+### NH3 — `net <token>` resolves by name (human form), cold-safe (no selection).
+net_fixture
+xcheck {NH3 net MYNET (by token) resolves cold} \
+  {[dgn [netcmd MYNET] name] eq "MYNET"}
+
+### NH4 — the descriptor carries nwires/npins/anchor; the anchor is the DRIVER
+### label (preferred over a wire), reported by its stable instance id.
+net_fixture
+set iid [xschem instance_id l1]
+set d [netcmd @wire [xschem wire_id 0]]
+xcheck {NH4a descriptor has nwires >= 1 and npins >= 1} \
+  {[dgn $d nwires] >= 1 && [dgn $d npins] >= 1}
+xcheck {NH4b anchor is the driver label {inst <iid> p}} \
+  {[dgn $d anchor] eq "inst $iid p"}
+
+### NH5 — COLD correctness, the §2c (NC3) fix. `nets -selected` must rebuild the
+### selection array internally: a FRESH select (no unrelated query first) still
+### yields the net. resolved_net of the selection famously fails this (NC3a).
+net_fixture
+xschem unselect_all
+xschem select wire 0
+set sel_nets [netscmd -selected]
+set names [lmap row $sel_nets {dgn $row name}]
+xcheck {NH5 nets -selected works COLD (rebuilds sel_array, unlike resolved_net)} \
+  {[lsearch -exact $names MYNET] >= 0}
+
+### NH6 — `nets` enumerates distinct nets, deduped by token. MYNET appears once.
+net_fixture
+set allnets [netscmd]
+set names [lmap row $allnets {dgn $row name}]
+xcheck {NH6a nets includes MYNET} {[lsearch -exact $names MYNET] >= 0}
+xcheck {NH6b nets is deduped (MYNET appears exactly once)} \
+  {[llength [lsearch -all -exact $names MYNET]] == 1}
+
+### NH7 — `net_members @wire <id>` returns membership BY HANDLE: the wire's id is
+### in wires, and the driver pin {inst-id p} is in pins.
+net_fixture
+set wid [xschem wire_id 0]
+set iid [xschem instance_id l1]
+set m [netmem @wire $wid]
+xcheck {NH7a net_members has wires and pins keys} \
+  {$m ne "-2" && [dict exists $m wires] && [dict exists $m pins]}
+xcheck {NH7b the held wire id is in the members' wire list} \
+  {[lsearch -exact [dgn $m wires] $wid] >= 0}
+xcheck {NH7c the driver pin {<iid> p} is in the members' pin list} \
+  {[lsearch -exact [dgn $m pins] [list $iid p]] >= 0}
+
+### NH8 — THE c2 PAYOFF: hold the ANCHOR, rename the net via its driver, and the
+### handle still resolves — to the NEW token. The name changed under the handle;
+### the handle did not. (Contrast NC10, which proved the anchor id is stable;
+### this proves the net command rides that stability.)
+net_fixture
+set wid [xschem wire_id 0]
+xcheck {NH8a before rename: net @wire <id> is MYNET} \
+  {[dgn [netcmd @wire $wid] name] eq "MYNET"}
+xschem setprop instance l1 lab RENAMEDNET
+xschem rebuild_connectivity
+xcheck {NH8b same held anchor now resolves to the NEW token RENAMEDNET} \
+  {[dgn [netcmd @wire $wid] name] eq "RENAMEDNET"}
+xcheck {NH8c the anchor id itself is unchanged across the rename} \
+  {[xschem wire_id 0] == $wid}
+
+### NH9 — a dangling anchor is loud: delete the wire, the held id resolves to "".
+net_fixture
+set wid [xschem wire_id 0]
+xschem unselect_all
+xschem select wire 0
+xschem delete
+xcheck {NH9 net @wire <freed-id> returns empty (dangles, not a stranger)} \
+  {[netcmd @wire $wid] eq ""}
+
+### NH10 — on the real example, net_members of OUTI lists device pins by handle
+### (instance-id + pin), composing with the instance handles from step 2.
+xschem set modified 0
+xschem load [file normalize ../xschem_library/examples/mos_power_ampli.sch]
+xschem set modified 0
+xschem rebuild_connectivity
+set m [netmem OUTI]
+xcheck {NH10a net_members OUTI returns a non-empty pin list} \
+  {$m ne "-2" && [llength [dgn $m pins]] >= 1}
+# every pin entry is {inst-id pin}; the inst-id resolves back to a live instance
+set ok 1
+foreach pe [dgn $m pins] {
+  set iid [lindex $pe 0]
+  if {$iid <= 0 || [catch {xschem instance_index $iid} idx] || $idx < 0} {set ok 0}
+}
+xcheck {NH10b each pin's inst-id is a live, resolvable instance handle (> 0)} \
+  {$ok == 1 && [llength [dgn $m pins]] >= 1}
+
 xschem set modified 0

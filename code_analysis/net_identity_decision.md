@@ -7,9 +7,9 @@ decision that must be ratified *before* any C is written. This is the analog of
 struct, and no array to stamp.** This doc records what identity a net should
 carry, lays out the three options, recommends one, and stops for the user.
 
-- **Status:** **PROPOSED — awaiting user ratification.** No `net*` command will
-  be added until the user picks an option. (Mirrors the instance Phase D flow:
-  decision doc → user ratified → built.)
+- **Status:** **RATIFIED — (c2) chosen by the user 2026-06-13.** Implementation
+  proceeds RED-first per §7. (Mirrors the instance Phase D flow: decision doc →
+  user ratified → built.)
 - **Recommendation:** **(c2) anchor net identity on a stored-object handle** — a
   net's durable handle *is* the stable id of a wire or label-instance on it; the
   net *name* (token) stays the human / cross-session form. Read-only first cut.
