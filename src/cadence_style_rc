@@ -8,6 +8,7 @@ set snap_cursor 1
 set snap_cursor_size 4
 set persistent_command 1
 set use_cursor_for_selection 1
+set enable_stretch 1
 
 # to get around not being able to zoom in with CTRL-scrollwheel, suggestion from SS:
 # didn't work :( Claude explained why
