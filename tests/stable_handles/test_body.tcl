@@ -202,4 +202,159 @@ check {CH6b first_sel reports type=WIRE(1) n=5 col=0} \
 xschem unselect_all
 check {CH6c unselect_all: lastsel 0} {[xschem get lastsel] == 0}
 
+### H1–H7 — session-stable wire ids (Phase D of the plan). Committed RED
+### first per the TDD discipline: every xcheck below must log XFAIL until the
+### D2 implementation lands, then be flipped to a plain check. H7 stays an
+### xcheck until the D3 disk-undo decision is implemented.
+###
+### Surface under test (additive, two scheduler subcommands):
+###   xschem wire_id <index>   → session-stable id of wire[index] (or -1)
+###   xschem wire_index <id>   → current array index of that wire (or -1)
+###
+### Conventions for these scenarios:
+### - wrappers h_wid/h_widx catch the "invalid command" error so the RED
+###   suite runs to completion; they return -2 (never a legal result) while
+###   the commands do not exist, and are transparent once they do.
+### - every scenario keeps a throwaway "pad" wire at index 0: wire_coord 0
+###   is unreachable today (scheduler.c `n > 0` — known pothole, out of
+###   step-1 scope), so any wire whose coords we dereference must sit at
+###   index >= 1.
+
+proc h_wid {n} {
+  if {[catch {xschem wire_id $n} r]} {return -2}
+  return $r
+}
+proc h_widx {id} {
+  if {[catch {xschem wire_index $id} r]} {return -2}
+  return $r
+}
+proc h_setup {} {
+  xschem set modified 0
+  xschem clear force schematic
+  xschem wire 5000 5000 5100 5000
+  xschem unselect_all
+}
+
+### H1 — ids of created wires are positive and pairwise distinct
+h_setup
+xschem wire 0 0 100 0
+xschem wire 0 100 100 100
+xschem wire 0 200 100 200
+set ida [h_wid 1]
+set idb [h_wid 2]
+set idc [h_wid 3]
+xcheck {H1 created wires have positive pairwise-distinct ids} \
+  {$ida > 0 && $idb > 0 && $idc > 0 && $ida != $idb && $ida != $idc && $idb != $idc}
+
+### H2 — the §2e dangling-index scenario, solved by handle: hold wire C's id,
+### delete neighbor B; C's array index changes (order-preserving compaction
+### shift) but the id still dereferences to C's coordinates. This is the
+### original tcl_introspection_wire.md defect this whole feature exists for.
+xschem select wire 2
+xschem delete
+set idx_c [h_widx $idc]
+xcheck {H2a id survives a neighbor delete and still resolves} {$idx_c >= 1}
+set wc {}
+if {$idx_c >= 1} {catch {xschem wire_coord $idx_c} wc}
+xcheck {H2b resolved index dereferences to the held wire's coords} \
+  {$wc eq {0 200 100 200}}
+
+### H3 — delete the held wire itself: handle dangles LOUDLY (-1), it does not
+### silently name a stranger like a raw index does
+h_setup
+xschem wire 0 0 100 0
+set id3 [h_wid 1]
+xschem select wire 1
+xschem delete
+xcheck {H3 deref after own deletion returns -1} {[h_widx $id3] == -1}
+
+### H4 — no id reuse within a session: create→delete→create at the same
+### coords mints a fresh id
+h_setup
+xschem wire 0 0 100 0
+set id4a [h_wid 1]
+xschem select wire 1
+xschem delete
+xschem wire 0 0 100 0
+set id4b [h_wid 1]
+xcheck {H4 recreated wire at same coords gets a fresh id} \
+  {$id4b > 0 && $id4a > 0 && $id4b != $id4a}
+
+### H5 — memory-undo round-trip: undo makes the handle dangle, redo brings
+### back the SAME id resolving to the same coords (mem undo copies whole
+### structs both ways — census "facts banked for Phase D")
+h_setup
+xschem undo_type memory
+xschem wire 0 0 100 0
+set id5 [h_wid 1]
+xschem undo
+set h5_gone [h_widx $id5]
+xschem redo
+set h5_back [h_widx $id5]
+xcheck {H5a memory undo: handle of the undone wire dangles} {$h5_gone == -1}
+set wc5 {}
+if {$h5_back >= 1} {catch {xschem wire_coord $h5_back} wc5}
+xcheck {H5b memory redo: same id resolves again to the same coords} \
+  {$h5_back >= 1 && $wc5 eq {0 0 100 0}}
+
+### H6 — split/merge id semantics. These tests RECORD the design decision:
+### the struct that survives the operation keeps its id; newly born segments
+### get fresh ids (wire_store_split is a birth door).
+# split: T-junction trim splits wire W at (100,0) into two halves
+h_setup
+xschem wire 0 0 200 0
+xschem wire 100 0 100 100
+set idw [h_wid 1]
+set idt [h_wid 2]
+xschem trim_wires
+set i_w [h_widx $idw]
+set i_t [h_widx $idt]
+set cw {}
+if {$i_w >= 1} {catch {xschem wire_coord $i_w} cw}
+xcheck {H6a split: original id survives on one collinear half} \
+  {$i_w >= 1 && ($cw eq {0 0 100 0} || $cw eq {100 0 200 0})}
+# the other collinear half is a new segment and must carry a fresh id
+set i_other {}
+for {set i 1} {$i < [nwires]} {incr i} {
+  set c {}
+  catch {xschem wire_coord $i} c
+  if {($c eq {0 0 100 0} || $c eq {100 0 200 0}) && $i != $i_w} {set i_other $i}
+}
+set ido [expr {$i_other ne {} ? [h_wid $i_other] : -2}]
+xcheck {H6b split: the new segment carries a fresh id} \
+  {$ido > 0 && $ido != $idw && $ido != $idt}
+set ct {}
+if {$i_t >= 1} {catch {xschem wire_coord $i_t} ct}
+xcheck {H6c split: untouched stem keeps its id} \
+  {$i_t >= 1 && $ct eq {100 0 100 100}}
+# merge: two collinear touching wires trim into one — exactly one id survives
+h_setup
+xschem wire 0 0 100 0
+xschem wire 100 0 200 0
+set idm1 [h_wid 1]
+set idm2 [h_wid 2]
+xschem trim_wires
+set im1 [h_widx $idm1]
+set im2 [h_widx $idm2]
+xcheck {H6d merge: exactly one of the two ids survives, the other dangles} \
+  {[nwires] == 2 && (($im1 >= 1 && $im2 == -1) || ($im1 == -1 && $im2 >= 1))}
+
+### H7 — disk-undo round-trip. EXPECTED XFAIL even after D2: disk undo
+### restores by re-reading .sch-format temp files (clear_drawing + load_wire),
+### which mints fresh ids — census "facts banked for Phase D". This is the
+### D3 decision point; the xcheck stays until D3 resolves it one way or the
+### other (invalidate-on-restore would flip this to an asserted -1 instead).
+h_setup
+xschem undo_type disk
+xschem wire 0 0 100 0
+set id7 [h_wid 1]
+xschem undo
+xschem redo
+set i7 [h_widx $id7]
+set c7 {}
+if {$i7 >= 1} {catch {xschem wire_coord $i7} c7}
+xcheck {H7 disk undo+redo: id still resolves to the wire} \
+  {$i7 >= 1 && $c7 eq {0 0 100 0}}
+xschem undo_type memory
+
 xschem set modified 0
