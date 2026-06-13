@@ -9,16 +9,20 @@ Companion to `stable_handles_extension_strategy.md` (the "refactor first?"
 analysis) and `tcl_introspection_wire.md` (the original defect list). Where this
 doc shows command output, it was run against a real build on this branch.
 
-> **STATUS UPDATE (2026-06-13): direction (a) is DONE.** rect/line/poly/arc now
-> carry session-stable ids (`xschem <type>_id <layer> <index>` /
-> `<type>_index <id>`, one shared id space; the `selection` row carries the real
-> id for all four). Census + funnel + RED→GREEN + sabotage-verified;
-> `graphical_lifecycle_census.md`, suite `tests/stable_handles/gfx_*.tcl` (54
-> checks), probe `introspection_probes/probe5.tcl`, manual
-> `doc/stable_graphical_handles.md`. **All seven drawable types except `text`
-> now carry ids** (text is the flat-array straggler — a quick follow-on). The
-> remaining live directions are (b) and (c) below, plus text. One correction to
+> **STATUS UPDATE (2026-06-13): directions (a) AND (b) are DONE.**
+> **(a)** rect/line/poly/arc carry session-stable ids (`xschem <type>_id`/`<type>_index`,
+> one shared id space; `selection` rows filled). Census + funnel + RED→GREEN +
+> sabotage-verified; `graphical_lifecycle_census.md`, suite `gfx_*.tcl` (54),
+> probe `probe5.tcl`, manual `doc/stable_graphical_handles.md`. One correction to
 > §2.4: the design call resolved *against* the recommendation — see the box there.
+> **(b)** the uniform read API shipped: `xschem objects [-type|-selected|-layer]`
+> enumerates every object as a self-describing dict `{type index layer id name}`,
+> and `xschem object <type> <selector>` resolves `@id`/`#index`/`#layer,index`/name
+> to one descriptor. RED→GREEN + sabotage-verified; suite `object_*.tcl` (18),
+> probe `probe6.tcl`, manual `doc/object_query_api.md`. **All seven drawable types
+> except `text` now carry ids** (text is the flat-array straggler — a quick
+> follow-on). Remaining live directions: **`text`** (finish the set), **(c)
+> net-as-object**, and action-logging 0005 (replay-by-handle).
 
 ---
 
