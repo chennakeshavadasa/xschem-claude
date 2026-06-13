@@ -205,8 +205,8 @@ check {CH6c unselect_all: lastsel 0} {[xschem get lastsel] == 0}
 ### H1–H7 — session-stable wire ids (Phase D of the plan). Committed RED
 ### first (all xcheck, logging XFAIL — see commit dd0a56d6) per the TDD
 ### discipline; H1–H6 flipped to plain check by the D2 implementation
-### commit. H7 stays an xcheck until the D3 disk-undo decision is
-### implemented.
+### commit, H7 resolved by the D3 decision (disk undo invalidates handles —
+### option (b), see the H7 block below).
 ###
 ### Surface under test (additive, two scheduler subcommands):
 ###   xschem wire_id <index>   → session-stable id of wire[index] (or -1)
@@ -340,22 +340,29 @@ set im2 [h_widx $idm2]
 check {H6d merge: exactly one of the two ids survives, the other dangles} \
   {[nwires] == 2 && (($im1 >= 1 && $im2 == -1) || ($im1 == -1 && $im2 >= 1))}
 
-### H7 — disk-undo round-trip. EXPECTED XFAIL even after D2: disk undo
-### restores by re-reading .sch-format temp files (clear_drawing + load_wire),
-### which mints fresh ids — census "facts banked for Phase D". This is the
-### D3 decision point; the xcheck stays until D3 resolves it one way or the
-### other (invalidate-on-restore would flip this to an asserted -1 instead).
+### H7 — disk undo INVALIDATES handles (D3 decision: option (b),
+### invalidate-on-restore, chosen by the user 2026-06-12). Disk undo restores
+### by re-reading .sch-format temp files (clear_drawing + load_wire), so
+### restored wires are new births carrying fresh ids and every handle held
+### across a disk-undo restore dangles LOUDLY: the wire_id_counter is
+### monotonic per context and survives the restore, so freshly minted ids are
+### strictly greater than any id a script can already hold — an old handle
+### can never alias a restored wire. Memory undo (H5) is the backend that
+### round-trips identity. (Was an xcheck round-trip expectation through D2 —
+### see commits dd0a56d6 / 6e0c6eaf.)
 h_setup
 xschem undo_type disk
 xschem wire 0 0 100 0
 set id7 [h_wid 1]
 xschem undo
 xschem redo
-set i7 [h_widx $id7]
-set c7 {}
-if {$i7 >= 1} {catch {xschem wire_coord $i7} c7}
-xcheck {H7 disk undo+redo: id still resolves to the wire} \
-  {$i7 >= 1 && $c7 eq {0 0 100 0}}
+check {H7a disk undo+redo restores the wire itself} \
+  {[nwires] == 2 && [xschem wire_coord 1] eq {0 0 100 0}}
+check {H7b held handle is loudly invalidated (-1, not a stranger)} \
+  {[h_widx $id7] == -1}
+set id7r [h_wid 1]
+check {H7c restored wire carries a fresh, valid, resolvable id} \
+  {$id7r > 0 && $id7r != $id7 && [h_widx $id7r] == 1}
 xschem undo_type memory
 
 xschem set modified 0
