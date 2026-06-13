@@ -74,7 +74,15 @@ Writes to instance *fields* without changing array membership or order —
 token edits, `node[]` (re)assignment by the netlister, `color`/`flags`. These
 never invalidate an id→index map and are not funneled in step 2.
 
-## Funnel mapping (Phase C work plan)
+## Funnel mapping (Phase C — DONE)
+
+Phase C complete (commits IC1 death / IC2 bulk / IC3 birth): the death and
+bulk idioms are extracted into `store.c` and all four births funnel their
+increment through `inst_register(n)`. The reorder (IR1/IR2), growth (IG1) and
+bulk-replace (IB7) sites need **no** funneling: with the planned linear-scan
+id→index resolver (as for wires) the id travels inside the struct, so the
+array is the authority under every shift/swap/realloc/undo with zero map
+maintenance. Suite green throughout (instances 33/33, wires 57/57).
 
 | Phase C helper | absorbs |
 | --- | --- |
