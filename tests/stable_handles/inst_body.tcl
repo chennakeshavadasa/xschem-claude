@@ -258,4 +258,201 @@ xschem set modified 0
 xschem clear force schematic
 check {CHI10 clear force schematic: zero instances} {[ninst] == 0}
 
+### HI1–HI9 — session-stable instance ids (Phase D of the step-2 plan).
+### Committed RED first per the TDD discipline: every xcheck below logs XFAIL
+### until the D2 implementation lands, then flips to a plain check. Unlike the
+### wire suite (whose H7 stayed XFAIL pending the D3 disk-undo decision), the
+### disk-undo behavior for instances is ALREADY settled for the whole effort
+### (invalidate-on-restore, wire D3), so HI7 flips to a hard check at GREEN too.
+###
+### Surface under test (additive, two scheduler subcommands):
+###   xschem instance_id <name|index>  → session-stable id of that instance (or -1)
+###   xschem instance_index <id>       → current array index of that instance (or -1)
+###
+### Role contract (code_analysis/instance_identity_decision.md): the id is the
+### canonical *durable session* handle (monotonic, never reused, NOT persisted);
+### the name is the *human / cross-session* form (user-editable, file-persisted,
+### REUSABLE — R37 came back after a delete, verified). The headline divergence:
+### a name reuses and renames; an id never does (HI4, HI8).
+###
+### Conventions (mirroring the wire H-block):
+### - wrappers h_iid/h_iidx catch the "invalid command" error so the RED suite
+###   runs to completion; they return -2 (never a legal result) while the
+###   commands do not exist, transparent once they do.
+### - instance_id accepts a name OR an index (get_instance: digits→index, else
+###   name); instance_index takes an id.
+
+proc h_iid {ref} {
+  if {[catch {xschem instance_id $ref} r]} {return -2}
+  return $r
+}
+proc h_iidx {id} {
+  if {[catch {xschem instance_index $id} r]} {return -2}
+  return $r
+}
+
+### HI1 — ids of created instances are positive and pairwise distinct
+reload
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+xschem instance res.sym 3100 3000 0 0 {name=BBB}
+xschem instance res.sym 3200 3000 0 0 {name=CCC}
+set ida [h_iid AAA]
+set idb [h_iid BBB]
+set idc [h_iid CCC]
+xcheck {HI1 created instances have positive pairwise-distinct ids} \
+  {$ida > 0 && $idb > 0 && $idc > 0 && $ida != $idb && $ida != $idc && $idb != $idc}
+
+### HI2 — the §2e scenario (CHI7 analog): hold id(A), delete an EARLIER
+### instance (index 0). A's array index shifts down by the compaction, but the
+### id still resolves to A's current index and that index dereferences to A.
+reload
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+set ida [h_iid AAA]
+set idx_before [idx_of AAA]
+xschem unselect_all
+xschem select instance 0
+xschem delete
+set idx_a [h_iidx $ida]
+xcheck {HI2a id survives an earlier-instance delete; index shifted down by 1} \
+  {$idx_a >= 0 && $idx_a == $idx_before - 1}
+set coord {}
+if {$idx_a >= 0} {set coord [string trim [xschem instance_coord $idx_a]]}
+xcheck {HI2b resolved index dereferences to A's coords} \
+  {$coord eq {{AAA} {res.sym} 3000 3000 0 0}}
+
+### HI3 — delete A itself: the handle dangles LOUDLY (-1), it does not silently
+### name a stranger like a raw index would after compaction
+reload
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+set ida [h_iid AAA]
+xschem unselect_all
+xschem select instance AAA
+xschem delete
+xcheck {HI3 deref after own deletion returns -1} {[h_iidx $ida] == -1}
+
+### HI4 — THE headline: no id reuse, but the NAME reuses. Create an auto-named
+### resistor, capture name+id, delete it, create another at the same coords:
+### the auto-name comes back (R25→delete→R25, verified) but the id is FRESH.
+### A script holding the NAME now silently references a different instance; a
+### script holding the ID gets a clean fresh value it can tell apart.
+reload
+xschem unselect_all
+xschem instance res.sym 4000 4000 0 0
+set i1 [expr {[ninst] - 1}]
+set name1 [lindex [xschem instance_coord $i1] 0]
+set id1 [h_iid $i1]
+xschem unselect_all
+xschem select instance $i1
+xschem delete
+xschem unselect_all
+xschem instance res.sym 4000 4000 0 0
+set i2 [expr {[ninst] - 1}]
+set name2 [lindex [xschem instance_coord $i2] 0]
+set id2 [h_iid $i2]
+xcheck {HI4 name is REUSED but the id is FRESH (the R37 hazard, now safe)} \
+  {$name1 ne {} && $name1 eq $name2 && $id1 > 0 && $id2 > 0 && $id1 != $id2}
+
+### HI5 — memory-undo round-trip: undo dangles the id, redo restores the SAME
+### id resolving to the same instance (mem undo copies whole structs both ways,
+### census "facts banked for Phase D" — no undo code touched)
+reload
+xschem undo_type memory
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+set ida [h_iid AAA]
+xschem undo
+set gone [h_iidx $ida]
+xschem redo
+set back [h_iidx $ida]
+xcheck {HI5a memory undo: id of the undone instance dangles} {$gone == -1}
+set coord {}
+if {$back >= 0} {set coord [string trim [xschem instance_coord $back]]}
+xcheck {HI5b memory redo: the same id resolves again to A} \
+  {$back >= 0 && $coord eq {{AAA} {res.sym} 3000 3000 0 0}}
+xschem undo_type memory
+
+### HI6 — copy/merge births get FRESH ids (each is a birth through
+### inst_register: CHI4 copy_objects path, CHI5 copy+paste/merge_inst path)
+reload
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+set ida [h_iid AAA]
+xschem unselect_all
+xschem select instance AAA
+xschem copy_objects 500 0
+set idx_copy [expr {[ninst] - 1}]
+set id_copy [h_iid $idx_copy]
+xcheck {HI6a copy_objects birth gets a fresh id distinct from the source} \
+  {$id_copy > 0 && $ida > 0 && $id_copy != $ida}
+reload
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+set ida [h_iid AAA]
+xschem unselect_all
+xschem select instance AAA
+xschem copy
+xschem paste 600 0
+set idx_paste [expr {[ninst] - 1}]
+set id_paste [h_iid $idx_paste]
+xcheck {HI6b copy+paste/merge_inst birth gets a fresh id} \
+  {$id_paste > 0 && $ida > 0 && $id_paste != $ida}
+
+### HI7 — disk-undo round-trip: invalidate-on-restore (settled, same as wire
+### D3). Disk undo restores by re-reading the .sch through load_inst, which
+### mints a fresh id, so the originally-held id dangles (-1) while the restored
+### instance carries a NEW id; the NAME (file-persisted) still resolves. The
+### behavior is already decided for the whole effort, so this flips to a hard
+### check at GREEN (it does not stay XFAIL like wire H7 did).
+reload
+xschem undo_type disk
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+set ida [h_iid AAA]
+xschem undo
+xschem redo
+set old_resolves [h_iidx $ida]
+set new_id [h_iid AAA]
+xcheck {HI7a disk undo+redo: the originally-held id is invalidated (dangles -1)} \
+  {$old_resolves == -1}
+xcheck {HI7b disk undo+redo: restored instance carries a fresh id; name still resolves} \
+  {$new_id > 0 && $new_id != $ida && [resolves AAA] == 1}
+xschem undo_type memory
+
+### HI8 — id survives RENAME, name does not. Stamp id(A); rename A via attribute
+### edit (`setprop instance <ref> name <new>` — the space form works; the
+### `name=` token form is a no-op, GUI hazard noted). The id still resolves to
+### the same instance, but the OLD name no longer does and the NEW one now does.
+reload
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+set ida [h_iid AAA]
+xschem unselect_all
+xschem setprop instance AAA name ZZZREN
+set idx_after [h_iidx $ida]
+xcheck {HI8a id survives rename: instance_index id(A) still resolves} {$idx_after >= 0}
+# HI8b exercises only rename/name behavior (no new id surface), so it is true
+# TODAY — a plain check that characterizes the "name does not survive" half of
+# the divergence; HI8a/HI8c (the "id survives" half) are the id-dependent XFAILs.
+check {HI8b name does NOT survive: old name dangles, new name resolves} \
+  {[resolves AAA] == 0 && [resolves ZZZREN] == 1}
+xcheck {HI8c the id resolves to the renamed instance (same slot, new name)} \
+  {$idx_after >= 0 && [lindex [xschem instance_coord $idx_after] 0] eq {ZZZREN}}
+
+### HI9 — the selection enumerator now carries the real instance id:
+### {instance <idx> <col> <id>} with <id> == instance_id <idx> > 0
+### (this is the slot CHI8c currently locks at -1; CHI8c flips at GREEN)
+reload
+xschem unselect_all
+xschem instance res.sym 3000 3000 0 0 {name=AAA}
+xschem unselect_all
+xschem select instance AAA
+set row [lindex [xschem selection] 0]
+set sel_idx [lindex $row 1]
+set sel_id [lindex $row 3]
+xcheck {HI9 selection instance row carries the real id (== instance_id idx > 0)} \
+  {$sel_id > 0 && $sel_id == [h_iid $sel_idx] && [h_iid $sel_idx] == [h_iid AAA]}
+
 xschem set modified 0
