@@ -23,8 +23,17 @@ doc shows command output, it was run against a real build on this branch.
 > **text (the 7th type) is now DONE too** (own counter + `text_id`/`text_index`,
 > flat-array, RED→GREEN + sabotage-verified, suite `text_*.tcl` (14)). **ALL
 > SEVEN drawable types now carry session-stable ids** and `xschem objects` is
-> fully id-bearing. Remaining live directions: **(c) net-as-object** and
-> action-logging 0005 (replay-by-handle, now feasible for every drawable type).
+> fully id-bearing.
+> **(c) net-as-object is now DONE too (2026-06-13), read-only first cut.** A net
+> is derived (no slot), so its handle is an *anchor* — a wire/instance id on it
+> (design option **c2**, ratified by the user). `xschem net @wire <id>` /
+> `@inst <id> <pin>` / `<token>` → `{name nwires npins anchor}`; `xschem nets
+> [-selected]`; `xschem net_members <selector>` → members by handle. Rename-safe
+> (NH8), dangling → "" (NH9), cold-call correct (NH5, the §2c fix). Design-first
+> → RED → GREEN → two-path sabotage; decision `net_identity_decision.md`, manual
+> `doc/net_as_object.md`, suite `net_*.tcl` (39), probe `probe7.tcl`. Remaining
+> live direction: action-logging 0005 (replay-by-handle), now feasible for every
+> drawable type AND for nets (`object <type> @id` + `net <anchor>`).
 
 ---
 
@@ -265,6 +274,21 @@ explicitly named these as two of the four just-in-time seams.
 ---
 
 ## 4. Direction (c): net-as-object
+
+> **RESOLVED & SHIPPED (2026-06-13).** Design-first as predicted: a
+> characterization suite locked the current net surface (the §2c trap, the
+> derived-name authority trap, and the key finding that a net's *stable anchors
+> already exist* — the wire/label ids survive a rename that the net name does
+> not), then a decision doc (`net_identity_decision.md`) laid out c1/c2/c3 and
+> the user ratified **c2**: a net's durable handle is the stable id of a wire or
+> label-instance *on* it. Built read-only, RED→GREEN→two-path-sabotage: `xschem
+> net <selector>` / `nets [-selected]` / `net_members <selector>`, where the
+> selector is `@wire <id>` / `@inst <id> <pin>` / `<token>`. Reuses the step-1/2
+> resolvers, invents no net storage, fixes the §2c cold-call trap by contract,
+> and composes with the `object` API (membership comes back as handles). Manual
+> `doc/net_as_object.md`, suite `tests/stable_handles/net_*.tcl` (39), probe
+> `introspection_probes/probe7.tcl`. The §4.3 (c2) option below is the one that
+> shipped; (c3) the registry remains the future direction if c2 proves limiting.
 
 ### 4.1 Why this one is different in kind
 

@@ -260,8 +260,19 @@ existing commands:
    and replayed, and the action log gains stable referents — note this is
    the same problem as deferred issue **0005** in the action-logging work
    (stable referents for replay): one mechanism would serve both.
-5. **Net as an object**: `net OUTI wires` / `net OUTI pins` / rename-net
-   (which edits the owning label instances, encapsulating the §2d trap).
+5. **Net as an object** — **DONE (2026-06-13), read-only first cut.** Because a
+   net is *derived* (no struct to stamp), its durable handle is an **anchor**: a
+   wire/instance id *on* the net. `xschem net @wire <id>` / `@inst <id> <pin>` /
+   `<token>` → a descriptor `{name nwires npins anchor}`; `xschem nets
+   [-selected]`; `xschem net_members <selector>` → members **by handle**
+   (`{wires {<id>..} pins {{<inst-id> <pin>}..}}`). Holding the anchor is
+   rename-safe (the name moves under it, the id does not); a dangling anchor → "".
+   Each command rebuilds connectivity (and the selection, for `-selected`) first,
+   so it does **not** reproduce the §2c trap (#3) — see direction (c2),
+   `net_identity_decision.md`, `doc/net_as_object.md`, suite
+   `tests/stable_handles/net_*.tcl`, probe `introspection_probes/probe7.tcl`.
+   Net *rename* (edit the owning label, encapsulating the §2d trap) and net
+   *creation* remain follow-ons.
 
 The wire was a good probe: small struct, yet it surfaced every systemic
 issue — identity, cache coherence, API asymmetry, derived-data authority.

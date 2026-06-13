@@ -158,9 +158,16 @@ form and, for instances, the only thing that survives save/reload.
   enumerator and resolver are now uniform across wire/instance/text/rect/line/
   poly/arc with no straggler. (A descriptor's `id` can still be `-1` for a
   *dangling* reference, but never because a type lacks ids.)
+- **Nets.** A *net* is not one of these seven types — it is derived, not stored,
+  so it has no id of its own. It gets its own handle surface,
+  [`net_as_object.md`](net_as_object.md) (`xschem net` / `nets` /
+  `net_members`), where the durable handle is an *anchor* (a wire/instance id on
+  the net) and the membership it returns is made of these same object handles —
+  `object instance @<id>` resolves a `net_members` pin back to a descriptor.
 
 ---
 
 *See also the per-type manuals (`doc/stable_*_handles.md`) for how the ids
-themselves work, and `code_analysis/step3_directions_guide.md` for where this
-API fits in the larger plan.*
+themselves work, `doc/net_as_object.md` for the net-level handle that composes
+with this API, and `code_analysis/step3_directions_guide.md` for where this API
+fits in the larger plan.*
