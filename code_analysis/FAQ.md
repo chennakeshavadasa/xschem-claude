@@ -1,14 +1,190 @@
-# Action-registry FAQ
+# FAQ
 
-Running Q&A about the input action-registry / binding-table work (branch
-`feature/action-registry`) and its follow-ons: the action-logging / CIW work
-(branch `feature/action-logging`) and the scriptability / stable-object-handles
-work (branch `feature/stable-object-handles`). Each entry records the
-**project state when it was asked** (branch + HEAD commit + phase), because
-answers are tied to how much of the refactor had landed at that moment — a
-later phase may make an old "no" a "yes."
+Running Q&A spanning the connected threads of XSCHEM internals work done in
+this repo: the input action-registry / binding-table work (branch
+`feature/action-registry`), the action-logging / CIW work (branch
+`feature/action-logging`), and the scriptability / stable-object-handles work
+(branch `feature/stable-object-handles`) — plus general questions about the
+XSCHEM data model that come up along the way. Each entry records the **project
+state when it was asked** (branch + HEAD commit + phase), because answers are
+often tied to how much of a refactor had landed at that moment — a later phase
+may make an old "no" a "yes."
 
 Newest entries on top.
+
+---
+
+## Q10. Can you open a schematic or symbol in *read-only* mode?
+
+- **Asked:** 2026-06-12
+- **Project state:** branch `feature/stable-object-handles` @ `10c3f2f8`
+  (step 1 of stable handles complete; the wire-handle manual just landed).
+
+**No — XSCHEM has no read-only / view-only open mode today.** Every file you
+open is loaded into a fully editable in-memory context. There is no
+application-level lock, no flag, and no startup option that makes a loaded
+schematic non-editable. Specifically, the searches come back empty on all of
+these:
+
+- **No `xschem load` flag for it.** The `load` command
+  (`scheduler.c`, the `xschem_cmds_l` group) accepts
+  `-nosymbols | -gui | -noundoreset | -nofullzoom | -nodraw | -keep_symbols |
+  -lastclosed | -lastopened` — controlling *symbol loading, undo, zoom and
+  drawing*, none of them editability. There is no `-readonly`, `-view`, or
+  `-noedit`.
+- **No command-line flag.** The startup option parser (`options.c`) has
+  `-x/--no_x` (headless), `-b/--detach`, output/netlist selectors, etc., but
+  nothing like `--readonly` or `--view`. (Note `-r` is already taken — it
+  means `--no_readline`, not read-only.)
+- **No write-permission awareness at open time.** XSCHEM does not `access(…,
+  W_OK)` a file when loading it and does not warn that a file is unwritable.
+  The permission check happens only at *save*: `save_schematic()`
+  (`save.c:~3470`) just does `fopen(schname, "w")` and, if that fails, pops
+  `alert_ {file opening for write failed!}`. So you discover a file is
+  read-only on the filesystem only when you try to save it.
+- **The `modified` flag is not a lock.** `xctx->modified` (set via
+  `set_modify()`) only drives the "save your changes?" prompt on close/reload;
+  it never prevents an edit.
+
+**The closest things that *do* exist** (and how you might lean on them):
+
+1. **Per-element `lock` attribute.** Any object can carry `lock=true` in its
+   property string; `select.c` (the `select_*` functions, ~lines 896–1226 for
+   wire / inst / text / rect / poly / line) refuses to select a locked object
+   for editing unless you override with Shift-click. This is *per-object, not
+   per-file*, it's bypassable, and it doesn't stop programmatic edits — but it
+   is the only built-in "don't touch this" mechanism. A script could stamp
+   `lock=true` on everything to approximate a soft read-only.
+2. **Filesystem permissions.** `chmod -w file.sch` genuinely protects the file
+   on disk — XSCHEM will let you open and edit the in-memory copy, but the
+   eventual save fails loudly. Read-only-on-disk plus "don't save" is the
+   honest current workaround for "I just want to look."
+3. **Headless inspection.** For pure querying with zero risk of mutation,
+   `xschem -x -q --script <file>` (or `--pipe`) loads the file and lets a
+   script read it via the `xschem` query commands without ever opening an
+   editable window.
+
+If a real read-only mode were wanted, the natural shape — given the
+stable-handles direction — would be a context-level `read_only` flag checked at
+the mutation funnel (the same chokepoint the handle work is building), plus an
+`access(W_OK)` probe at load that sets it automatically for unwritable files.
+That is not implemented; it is noted here as the obvious place it would go.
+
+---
+
+## Q9. What support is there for multiple open schematics/symbols — windows and tabs?
+
+- **Asked:** 2026-06-12
+- **Project state:** branch `feature/stable-object-handles` @ `10c3f2f8`.
+
+**Good support — XSCHEM can hold many schematics/symbols open at once, in
+either tabs or separate windows, each with its own fully independent state.**
+The key facts:
+
+**Two interchangeable modes, one switch.** The Tcl boolean
+`tabbed_interface` (`xschem.tcl`, `set_ne tabbed_interface 1` — **default on**)
+chooses between:
+- **Tabbed** — all schematics share one top-level X11 window, switchable via a
+  tab bar (`create_new_tab` / `switch_tab` / `destroy_tab` in `xinit.c`);
+- **Windowed** — each schematic gets its own top-level window
+  (`create_new_window` / `switch_window` / `destroy_window`).
+`new_schematic()` (`xinit.c`) reads the flag at runtime and dispatches to the
+right pair, so the *same commands* drive both.
+
+**Each open schematic is a separate `Xschem_ctx`.** This is the important part
+for scripting: every tab/window owns a complete, independent copy of the editor
+state — its own `wire[]`, `inst[]`, selection, undo stack, zoom, hierarchy
+stack, *and (per the stable-handles work) its own wire-id counter.* They live
+in a `save_xctx[MAX_NEW_WINDOWS]` array (`xinit.c`); the global `xctx` always
+points at the active one, and switching tabs/windows just repoints it. A wire
+id is unique **within one context**, not across contexts — two tabs can both
+have a wire with id 5.
+
+**The Tcl commands a script uses** (all verified against `scheduler.c`):
+
+| Command | What it does |
+| --- | --- |
+| `xschem new_schematic create <win_path> [file]` | open a new tab/window (empty, or with `file` loaded). `win_path` is `{}` for auto, or e.g. `.x1.drw` |
+| `xschem new_schematic switch <win_path>` | make that tab/window active (`win_path` may be `previous` or a schematic name) |
+| `xschem new_schematic destroy <win_path>` | close one tab/window |
+| `xschem new_schematic destroy_all [force]` | close all extra tabs/windows |
+| `xschem tab_list` | list every open tab/window as `{win_path} {filename}` rows |
+| `xschem get current_win_path` | path of the active tab/window (`.drw` for the main one, `.x1.drw`, `.x2.drw`, …) |
+| `xschem get ntabs` | number of *extra* tabs (0 = only the main one) |
+| `xschem get schname` / `sch_path` / `currsch` | name / hier-path / hierarchy level of the active context |
+
+**The hard limit is `MAX_NEW_WINDOWS = 20`** (`xschem.h`) — try to open a 21st
+and `create_new_window` / `create_new_tab` refuse with "no more free slots."
+
+**Don't confuse "open windows" with "hierarchy depth."** These are two
+different stacks:
+- *Descending* into a sub-circuit (double-click an instance) pushes onto the
+  **hierarchy stack** `sch[CADMAXHIER]` (`CADMAXHIER = 40`) **inside the same
+  context and the same window** — `currsch` counts the depth (0 at top). You're
+  still in one `xctx`, looking deeper into one design.
+- *Opening* a file in a new tab/window allocates a **brand-new `xctx`** with its
+  own `currsch = 0`. A genuinely separate design, separate undo, separate
+  everything.
+
+So "20" bounds how many separate designs you can have open; "40" bounds how
+deep you can drill into any one of them.
+
+---
+
+## Q8. Besides wires, what object types does XSCHEM have?
+
+- **Asked:** 2026-06-12
+- **Project state:** branch `feature/stable-object-handles` @ `10c3f2f8`.
+  The stable-handle work so far covers **wires only**; this question is about
+  what the other types are, since they are the roadmap for the rest of the
+  identity work.
+
+**XSCHEM schematics/symbols are built from seven drawable object types, plus
+the symbol *definition* that instances point at.** They are all defined
+together near the top of `xschem.h` and each lives in its own array on `xctx`.
+The type constants (`xschem.h:265–271`) double as a bitmask:
+
+| Const (value) | Struct | `xctx` array | What it is |
+| --- | --- | --- | --- |
+| `WIRE` (1) | `xWire` | `wire[]` | a net segment (the type the handle work started on) |
+| `xRECT` (2) | `xRect` | `rect[layer][]` | rectangle / box — also pins, graphs, embedded images (by layer) |
+| `LINE` (4) | `xLine` | `line[layer][]` | a graphical line (by layer) |
+| `ELEMENT` (8) | `xInstance` | `inst[]` | a placed **component instance** (a reference to a symbol) |
+| `xTEXT` (16) | `xText` | `text[]` | a text label / annotation |
+| `POLYGON` (32) | `xPoly` | `poly[layer][]` | a polyline / polygon (by layer) |
+| `ARC` (64) | `xArc` | `arc[layer][]` | a circular arc or (via attrs) circle/ellipse (by layer) |
+
+And separately:
+
+- **`xSymbol`** (`sym[]`) — a loaded **symbol definition** (the master). It is
+  not a placed object you draw; it is the template an `xInstance` references.
+  Editing a `.sym` file edits one of these; placing it in a schematic creates
+  an `xInstance` (`ELEMENT`) that points at it.
+
+**Two structural facts a script author should know**, because they shape how
+each type is addressed and how much identity work each will need:
+
+1. **Three types are flat arrays; four are per-layer.** `wire`, `text` and
+   `inst` are single arrays indexed by one number — hence `xschem select wire
+   5`, one index. But `rect`, `line`, `poly` and `arc` are arrays *per drawing
+   layer* (`xRect **rect;` = one array per `cadlayers`) — so they are addressed
+   by **(layer, index)**: `xschem select rect <color> <n>`. That extra
+   coordinate is why their commands look different from wires'.
+2. **The scatter the identity work has to tame differs by type.** Instances are
+   the planned next target precisely because they have the worst remaining
+   lifecycle scatter (`xctx->instances++` happens in `paste.c`, `move.c`,
+   `actions.c`, …), the mirror image of the wire situation that Q7 describes.
+   The recipe proven on wires — census every birth/death/compaction site,
+   funnel them through one family of functions, then stamp a per-context
+   monotonic id at the funnel — repeats type by type. Wires were chosen first
+   as the simplest specimen; instances, then the per-layer graphical types,
+   follow the same playbook.
+
+The asymmetry in *query* support across these types (instances are addressable
+by name and have a rich query family; wires and the graphical types are
+index-only) is catalogued in `tcl_introspection_wire.md` §3 — that, plus
+identity, is what the uniform `xschem object` API is eventually meant to even
+out.
 
 ---
 
