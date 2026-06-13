@@ -598,6 +598,35 @@ void gfx_register(int type, int c, int n)
  * wires and instances. 'type' is one of xRECT/LINE/POLYGON/ARC; the resolver is
  * type-scoped (an id belonging to another type returns -1), but the id space is
  * shared so values never collide across types. */
+
+/* Birth chokepoint of the text lifecycle funnel (step-3, 7th type): register
+ * the text just built at slot n as live and stamp its session-stable id. text
+ * is a flat array, so this mirrors inst_register: all four text births
+ * (create_text, merge_text, the move-copy path, load_text) funnel their count
+ * increment through here. text has its own id counter (it is not a graphical
+ * per-layer type), monotonic and never reused. */
+void text_register(int n)
+{
+ xctx->text[n].id = ++xctx->text_id_counter;
+ xctx->texts++;
+}
+
+/* Resolve a session-stable text id back to its current array index, or -1 if no
+ * live text carries that id (deleted, or invalidated by a disk-undo restore).
+ * Deliberately a linear scan, exactly like wire_index_from_id: the id rides in
+ * the struct, so the flat array is the authoritative id->index relation under
+ * every mutation with nothing to go stale. */
+int text_index_from_id(unsigned int id)
+{
+ int i;
+ if(id == 0) return -1;
+ for(i = 0; i < xctx->texts; ++i)
+ {
+  if(xctx->text[i].id == id) return i;
+ }
+ return -1;
+}
+
 int gfx_index_from_id(int type, unsigned int id, int *layer_out)
 {
  int c, i, cnt;

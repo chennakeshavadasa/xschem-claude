@@ -142,12 +142,15 @@ set dr [obj rect #5,0]
 check {O9b object rect #5,0 round-trips through rect_index} \
   {[xschem rect_index [dg $dr id]] eq "5 0"}
 
-### O10 — text is the honest straggler: its descriptor carries id -1
+### O10 — text now carries a real stable id too (the 7th type completed the
+### set). Flipped from "id -1" when the text handle landed; all seven drawable
+### types are now id-bearing.
 obj_fixture
 set txt_row {}
 foreach o [objs] { if {[dg $o type] eq "text"} {set txt_row $o} }
-check {O10 the text descriptor reports id -1 (text has no stable id yet)} \
-  {[dg $txt_row type] eq "text" && [dg $txt_row id] == -1}
+check {O10 the text descriptor carries a real id (> 0, == text_id index)} \
+  {[dg $txt_row type] eq "text" && [dg $txt_row id] > 0 && \
+   [dg $txt_row id] == [xschem text_id [dg $txt_row index]]}
 
 ### O11 — a dangling id resolves to nothing (loud, not a stranger)
 obj_fixture

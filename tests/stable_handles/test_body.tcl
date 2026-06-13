@@ -431,11 +431,12 @@ check {S3b all three selected types reported (incl. line)} \
   {$types3 eq {line text wire}}
 check {S3c the wire row carries a real stable id (> 0)} \
   {[lindex [sel_row $s3 wire] 3] > 0}
-# the LINE row now carries a real stable graphical id (step-3 Phase D); only
-# text remains without one. (Updated from "text and line both -1" when graphical
-# handles landed — the selection enumerator now fills line/rect/poly/arc ids.)
-check {S3d the text row still carries id -1 (text has no stable id yet)} \
-  {[lindex [sel_row $s3 text] 3] == -1}
+# both the line and text rows now carry real stable ids — all seven drawable
+# types are id-bearing (text was the last, step-3). (S3d updated from "text id
+# -1" when the text handle landed; previously updated from "text and line both
+# -1" when graphical handles landed.)
+check {S3d the text row now carries a real stable id (> 0)} \
+  {[lindex [sel_row $s3 text] 3] > 0}
 check {S3e the line row now carries a real graphical id (> 0)} \
   {[lindex [sel_row $s3 line] 3] > 0}
 

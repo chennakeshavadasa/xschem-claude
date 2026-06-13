@@ -575,7 +575,10 @@ typedef struct
               * bit 2 : TEXT_ITALICi
               * bit 3 : HIDE_TEXT
               * bit 4 : TEXT_FLOATER */
-
+  unsigned int id; /* session-stable identity, stamped at birth in store.c
+                    * (text_register), never reused within a context's lifetime,
+                    * not persisted in .sch files. 0 = never stamped. text is
+                    * pure annotation — the id is only a handle, no role change. */
 } xText;
 
 typedef struct
@@ -968,6 +971,9 @@ typedef struct {
                                  * gfx_register; ONE shared counter for all four
                                  * graphical types, monotonic per context, survives
                                  * clear_drawing/load so ids are never reused */
+  unsigned int text_id_counter; /* store.c: last text id stamped at text_register;
+                                 * monotonic per context, survives clear_drawing/load
+                                 * so ids are never reused within a window/tab session */
   char *schprop;
   char *schtedaxprop;
   char *schvhdlprop;
@@ -1578,6 +1584,8 @@ extern void inst_register(int n);
 extern int inst_index_from_id(unsigned int id);
 extern void gfx_register(int type, int c, int n);
 extern int gfx_index_from_id(int type, unsigned int id, int *layer_out);
+extern void text_register(int n);
+extern int text_index_from_id(unsigned int id);
 extern void store_poly(int pos, double *x, double *y, int points,
            unsigned int rectcolor, unsigned short sel, char *prop_ptr);
 extern void store_arc(int pos, double x, double y, double r, double a, double b,

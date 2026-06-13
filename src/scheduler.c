@@ -4008,7 +4008,7 @@ static void object_descriptor(char *buf, int bufsz, int type, int i, int c)
     case LINE:    tname = "line";     id = (int)xctx->line[c][i].id; break;
     case POLYGON: tname = "poly";     id = (int)xctx->poly[c][i].id; break;
     case ARC:     tname = "arc";      id = (int)xctx->arc[c][i].id;  break;
-    case xTEXT:   tname = "text";     id = -1; break;
+    case xTEXT:   tname = "text";     id = (int)xctx->text[i].id; break;
     default:      tname = "unknown";  break;
   }
   my_snprintf(buf, bufsz, "type %s index %d layer %d id %d name {%s}",
@@ -4047,7 +4047,8 @@ static int xschem_cmds_o(Tcl_Interp *interp, int argc, const char *argv[], int *
           case ELEMENT: i = inst_index_from_id(id); c = WIRELAYER; break;
           case xRECT: case LINE: case POLYGON: case ARC:
                         i = gfx_index_from_id(type, id, &c); break;
-          case xTEXT:   i = -1; break;          /* text has no id */
+          case xTEXT:   i = text_index_from_id(id);
+                        if(i >= 0) c = xctx->text[i].layer; break;
         }
       } else if(sel[0] == '#') {                /* by index or layer,index */
         const char *comma = strchr(sel + 1, ',');
@@ -6031,7 +6032,7 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
           case xRECT:   tname = "rect";     id = (int)xctx->rect[c][i].id; break;
           case LINE:    tname = "line";     id = (int)xctx->line[c][i].id; break;
           case ELEMENT: tname = "instance"; id = (int)xctx->inst[i].id; break;
-          case xTEXT:   tname = "text";     break;
+          case xTEXT:   tname = "text";     id = (int)xctx->text[i].id; break;
           case POLYGON: tname = "poly";     id = (int)xctx->poly[c][i].id; break;
           case ARC:     tname = "arc";      id = (int)xctx->arc[c][i].id; break;
           default:      tname = "unknown";  break;
@@ -7065,6 +7066,37 @@ static int xschem_cmds_t(Tcl_Interp *interp, int argc, const char *argv[], int *
      *     props is the attribute string
      *     size sets the size
      *     draw is a flag. If set to 1 will draw the created text */
+    /* text_id index
+     *   return the session-stable id of text[index], or -1 if out of range.
+     *   text is a flat array, so this mirrors `xschem wire_id`. Ids are stamped
+     *   at text creation (store.c text_register), never reused within a session
+     *   and not persisted. Resolve back with `xschem text_index id` */
+    else if(!strcmp(argv[1], "text_id"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        int n = atoi(argv[2]);
+        if(n >= 0 && n < xctx->texts) {
+          char s[30];
+          my_snprintf(s, S(s), "%u", xctx->text[n].id);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        } else {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        }
+      }
+    }
+    /* text_index id
+     *   return the current array index of the text whose session-stable id is
+     *   given, or -1 if no live text carries that id (deleted, or invalidated
+     *   by a disk-undo restore) */
+    else if(!strcmp(argv[1], "text_index"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        unsigned int id = (unsigned int)strtoul(argv[2], NULL, 10);
+        Tcl_SetResult(interp, my_itoa(text_index_from_id(id)), TCL_VOLATILE);
+      }
+    }
     else if(!strcmp(argv[1], "text") )
     {
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}

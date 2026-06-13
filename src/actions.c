@@ -3927,7 +3927,7 @@ int create_text(int draw_text, double x, double y, int rot, int flip, const char
     }
     #endif
   }
-  xctx->texts++;
+  text_register(xctx->texts);
   return 1;
 }
 

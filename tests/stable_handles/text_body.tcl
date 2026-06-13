@@ -52,8 +52,8 @@ xschem select text 0
 set row [lindex [xschem selection] 0]
 check {TC3a selection row is {text <idx> 3 <id>} (col == TEXTLAYER 3)} \
   {[lindex $row 0] eq {text} && [lindex $row 2] == 3}
-check {TC3b selection text row's id slot is -1 today (no stable id yet)} \
-  {[lindex $row 3] == -1}
+check {TC3b selection text row carries a real id (> 0, == text_id idx)} \
+  {[lindex $row 3] > 0 && [lindex $row 3] == [h_tid [lindex $row 1]]}
 
 ### TH1 — created texts have positive, pairwise-distinct ids
 clean
@@ -61,7 +61,7 @@ xschem text 0   0 0 0 t0 {} 0.3 0
 xschem text 100 0 0 0 t1 {} 0.3 0
 xschem text 200 0 0 0 t2 {} 0.3 0
 set a [h_tid 0]; set b [h_tid 1]; set c [h_tid 2]
-xcheck {TH1 created texts have positive pairwise-distinct ids} \
+check {TH1 created texts have positive pairwise-distinct ids} \
   {$a > 0 && $b > 0 && $c > 0 && $a != $b && $a != $c && $b != $c}
 
 ### TH2 — the §2e scenario: hold a text's id, delete an EARLIER text; the index
@@ -74,8 +74,8 @@ set id2 [h_tid 2]
 xschem unselect_all
 xschem select text 0
 xschem delete
-xcheck {TH2a id survives an earlier-text delete; index shifts 2->1} {[h_tidx $id2] == 1}
-xcheck {TH2b round-trip: text_id at the resolved index returns the held id} \
+check {TH2a id survives an earlier-text delete; index shifts 2->1} {[h_tidx $id2] == 1}
+check {TH2b round-trip: text_id at the resolved index returns the held id} \
   {$id2 > 0 && [h_tid 1] == $id2}
 
 ### TH3 — delete the held text itself: the id dangles loudly (-1)
@@ -85,7 +85,7 @@ set id [h_tid 0]
 xschem unselect_all
 xschem select text 0
 xschem delete
-xcheck {TH3 deref after own deletion returns -1} {[h_tidx $id] == -1}
+check {TH3 deref after own deletion returns -1} {[h_tidx $id] == -1}
 
 ### TH4 — no id reuse: create->delete->create mints a fresh id
 clean
@@ -96,7 +96,7 @@ xschem select text 0
 xschem delete
 xschem text 0 0 0 0 t0 {} 0.3 0
 set id4b [h_tid 0]
-xcheck {TH4 recreated text gets a fresh id} {$id4a > 0 && $id4b > 0 && $id4a != $id4b}
+check {TH4 recreated text gets a fresh id} {$id4a > 0 && $id4b > 0 && $id4a != $id4b}
 
 ### TH5 — memory-undo round-trip. Graphical/text create is not undoable, so the
 ### undoable cycle is delete->undo: delete dangles the id, undo restores the
@@ -111,8 +111,8 @@ xschem delete
 set gone [h_tidx $id5]
 xschem undo
 set back [h_tidx $id5]
-xcheck {TH5a memory undo: deleted text's id dangles} {$gone == -1}
-xcheck {TH5b memory undo restores the SAME id} {$back >= 0 && [h_tid $back] == $id5}
+check {TH5a memory undo: deleted text's id dangles} {$gone == -1}
+check {TH5b memory undo restores the SAME id} {$back >= 0 && [h_tid $back] == $id5}
 xschem undo_type memory
 
 ### TH6 — disk-undo round-trip = invalidate-on-restore (settled D3): the held
@@ -125,10 +125,10 @@ xschem unselect_all
 xschem select text 0
 xschem delete
 xschem undo
-xcheck {TH6a disk undo+restore: the held id is invalidated (dangles -1)} \
+check {TH6a disk undo+restore: the held id is invalidated (dangles -1)} \
   {[h_tidx $id6] == -1}
 set id6b [h_tid 0]
-xcheck {TH6b disk undo+restore: the restored text carries a fresh id} \
+check {TH6b disk undo+restore: the restored text carries a fresh id} \
   {$id6b > 0 && $id6b != $id6}
 xschem undo_type memory
 
@@ -140,7 +140,7 @@ xschem unselect_all
 xschem select text 0
 xschem copy_objects 500 0
 set idc [h_tid [expr {[ntext] - 1}]]
-xcheck {TH7 copy_objects birth gets a fresh id distinct from the source} \
+check {TH7 copy_objects birth gets a fresh id distinct from the source} \
   {$idc > 0 && $src > 0 && $idc != $src}
 
 clean

@@ -49,7 +49,7 @@ static void merge_text(FILE *fd)
      load_ascii_string(&xctx->text[i].prop_ptr,fd);
      set_text_flags(&xctx->text[i]);
      select_text(i,SELECTED, 1, 1);
-     xctx->texts++;
+     text_register(i);
 }
 
 static void merge_wire(FILE *fd)

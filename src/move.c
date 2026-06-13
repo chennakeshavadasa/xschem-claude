@@ -914,7 +914,7 @@ void copy_objects(int what)
         #endif
 
         xctx->sel_array[i].n=xctx->texts;
-        xctx->texts++;
+        text_register(xctx->texts);
          dbg(2, "copy_objects(): done copy string\n");
         break;
        default:

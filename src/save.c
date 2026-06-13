@@ -2832,7 +2832,7 @@ static void load_text(FILE *fd)
   xctx->text[i].sel=0;
   load_ascii_string(&xctx->text[i].prop_ptr,fd);
   set_text_flags(&xctx->text[i]);
-  xctx->texts++;
+  text_register(i);
 }
 
 static void load_wire(FILE *fd)
