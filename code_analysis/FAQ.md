@@ -14,6 +14,81 @@ Newest entries on top.
 
 ---
 
+## Q12. With several schematic windows open, how do you get the wire list of *one specific* schematic?
+
+- **Asked:** 2026-06-13
+- **Project state:** branch `feature/stable-object-handles` @ `1c653298`.
+
+**Switch the active context to that window, then query — there is no
+"query window X while window Y is active."** Every `xschem` query command
+(`get wires`, `wire_coord`, `wire_id`, `selection`, …) reads the **active
+context** only (the global `xctx`). The single command that reaches across
+windows is `tab_list`, and it returns only filenames. So the procedure is
+always *find the window → switch to it → query → (optionally) switch back.*
+
+```tcl
+# 1. find the window holding the schematic you want, by filename.
+#    tab_list rows are: {win_path} {full_filename}
+set target {}
+foreach line [split [xschem tab_list] \n] {
+  if {[string match *Q1.sch* $line]} { set target [lindex $line 0] }
+}
+#    -> target is e.g. ".x1.drw"
+
+# 2. make that window the active context
+xschem new_schematic switch $target
+
+# 3. the wire queries now refer to THAT schematic
+set n [xschem get wires]                 ;# e.g. 19 (Q1's wire count)
+for {set i 0} {$i < $n} {incr i} { ... } ;# Q1's wires
+xschem selection                         ;# Q1's selection
+
+# 4. (optional) go back
+xschem new_schematic switch .drw         ;# main window
+```
+
+Verified headless against three open schematics (mos_power_ampli=91,
+Q1=19, bus_keeper=8 wires): each switch + `get wires` returned the right
+count, and the contexts stay fully isolated.
+
+**Naming the target — two forms, and one trap.** `new_schematic switch`
+accepts either:
+
+- a **win_path** — `.drw` is the main window, then `.x1.drw`, `.x2.drw`, …
+  This is the robust id; read it from `tab_list`, don't hardcode it.
+- a **schematic basename *with extension*** — `xschem new_schematic switch
+  Q1.sch`.
+
+The trap (found while verifying): switch-by-name matches the **basename only**
+(`get_cell_w_ext`, `xinit.c:1341` `get_tab_or_window_number`), *not* a path.
+`xschem new_schematic switch /…/examples/bus_keeper.sch` **silently does
+nothing** (stays put). Use `bus_keeper.sch`, or use the win_path. If two
+windows hold the same basename, only the win_path disambiguates.
+
+**Nuances worth knowing:**
+
+- **Opening makes it active.** `new_schematic create {} <file>` switches the
+  active context *to* the new schematic — after opening several you are "in"
+  the last one created, not back in main.
+- **You get the level currently shown.** If that window has descended into a
+  sub-schematic (hierarchy push), `get wires` returns the *sub-sheet's* wires,
+  not the top sheet's. `xschem get currsch` is the depth (0 = top).
+- **Wire ids are per-context.** Id 5 in window A is a different wire from id 5
+  in window B — each context has its own monotonic `wire_id_counter` (see Q9).
+  Collecting handles across windows? Tag each id with its win_path.
+- **`switch previous`** works only in tabbed mode; in separate-window mode it
+  is a no-op (`xinit.c:1536`).
+- **Wire 0** still has the `wire_coord 0` off-by-one — a *complete*
+  enumeration loops from index 1 plus the `saveas` ground-truth fallback (see
+  `doc/stable_wire_handles.md` §6); the id-based commands (`wire_id 0`,
+  `selection`) are not affected.
+
+This is purely about *reading* a chosen context; the underlying multi-window
+model (tabbed vs windowed, `MAX_NEW_WINDOWS`, hierarchy vs separate windows) is
+Q9.
+
+---
+
 ## Q11. Is there a way to iterate over the *selected* objects from a script?
 
 - **Asked:** 2026-06-13
