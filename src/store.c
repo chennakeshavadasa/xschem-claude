@@ -466,3 +466,40 @@ void wire_storage_reset(void)
  }
  xctx->wires = 0;
 }
+
+/* ---- instance lifecycle funnel (stable-object-handles step 2) ----
+ * See code_analysis/instance_lifecycle_census.md. Mirrors the wire funnel
+ * above. Instance births are heterogeneous (place_symbol / load_inst /
+ * merge_inst / move-copy each init fields differently), so there is no single
+ * birth *factory* like wire_store; instead every birth funnels its count
+ * increment through inst_register() (the chokepoint where identity will be
+ * stamped), and the uniform death and bulk-reset idioms are funneled here. */
+
+/* Death door of the instance lifecycle funnel (census site ID1): delete every
+ * instance for which doomed() returns nonzero, compacting the array in place
+ * with an order-preserving shift. Frees each deleted instance's prop_ptr,
+ * node (via delete_inst_node), name, instname and lab. As with the wire death
+ * door, incremental hash maintenance is impossible here (deletions change
+ * instance indexes), so callers must invalidate/rebuild the instance hash and
+ * other derived state when the returned deletion count is nonzero. */
+int inst_delete_compact(int (*doomed)(int n, void *arg), void *arg)
+{
+ int i, j = 0;
+ for(i = 0; i < xctx->instances; ++i)
+ {
+   if((*doomed)(i, arg)) {
+     ++j;
+     my_free(_ALLOC_ID_, &xctx->inst[i].prop_ptr);
+     delete_inst_node(i);
+     my_free(_ALLOC_ID_, &xctx->inst[i].name);
+     my_free(_ALLOC_ID_, &xctx->inst[i].instname);
+     my_free(_ALLOC_ID_, &xctx->inst[i].lab);
+     continue;
+   }
+   if(j) {
+     xctx->inst[i-j] = xctx->inst[i];
+   }
+ }
+ xctx->instances -= j;
+ return j;
+}

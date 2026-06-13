@@ -514,6 +514,14 @@ int delete_wires(int selected_flag)
   return deleted;
 }
 
+/* predicate for inst_delete_compact() — the user-facing instance delete
+ * (census site ID1): doom every selected instance */
+static int inst_doomed_selected(int n, void *arg)
+{
+  (void)arg;
+  return xctx->inst[n].sel == SELECTED;
+}
+
 void delete(int to_push_undo)
 {
   int i, j, deleted = 0;
@@ -558,30 +566,9 @@ void delete(int to_push_undo)
   xctx->texts -= j;
   j = 0;
 
-  for(i=0;i<xctx->instances; ++i)
-  {
-    if(xctx->inst[i].sel == SELECTED)
-    {
-      deleted = 1;
-      if(xctx->inst[i].prop_ptr != NULL)
-      {
-        my_free(_ALLOC_ID_, &xctx->inst[i].prop_ptr);
-      }
-      delete_inst_node(i);
-      my_free(_ALLOC_ID_, &xctx->inst[i].name);
-      my_free(_ALLOC_ID_, &xctx->inst[i].instname);
-      my_free(_ALLOC_ID_, &xctx->inst[i].lab);
-      ++j;
-      continue;
-    }
-    if(j)
-    {
-      xctx->inst[i-j] = xctx->inst[i];
-    }
-  }
-  xctx->instances-=j;
-
+  j = inst_delete_compact(inst_doomed_selected, NULL);
   if(j) {
+    deleted = 1;
     xctx->prep_hash_inst=0;
     xctx->prep_net_structs=0;
     xctx->prep_hi_structs=0;
