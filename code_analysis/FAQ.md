@@ -14,6 +14,72 @@ Newest entries on top.
 
 ---
 
+## Q11. Is there a way to iterate over the *selected* objects from a script?
+
+- **Asked:** 2026-06-13
+- **Project state:** branch `feature/stable-object-handles` @ `7539fa68`
+  (wire stable handles shipped; selection-as-data still a gap).
+
+**Partially — and the gap is instructive.** The *complete* selection already
+exists inside the engine, but only fragments of it are exposed to Tcl, so a
+single generic "for each selected object" loop is **not** possible through the
+documented surface today.
+
+**What exists in C.** `rebuild_selected_array()` (`move.c:52`) walks all seven
+object types and fills `xctx->sel_array[]` with a `{type, n, col}` triple for
+every selected object — texts, instances, wires, then per-layer arcs / rects /
+lines / polygons — and sets `xctx->lastsel` to the count. So the full, typed
+selection list is assembled and sitting in memory after any selection change.
+
+**What Tcl can actually read** — only pieces of that array:
+
+| Command | Covers | Returns |
+| --- | --- | --- |
+| `xschem get lastsel` | all types | just the **count** |
+| `xschem get first_sel` | all types | only the **first** object: `type n col` |
+| `xschem selected_set` | **instances** only | `{name} {name} …` |
+| `xschem selected_set rect` | **rects** only | `col n x1 y1 x2 y2` per line |
+| `xschem selected_set text` | **texts** only | `n x y rot flip {txt}` per line |
+| `xschem selected_wire` | **wires** only | net **labels** — *not* indices/handles |
+| lines, polygons, arcs | — | **not exposed at all** |
+
+(`selected_set` is defined at `scheduler.c:5589`; it switches only on `rect` /
+`text` and otherwise defaults to instances — `selected_wire` at
+`scheduler.c:5632`.)
+
+So concretely, from a script you **can**:
+
+- iterate selected **instances**, **rectangles**, and **texts** (three
+  separate `selected_set` calls);
+- read the **net labels** of selected wires (`selected_wire`);
+- get the **count** (`get lastsel`) and the **first** selected object's
+  type+index (`get first_sel`).
+
+And you **cannot**:
+
+- get a selected wire's *index or stable id* (only its label) when more than
+  one object is selected — `get first_sel` shows just the first;
+- enumerate selected **lines, polygons, or arcs** at all;
+- get one unified list of everything selected.
+
+This is the "selection as data" gap from `tcl_introspection_wire.md` §4 and
+defect #4 (`selected_set` omits WIRE / LINE / POLYGON / ARC). It is purely a
+*missing exposure*, not missing data: `sel_array` already holds the answer.
+
+**Type codes** (for reading `first_sel` / `sel_array`):
+`WIRE=1, xRECT=2, LINE=4, ELEMENT=8, xTEXT=16, POLYGON=32, ARC=64`
+(`xschem.h:265–271`).
+
+**The natural fix** is one new dispatcher branch — e.g. `xschem selection`
+returning `type index col` (plus, for wires, the stable id from the Q7/handle
+work) one row per selected object across all seven types — turning the
+already-populated `sel_array` into a real, scriptable "iterate every selection"
+list. That is the selection half of the planned `xschem object` uniform API,
+and it is now more valuable because wires carry stable ids the command could
+hand back.
+
+---
+
 ## Q10. Can you open a schematic or symbol in *read-only* mode?
 
 - **Asked:** 2026-06-12
