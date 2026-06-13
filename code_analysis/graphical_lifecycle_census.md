@@ -109,6 +109,31 @@ through helpers:
 | `gfx_storage_reset()` | GZ1 | per-layer zeroing |
 | unchanged | GR1, GR2, GU1, GU2, growth | ids ride in the struct ⇒ linear-scan resolver is authoritative |
 
+## Phase C + D — DONE (2026-06-13)
+
+The funnel paid off as planned. **Phase C** (`7835a328`) routed all 12 birth
+increments through `gfx_register(type, c, n)`. **Phase D** (`d7e62d25` RED,
+`6a0d3a56` GREEN) stamped identity in that one chokepoint:
+`xctx->{type}[c][n].id = ++xctx->gfx_id_counter` (one shared counter, init 0 in
+`alloc_xschem_data`), added `gfx_index_from_id(type, id, &layer)` (linear scan
+over all layers, returns the per-layer index), eight scheduler commands
+(`<type>_id <layer> <index>` / `<type>_index <id>` for rect/line/poly/arc,
+placed in the matching letter-dispatch functions), and filled the `id` slot of
+the selection row for all four types. Tests `tests/stable_handles/gfx_*.tcl`
+(GH1–GH11, 54 checks); probe `code_analysis/introspection_probes/probe5.tcl`.
+
+**The design call (id vs. layer change) — settled to implementation reality.**
+The strategy/guide *recommended* "id survives a layer change", but `change_layer()`
+(`actions.c:3349`, triggered by `xschem set rectcolor` on a selection) is
+implemented as **delete + recreate** (`storeobject(-1,…)` on the new layer, then
+`delete_only_rect_line_arc_poly()`). So the id does **not** survive a layer
+change: the reconstructed object is a fresh birth with a fresh id, and the old
+id dangles. Making it survive would mean rewriting `change_layer` to carry the
+id through the reconstruction — a behavior change, not an additive one. The
+honest, additive semantic is "reconstruction ⇒ new identity" (like a disk-undo
+restore), characterized by GH6. The resolver still scans **all** layers because
+an object can be born on any layer.
+
 ## Facts banked for Phase D (identity)
 
 - **One shared `gfx_id_counter`** (per context, beside `wire_id_counter` /

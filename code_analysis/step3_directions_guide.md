@@ -9,6 +9,17 @@ Companion to `stable_handles_extension_strategy.md` (the "refactor first?"
 analysis) and `tcl_introspection_wire.md` (the original defect list). Where this
 doc shows command output, it was run against a real build on this branch.
 
+> **STATUS UPDATE (2026-06-13): direction (a) is DONE.** rect/line/poly/arc now
+> carry session-stable ids (`xschem <type>_id <layer> <index>` /
+> `<type>_index <id>`, one shared id space; the `selection` row carries the real
+> id for all four). Census + funnel + RED→GREEN + sabotage-verified;
+> `graphical_lifecycle_census.md`, suite `tests/stable_handles/gfx_*.tcl` (54
+> checks), probe `introspection_probes/probe5.tcl`, manual
+> `doc/stable_graphical_handles.md`. **All seven drawable types except `text`
+> now carry ids** (text is the flat-array straggler — a quick follow-on). The
+> remaining live directions are (b) and (c) below, plus text. One correction to
+> §2.4: the design call resolved *against* the recommendation — see the box there.
+
 ---
 
 ## 0. Where we are
@@ -137,14 +148,23 @@ addressing**. A sketch, mirroring step 2:
    `xschem rect_index <id>` → `{layer index}` (and the same for line/poly/arc);
    fill the selection row's id slot.
 
-### 2.4 The one design call to make
+### 2.4 The one design call to make — and how it actually resolved
 
-**Does the id survive a shape changing layer?** If yes (recommended — same
-spirit as "id survives rename" for instances), the resolver must scan all
-layers and return `{layer index}`, and the layer-change path is a *move*, not a
-birth+death. If no, a layer change is a fresh id and the resolver can stay
-within a layer. The instance precedent (id is independent of mutable
-attributes) argues for **survives**.
+**Does the id survive a shape changing layer?** The recommendation here was
+"yes" (same spirit as "id survives rename" for instances).
+
+> **RESOLVED (against the recommendation).** `change_layer()` (`actions.c:3349`,
+> triggered by `xschem set rectcolor` on a selection) is implemented as
+> **delete + recreate** on the new layer — not an in-place attribute edit like
+> the instance rename. Making the id survive would mean *rewriting* change_layer
+> to carry the id through the reconstruction: a behavior change, not the additive
+> stamp the rest of the effort is. So the shipped semantic is **the id does NOT
+> survive a layer change** — the reconstructed object gets a fresh id and the old
+> id dangles (loud `-1`), exactly like a disk-undo restore. The resolver still
+> scans **all** layers (an object can be born on any layer) and returns
+> `{layer index}`. Characterized by GH6; demonstrated in probe5 §5. Lesson: an
+> "id survives X" promise is only free when X is an in-place edit; when X
+> reconstructs the object, surviving costs a behavior change.
 
 ### 2.5 Effort / payoff / risk
 
