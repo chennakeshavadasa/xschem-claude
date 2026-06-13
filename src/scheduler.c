@@ -5644,6 +5644,50 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
       }
     }
 
+    /* selection
+     *   Return the WHOLE current selection as a Tcl list, one
+     *   '{type index col id}' element per selected object, across all seven
+     *   object types (unlike 'selected_set', which reports only
+     *   instances/rect/text and is blind to wires/lines/polygons/arcs).
+     *     type  : wire|instance|rect|line|poly|arc|text
+     *     index : the object's array index in its xctx array
+     *     col   : its layer (WIRELAYER/TEXTLAYER for the flat-array types)
+     *     id    : the session-stable wire id (see 'wire_id') for wire rows,
+     *             -1 for the other types (which have no stable id yet)
+     *   The full selection lives in xctx->sel_array (rebuilt here); this is
+     *   the generic enumerator that makes the selection scriptable. */
+    else if(!strcmp(argv[1], "selection"))
+    {
+      int n, i, c, first = 1;
+      char row[100];
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      rebuild_selected_array();
+      for(n = 0; n < xctx->lastsel; ++n) {
+        const char *tname;
+        /* id is the session-stable wire id for wires, -1 otherwise. Held in an
+         * int (not the wire's unsigned id) and printed with %d: ids are small
+         * and -1 must render as "-1" — my_snprintf's minimal formatter does not
+         * handle %ld and would print an unsigned -1 as 4294967295. */
+        int id = -1;
+        i = xctx->sel_array[n].n;
+        c = xctx->sel_array[n].col;
+        switch(xctx->sel_array[n].type) {
+          case WIRE:    tname = "wire";     id = (int)xctx->wire[i].id; break;
+          case xRECT:   tname = "rect";     break;
+          case LINE:    tname = "line";     break;
+          case ELEMENT: tname = "instance"; break;
+          case xTEXT:   tname = "text";     break;
+          case POLYGON: tname = "poly";     break;
+          case ARC:     tname = "arc";      break;
+          default:      tname = "unknown";  break;
+        }
+        my_snprintf(row, S(row), "{%s %d %d %d}", tname, i, c, id);
+        if(first == 0) Tcl_AppendResult(interp, " ", NULL);
+        Tcl_AppendResult(interp, row, NULL);
+        first = 0;
+      }
+    }
+
     /* send_to_viewer
      *   Send selected wires/net labels/pins/voltage source or ammeter currents to current
      *   open viewer (gaw or bespice) */

@@ -371,11 +371,11 @@ xschem undo_type memory
 ### the session-stable wire id for wire rows and -1 for the other types (no
 ### stable id yet). This closes the selected_set gap (which reports only
 ### instances/rect/text and is blind to WIRE/LINE/POLYGON/ARC — see FAQ Q11,
-### tcl_introspection_wire.md §4, defect 4). Committed RED first per the TDD
-### discipline: every xcheck logs XFAIL until the command exists. The sel_cmd
-### wrapper returns the sentinel "ERR" (a non-list, non-empty token) while the
-### command is absent so the RED suite runs to completion; structural checks
-### make that sentinel fail every assertion.
+### tcl_introspection_wire.md §4, defect 4). Committed RED first (all xcheck,
+### logging XFAIL) then flipped to check by the GREEN implementation. The
+### sel_cmd wrapper returns the sentinel "ERR" (a non-list, non-empty token)
+### if the command is ever absent so the suite still runs to completion;
+### structural checks make that sentinel fail every assertion.
 proc sel_cmd {} { if {[catch {xschem selection} r]} {return ERR}; return $r }
 proc sel_row {sel t} {
   foreach row $sel { if {[lindex $row 0] eq $t} {return $row} }
@@ -396,7 +396,7 @@ proc sel_rows_wellformed {} {
 xschem set modified 0
 xschem clear force schematic
 xschem unselect_all
-xcheck {S1 empty selection is an empty list} {[llength [sel_cmd]] == 0}
+check {S1 empty selection is an empty list} {[llength [sel_cmd]] == 0}
 
 # S2 — a single selected wire: one well-formed row, id consistent with the
 # handle commands, col == WIRELAYER (1)
@@ -405,13 +405,13 @@ xschem clear force schematic
 xschem wire 0 0 100 0 -1 {} 1
 set s2 [sel_cmd]
 set r2 [sel_row $s2 wire]
-xcheck {S2a one wire selected → exactly one row, typed wire} \
+check {S2a one wire selected → exactly one row, typed wire} \
   {[llength $s2] == 1 && [lindex $r2 0] eq {wire}}
-xcheck {S2b wire row reports index 0 and col WIRELAYER(1)} \
+check {S2b wire row reports index 0 and col WIRELAYER(1)} \
   {[lindex $r2 1] == 0 && [lindex $r2 2] == 1}
-xcheck {S2c wire row's id == wire_id of that index, and > 0} \
+check {S2c wire row's id == wire_id of that index, and > 0} \
   {[lindex $r2 3] == [xschem wire_id 0] && [lindex $r2 3] > 0}
-xcheck {S2d that id resolves back through wire_index to the same row index} \
+check {S2d that id resolves back through wire_index to the same row index} \
   {[xschem wire_index [lindex $r2 3]] == [lindex $r2 1]}
 
 # S3 — mixed selection (wire + text + line): count matches lastsel, every
@@ -425,13 +425,13 @@ xschem line 0 0 100 0
 xschem select_all
 set s3 [sel_cmd]
 set types3 [lsort -unique [lmap row $s3 {lindex $row 0}]]
-xcheck {S3a selection count equals lastsel and is 3} \
+check {S3a selection count equals lastsel and is 3} \
   {[llength $s3] == [xschem get lastsel] && [llength $s3] == 3}
-xcheck {S3b all three selected types reported (incl. line)} \
+check {S3b all three selected types reported (incl. line)} \
   {$types3 eq {line text wire}}
-xcheck {S3c the wire row carries a real stable id (> 0)} \
+check {S3c the wire row carries a real stable id (> 0)} \
   {[lindex [sel_row $s3 wire] 3] > 0}
-xcheck {S3d text and line rows carry id -1 (no stable id yet)} \
+check {S3d text and line rows carry id -1 (no stable id yet)} \
   {[lindex [sel_row $s3 text] 3] == -1 && [lindex [sel_row $s3 line] 3] == -1}
 
 # S4 — every one of the seven object types is enumerable (the strong gap test:
@@ -444,11 +444,11 @@ xschem polygon 0 0 100 0 100 100 0 0
 xschem text 0 0 0 0 hi {} 0.3 0
 xschem select_all
 set s4types [lsort -unique [lmap row [sel_cmd] {lindex $row 0}]]
-xcheck {S4 all seven object types appear in one selection enumeration} \
+check {S4 all seven object types appear in one selection enumeration} \
   {$s4types eq {arc instance line poly rect text wire}}
 
 # S5 — every row is well-formed: 4 fields, a known type token, integer index+col
-xcheck {S5 every selection row is {type index col id} with a known type} \
+check {S5 every selection row is {type index col id} with a known type} \
   {[sel_rows_wellformed]}
 xschem unselect_all
 
