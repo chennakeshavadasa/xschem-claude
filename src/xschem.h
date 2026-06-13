@@ -1560,6 +1560,7 @@ extern int inst_delete_compact(int (*doomed)(int n, void *arg), void *arg);
 extern void inst_storage_reset(void);
 extern void inst_register(int n);
 extern int inst_index_from_id(unsigned int id);
+extern void gfx_register(int type, int c, int n);
 extern void store_poly(int pos, double *x, double *y, int points,
            unsigned int rectcolor, unsigned short sel, char *prop_ptr);
 extern void store_arc(int pos, double x, double y, double r, double a, double b,

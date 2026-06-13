@@ -128,7 +128,7 @@ static void merge_box(FILE *fd)
       ptr[i].fill = 1;
     set_rect_flags(&xctx->rect[c][i]); /* set cached .flags bitmask from on attributes */
     select_box(c,i, SELECTED, 1, 1);
-    xctx->rects[c]++;
+    gfx_register(xRECT, c, i);
 }
 
 static void merge_arc(FILE *fd)
@@ -172,7 +172,7 @@ static void merge_arc(FILE *fd)
       ptr[i].dash = 0;
     }
     select_arc(c,i, SELECTED, 1, 1);
-    xctx->arcs[c]++;
+    gfx_register(ARC, c, i);
 }
 
 
@@ -232,7 +232,7 @@ static void merge_polygon(FILE *fd)
       ptr[i].dash = 0;
     }
     select_polygon(c,i, SELECTED, 1, 1);
-    xctx->polygons[c]++;
+    gfx_register(POLYGON, c, i);
 }
 
 static void merge_line(FILE *fd)
@@ -268,7 +268,7 @@ static void merge_line(FILE *fd)
       ptr[i].dash = 0;
     }
     select_line(c,i, SELECTED, 1, 1);
-    xctx->lines[c]++;
+    gfx_register(LINE, c, i);
 }
 
 static void merge_inst(int k,FILE *fd)

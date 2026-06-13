@@ -2957,7 +2957,7 @@ static void load_polygon(FILE *fd)
       ptr[i].dash = 0;
     }
     ptr[i].bus = get_attr_val(get_tok_value(ptr[i].prop_ptr, "bus", 0));
-    xctx->polygons[c]++;
+    gfx_register(POLYGON, c, i);
 }
 
 static void load_arc(FILE *fd)
@@ -3001,7 +3001,7 @@ static void load_arc(FILE *fd)
       ptr[i].dash = 0;
     }
     ptr[i].bus = get_attr_val(get_tok_value(ptr[i].prop_ptr, "bus", 0));
-    xctx->arcs[c]++;
+    gfx_register(ARC, c, i);
 }
 
 static void load_box(FILE *fd)
@@ -3063,7 +3063,7 @@ static void load_box(FILE *fd)
     }
 
     set_rect_flags(&xctx->rect[c][i]); /* set cached .flags bitmask from on attributes */
-    xctx->rects[c]++;
+    gfx_register(xRECT, c, i);
 }
 
 static void load_line(FILE *fd)
@@ -3099,7 +3099,7 @@ static void load_line(FILE *fd)
     } else {
       ptr[i].dash = 0;
     }
-    xctx->lines[c]++;
+    gfx_register(LINE, c, i);
 }
 
 static void read_xschem_file(FILE *fd)

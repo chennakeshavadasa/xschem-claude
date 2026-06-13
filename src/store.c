@@ -168,7 +168,7 @@ void store_arc(int pos, double x, double y, double r, double a, double b,
   } else
     xctx->arc[rectc][n].dash = 0;
   xctx->arc[rectc][n].bus = get_attr_val(get_tok_value(xctx->arc[rectc][n].prop_ptr,"bus",0));
-  xctx->arcs[rectc]++;
+  gfx_register(ARC, rectc, n);
 }
 
 void store_poly(int pos, double *x, double *y, int points, unsigned int rectc,
@@ -220,7 +220,7 @@ void store_poly(int pos, double *x, double *y, int points, unsigned int rectc,
   }
   xctx->poly[rectc][n].bus = get_attr_val(get_tok_value(xctx->poly[rectc][n].prop_ptr,"bus",0));
 
-  xctx->polygons[rectc]++;
+  gfx_register(POLYGON, rectc, n);
 }
 
 int storeobject(int pos, double x1,double y1,double x2,double y2,
@@ -260,7 +260,7 @@ int storeobject(int pos, double x1,double y1,double x2,double y2,
        xctx->line[rectc][n].dash = (char) (d >= 0 ? d : 0);
      } else
        xctx->line[rectc][n].dash = 0;
-     xctx->lines[rectc]++;
+     gfx_register(LINE, rectc, n);
      modified = 1;
     }
     if(type == xRECT)
@@ -321,7 +321,7 @@ int storeobject(int pos, double x1,double y1,double x2,double y2,
         xRect *r = &xctx->rect[GRIDLAYER][n];
         draw_image(0, r, &r->x1, &r->y1, &r->x2, &r->y2, 0, 0);
      }
-     xctx->rects[rectc]++;
+     gfx_register(xRECT, rectc, n);
      modified = 1;
     }
     if(type == WIRE)
@@ -557,4 +557,32 @@ int inst_index_from_id(unsigned int id)
   if(xctx->inst[i].id == id) return i;
  }
  return -1;
+}
+
+/* ---- graphical-object lifecycle funnel (stable-object-handles step 3) ----
+ * See code_analysis/graphical_lifecycle_census.md. rect/line/poly/arc live in
+ * PER-LAYER arrays (xctx->rect[c][n] etc., count xctx->rects[c]); an object is
+ * addressed by the pair (layer c, index n). As with instances there is no
+ * single birth factory — store/merge/load init the structs differently — so
+ * every birth funnels its per-layer count increment through gfx_register(),
+ * the chokepoint where identity is stamped (Phase D). The death/bulk doors are
+ * NOT funneled here: the id rides inside the struct, so the linear-scan
+ * resolver stays authoritative under compaction/swap/undo with nothing to
+ * stamp at death — consolidating the four type-specific delete frees is a
+ * separate cleanup with no identity payoff. */
+
+/* Birth chokepoint: register the rect/line/poly/arc just built at slot n on
+ * layer c as live (bump the per-layer count). All three birth doors (store
+ * factories, merge/paste, load) funnel through here. 'type' is one of
+ * xRECT/LINE/POLYGON/ARC; slot n is the just-filled slot. */
+void gfx_register(int type, int c, int n)
+{
+ (void)n; /* used in Phase D to stamp xctx->{rect,line,poly,arc}[c][n].id */
+ switch(type) {
+   case xRECT:   xctx->rects[c]++;    break;
+   case LINE:    xctx->lines[c]++;    break;
+   case POLYGON: xctx->polygons[c]++; break;
+   case ARC:     xctx->arcs[c]++;     break;
+   default: break;
+ }
 }
