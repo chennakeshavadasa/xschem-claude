@@ -309,7 +309,7 @@ static void merge_inst(int k,FILE *fd)
     /* new_prop_string() for cleaning some internal caches. */
     hash_names(i, XINSERT);
     my_free(_ALLOC_ID_, &prop_ptr);
-    xctx->instances++;
+    inst_register(i);
 }
 
 /* merge selection if selection_load=1, otherwise ask for filename

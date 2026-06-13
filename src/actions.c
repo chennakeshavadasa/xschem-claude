@@ -1643,7 +1643,7 @@ int place_symbol(int pos, const char *symbol_name, double x, double y, short rot
   dbg(1, "place_symbol(): done set_inst_prop()\n");  /*  03-02-2000 */
 
 
-  xctx->instances++;/* translate expects the correct balue of xctx->instances */
+  inst_register(n);/* translate expects the correct balue of xctx->instances */
   /* After having assigned prop_ptr to new instance translate symbol reference
    * to resolve @params  --> res.tcl(@value\) --> res.tcl(100) */
   my_strncpy(name, translate(n, name), S(name));

@@ -520,3 +520,19 @@ void inst_storage_reset(void)
  }
  xctx->instances = 0;
 }
+
+/* Birth chokepoint of the instance lifecycle funnel: register the instance
+ * just built at slot n as live (bump the count). All four birth sites
+ * (place_symbol, load_inst, merge_inst, move-copy) funnel their count
+ * increment through here — the single place instance identity will be stamped
+ * (step-2 Phase D). Unlike wires there is no birth factory: each site fills
+ * the fields itself (they diverge — symbol linking, file parse, struct copy),
+ * and two sites increment mid-flow (translate / symbol_bbox need the updated
+ * count), so this owns only the increment, kept at each site's existing point.
+ * Slot n is the just-filled slot — xctx->instances for the append births
+ * (every place_symbol caller passes pos=-1, so n == xctx->instances there too). */
+void inst_register(int n)
+{
+ (void)n; /* used in Phase D to stamp xctx->inst[n].id */
+ xctx->instances++;
+}

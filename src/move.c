@@ -969,7 +969,7 @@ void copy_objects(int what)
         update_attached_floaters(xctx->inst[n].instname, xctx->instances, 1);
 
         hash_names(xctx->instances, XINSERT);
-        xctx->instances++; /* symbol_bbox calls translate and translate must have updated xctx->instances */
+        inst_register(xctx->instances); /* symbol_bbox calls translate and translate must have updated xctx->instances */
         symbol_bbox(xctx->instances-1,
              &xctx->inst[xctx->instances-1].x1, &xctx->inst[xctx->instances-1].y1,
              &xctx->inst[xctx->instances-1].x2, &xctx->inst[xctx->instances-1].y2);

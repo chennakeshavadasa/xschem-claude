@@ -2896,7 +2896,7 @@ static void load_inst(int k, FILE *fd)
       set_inst_flags(&xctx->inst[i]);
       dbg(2, "load_inst(): n=%d name=%s prop=%s\n", i, xctx->inst[i].name? xctx->inst[i].name:"<NULL>",
                xctx->inst[i].prop_ptr? xctx->inst[i].prop_ptr:"<NULL>");
-      xctx->instances++;
+      inst_register(i);
     }
     my_free(_ALLOC_ID_, &prop_ptr);
 }
