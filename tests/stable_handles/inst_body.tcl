@@ -6,7 +6,7 @@
 #
 # Sourced by inst_wrap.tcl, which provides `check`, `xcheck`, `::qo_dir`.
 #
-# Lifecycle sites exercised (census: code_analysis kept in the step-2 census):
+# Lifecycle sites exercised (census: code_analysis/instance_lifecycle_census.md):
 #   BIRTH place_symbol  -> CHI1 (xschem instance ...)
 #   BIRTH load_inst     -> every reload
 #   BIRTH move-copy     -> CHI4 (copy_objects)        [move.c:972]
