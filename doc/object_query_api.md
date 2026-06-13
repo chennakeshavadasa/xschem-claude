@@ -29,7 +29,7 @@ type instance index 0 layer 1 id 470 name {R25}
 | `type` | `wire`, `instance`, `text`, `rect`, `line`, `poly`, or `arc` |
 | `index` | the object's position in its array |
 | `layer` | the drawing layer — *real* for graphical types; the fixed display layer for wire/instance; the text's own layer for text |
-| `id` | the session-stable handle (`-1` for `text`, which has no id yet) |
+| `id` | the session-stable handle (now present for all seven types) |
 | `name` | the instance name (empty `{}` for every other type) |
 
 Because it is a Tcl dict, you read fields by name and never depend on order:
@@ -55,7 +55,7 @@ foreach o [xschem objects] {
 }
 # wire #0 on layer 1, id 1
 # instance #0 on layer 1, id 1
-# text #0 on layer -1, id -1
+# text #0 on layer -1, id 701
 # rect #0 on layer 5, id 697
 # rect #1 on layer 5, id 698
 # line #0 on layer 5, id 699
@@ -154,8 +154,10 @@ form and, for instances, the only thing that survives save/reload.
   and an instance can both be id `1`), so a reference always names its type:
   `object instance @1` and `object wire @1` are different objects. A future
   global-id scheme could drop the type, but the type-scoped form is what ships.
-- **`text` has no id yet.** It is the lone drawable type still without a stable
-  handle (a flat-array follow-on); its descriptor honestly reports `id -1`.
+- **All seven types carry an id.** `text` was the last to get one; the
+  enumerator and resolver are now uniform across wire/instance/text/rect/line/
+  poly/arc with no straggler. (A descriptor's `id` can still be `-1` for a
+  *dangling* reference, but never because a type lacks ids.)
 
 ---
 

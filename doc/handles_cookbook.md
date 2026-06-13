@@ -15,8 +15,8 @@ and are now a few lines of Tcl.
 The two ideas you lean on throughout:
 
 - **A handle is `{type id}`.** The `id` is a session-stable number that stays
-  glued to one object across deletes, moves, sorts and undo. (`text` is the one
-  type without an id yet; it reports `id -1`.)
+  glued to one object across deletes, moves, sorts and undo. All seven drawable
+  types carry one (a descriptor's `id` is only `-1` for a *dangling* handle).
 - **The uniform descriptor.** `xschem objects` hands you one self-describing Tcl
   dict per object — `type index layer id name` — and `xschem object <type>
   <selector>` resolves a handle back to a live descriptor (or `""` if it is

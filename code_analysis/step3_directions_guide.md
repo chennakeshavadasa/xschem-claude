@@ -19,10 +19,12 @@ doc shows command output, it was run against a real build on this branch.
 > enumerates every object as a self-describing dict `{type index layer id name}`,
 > and `xschem object <type> <selector>` resolves `@id`/`#index`/`#layer,index`/name
 > to one descriptor. RED→GREEN + sabotage-verified; suite `object_*.tcl` (18),
-> probe `probe6.tcl`, manual `doc/object_query_api.md`. **All seven drawable types
-> except `text` now carry ids** (text is the flat-array straggler — a quick
-> follow-on). Remaining live directions: **`text`** (finish the set), **(c)
-> net-as-object**, and action-logging 0005 (replay-by-handle).
+> probe `probe6.tcl`, manual `doc/object_query_api.md`.
+> **text (the 7th type) is now DONE too** (own counter + `text_id`/`text_index`,
+> flat-array, RED→GREEN + sabotage-verified, suite `text_*.tcl` (14)). **ALL
+> SEVEN drawable types now carry session-stable ids** and `xschem objects` is
+> fully id-bearing. Remaining live directions: **(c) net-as-object** and
+> action-logging 0005 (replay-by-handle, now feasible for every drawable type).
 
 ---
 

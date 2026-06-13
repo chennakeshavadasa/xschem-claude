@@ -102,15 +102,18 @@ Q9.
 >
 > ```tcl
 > xschem selection
-> ;# -> {text 0 3 -1} {wire 0 1 6} {line 0 4 -1} ...
+> ;# -> {text 0 3 7} {wire 0 1 6} {line 0 4 5} ...
 > ```
 >
 > It returns one `{type index col id}` Tcl list element per selected object
 > across all seven types — `type` ∈ `wire|instance|rect|line|poly|arc|text`,
-> `index`/`col` address the object, and `id` is the session-stable wire id for
-> wire rows (`-1` for the other types, which have no stable id yet). So
-> `foreach o [xschem selection] { lassign $o type idx col id … }` now works.
-> The analysis below is kept as the historical "before" picture.
+> `index`/`col` address the object, and `id` is the session-stable id. **All
+> seven drawable types now carry an id** (an `id` of `-1` means a *dangling*
+> reference, not a type without ids). So
+> `foreach o [xschem selection] { lassign $o type idx col id … }` works, and
+> `xschem objects`/`object` give the same data as self-describing dicts plus a
+> resolver (`doc/object_query_api.md`). The analysis below is kept as the
+> historical "before" picture.
 
 **Partially — and the gap is instructive.** The *complete* selection already
 exists inside the engine, but only fragments of it are exposed to Tcl, so a
