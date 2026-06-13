@@ -7039,6 +7039,37 @@ static int xschem_cmds_w(Tcl_Interp *interp, int argc, const char *argv[], int *
         }
       }
     }
+    /* wire_id n
+     *   return the session-stable id of wire[n], or -1 if n is out of range.
+     *   Ids are stamped at wire creation (store.c), never reused within a
+     *   window/tab session and not persisted in .sch files. Resolve back
+     *   with `xschem wire_index id` */
+    else if(!strcmp(argv[1], "wire_id"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        int n = atoi(argv[2]);
+        if(n >= 0 && n < xctx->wires) {
+          char s[30];
+          my_snprintf(s, S(s), "%u", xctx->wire[n].id);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        } else {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        }
+      }
+    }
+    /* wire_index id
+     *   return the current array index of the wire whose session-stable id
+     *   (see `xschem wire_id`) is given, or -1 if no live wire carries that
+     *   id (deleted, or invalidated by a disk-undo restore) */
+    else if(!strcmp(argv[1], "wire_index"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        unsigned int id = (unsigned int)strtoul(argv[2], NULL, 10);
+        Tcl_SetResult(interp, my_itoa(wire_index_from_id(id)), TCL_VOLATILE);
+      }
+    }
     /* wire [x1 y1 x2 y2] [pos] [prop] [sel]
      *   wire
      *   wire gui

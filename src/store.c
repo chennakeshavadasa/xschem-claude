@@ -366,6 +366,7 @@ int wire_store(int pos, double x1, double y1, double x2, double y2,
  }
  xctx->wire[n].sel=sel;
  set_wire_flags(&xctx->wire[n]);
+ xctx->wire[n].id = ++xctx->wire_id_counter;
  if(sel == SELECTED) set_first_sel(WIRE, n, 0);
  xctx->wires++;
  return n;
@@ -399,6 +400,8 @@ int wire_store_split(int src, double x0, double y0, unsigned short sel)
  xctx->wire[n].bus = xctx->wire[src].bus;
  xctx->wire[n].node = NULL;
  my_strdup(_ALLOC_ID_, &xctx->wire[n].node, xctx->wire[src].node);
+ xctx->wire[n].id = ++xctx->wire_id_counter; /* a split segment is a birth: fresh id;
+                                              * src keeps its id (H6 semantics) */
  hash_wire(XINSERT, n, 0);  /* insertion happens at beginning of list */
  xctx->wires++;
  return n;
@@ -427,6 +430,27 @@ int wire_delete_compact(int (*doomed)(int n, void *arg), void *arg)
  }
  xctx->wires -= j;
  return j;
+}
+
+/* Resolve a session-stable wire id (stamped by the birth doors above) back to
+ * its current array index, or -1 if no live wire carries that id (deleted,
+ * or invalidated by a disk-undo restore). Deliberately a linear scan and not
+ * a maintained map: the id travels inside the struct, so the array itself is
+ * the authoritative id->index relation under every census mutation
+ * (compaction shift, pos>=0 insert, change_elem_order swap, mem-undo bulk
+ * replace, clear) with zero coherence machinery to go stale. Queries arrive
+ * at Tcl/script speed over arrays of typically O(100) wires; if this ever
+ * shows up in a profile, a rebuild-on-miss cache can hide behind this same
+ * signature. */
+int wire_index_from_id(unsigned int id)
+{
+ int i;
+ if(id == 0) return -1;
+ for(i = 0; i < xctx->wires; ++i)
+ {
+  if(xctx->wire[i].id == id) return i;
+ }
+ return -1;
 }
 
 /* Bulk-reset channel of the wire lifecycle funnel (census site Z1): free all

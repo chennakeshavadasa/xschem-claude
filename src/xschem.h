@@ -463,6 +463,9 @@ typedef struct
   char *prop_ptr;
   double bus; /*  20171201 cache here wire "bus" property, to avoid too many get_tok_value() calls */
   int flags; /* stores the *_ignore flags, see xInstance */
+  unsigned int id; /* session-stable identity, stamped at birth in store.c (wire_store /
+                    * wire_store_split), never reused within a context's lifetime.
+                    * Not persisted in .sch files. 0 = never stamped (no live wire has 0). */
 } xWire;
 
 typedef struct
@@ -937,6 +940,9 @@ typedef struct {
   int maxw;
   int maxi;
   int maxs;
+  unsigned int wire_id_counter; /* store.c: last wire id stamped; monotonic per context,
+                                 * survives clear_drawing/load so ids are never reused
+                                 * within a window/tab session */
   char *schprop;
   char *schtedaxprop;
   char *schvhdlprop;
@@ -1540,6 +1546,7 @@ extern int wire_store(int pos, double x1, double y1, double x2, double y2,
 extern int wire_store_split(int src, double x0, double y0, unsigned short sel);
 extern int wire_delete_compact(int (*doomed)(int n, void *arg), void *arg);
 extern void wire_storage_reset(void);
+extern int wire_index_from_id(unsigned int id);
 extern void store_poly(int pos, double *x, double *y, int points,
            unsigned int rectcolor, unsigned short sel, char *prop_ptr);
 extern void store_arc(int pos, double x, double y, double r, double a, double b,

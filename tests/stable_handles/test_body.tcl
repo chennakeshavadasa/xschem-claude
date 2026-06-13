@@ -203,9 +203,10 @@ xschem unselect_all
 check {CH6c unselect_all: lastsel 0} {[xschem get lastsel] == 0}
 
 ### H1–H7 — session-stable wire ids (Phase D of the plan). Committed RED
-### first per the TDD discipline: every xcheck below must log XFAIL until the
-### D2 implementation lands, then be flipped to a plain check. H7 stays an
-### xcheck until the D3 disk-undo decision is implemented.
+### first (all xcheck, logging XFAIL — see commit dd0a56d6) per the TDD
+### discipline; H1–H6 flipped to plain check by the D2 implementation
+### commit. H7 stays an xcheck until the D3 disk-undo decision is
+### implemented.
 ###
 ### Surface under test (additive, two scheduler subcommands):
 ###   xschem wire_id <index>   → session-stable id of wire[index] (or -1)
@@ -243,7 +244,7 @@ xschem wire 0 200 100 200
 set ida [h_wid 1]
 set idb [h_wid 2]
 set idc [h_wid 3]
-xcheck {H1 created wires have positive pairwise-distinct ids} \
+check {H1 created wires have positive pairwise-distinct ids} \
   {$ida > 0 && $idb > 0 && $idc > 0 && $ida != $idb && $ida != $idc && $idb != $idc}
 
 ### H2 — the §2e dangling-index scenario, solved by handle: hold wire C's id,
@@ -253,10 +254,10 @@ xcheck {H1 created wires have positive pairwise-distinct ids} \
 xschem select wire 2
 xschem delete
 set idx_c [h_widx $idc]
-xcheck {H2a id survives a neighbor delete and still resolves} {$idx_c >= 1}
+check {H2a id survives a neighbor delete and still resolves} {$idx_c >= 1}
 set wc {}
 if {$idx_c >= 1} {catch {xschem wire_coord $idx_c} wc}
-xcheck {H2b resolved index dereferences to the held wire's coords} \
+check {H2b resolved index dereferences to the held wire's coords} \
   {$wc eq {0 200 100 200}}
 
 ### H3 — delete the held wire itself: handle dangles LOUDLY (-1), it does not
@@ -266,7 +267,7 @@ xschem wire 0 0 100 0
 set id3 [h_wid 1]
 xschem select wire 1
 xschem delete
-xcheck {H3 deref after own deletion returns -1} {[h_widx $id3] == -1}
+check {H3 deref after own deletion returns -1} {[h_widx $id3] == -1}
 
 ### H4 — no id reuse within a session: create→delete→create at the same
 ### coords mints a fresh id
@@ -277,7 +278,7 @@ xschem select wire 1
 xschem delete
 xschem wire 0 0 100 0
 set id4b [h_wid 1]
-xcheck {H4 recreated wire at same coords gets a fresh id} \
+check {H4 recreated wire at same coords gets a fresh id} \
   {$id4b > 0 && $id4a > 0 && $id4b != $id4a}
 
 ### H5 — memory-undo round-trip: undo makes the handle dangle, redo brings
@@ -291,10 +292,10 @@ xschem undo
 set h5_gone [h_widx $id5]
 xschem redo
 set h5_back [h_widx $id5]
-xcheck {H5a memory undo: handle of the undone wire dangles} {$h5_gone == -1}
+check {H5a memory undo: handle of the undone wire dangles} {$h5_gone == -1}
 set wc5 {}
 if {$h5_back >= 1} {catch {xschem wire_coord $h5_back} wc5}
-xcheck {H5b memory redo: same id resolves again to the same coords} \
+check {H5b memory redo: same id resolves again to the same coords} \
   {$h5_back >= 1 && $wc5 eq {0 0 100 0}}
 
 ### H6 — split/merge id semantics. These tests RECORD the design decision:
@@ -311,7 +312,7 @@ set i_w [h_widx $idw]
 set i_t [h_widx $idt]
 set cw {}
 if {$i_w >= 1} {catch {xschem wire_coord $i_w} cw}
-xcheck {H6a split: original id survives on one collinear half} \
+check {H6a split: original id survives on one collinear half} \
   {$i_w >= 1 && ($cw eq {0 0 100 0} || $cw eq {100 0 200 0})}
 # the other collinear half is a new segment and must carry a fresh id
 set i_other {}
@@ -321,11 +322,11 @@ for {set i 1} {$i < [nwires]} {incr i} {
   if {($c eq {0 0 100 0} || $c eq {100 0 200 0}) && $i != $i_w} {set i_other $i}
 }
 set ido [expr {$i_other ne {} ? [h_wid $i_other] : -2}]
-xcheck {H6b split: the new segment carries a fresh id} \
+check {H6b split: the new segment carries a fresh id} \
   {$ido > 0 && $ido != $idw && $ido != $idt}
 set ct {}
 if {$i_t >= 1} {catch {xschem wire_coord $i_t} ct}
-xcheck {H6c split: untouched stem keeps its id} \
+check {H6c split: untouched stem keeps its id} \
   {$i_t >= 1 && $ct eq {100 0 100 100}}
 # merge: two collinear touching wires trim into one — exactly one id survives
 h_setup
@@ -336,7 +337,7 @@ set idm2 [h_wid 2]
 xschem trim_wires
 set im1 [h_widx $idm1]
 set im2 [h_widx $idm2]
-xcheck {H6d merge: exactly one of the two ids survives, the other dangles} \
+check {H6d merge: exactly one of the two ids survives, the other dangles} \
   {[nwires] == 2 && (($im1 >= 1 && $im2 == -1) || ($im1 == -1 && $im2 >= 1))}
 
 ### H7 — disk-undo round-trip. EXPECTED XFAIL even after D2: disk undo
