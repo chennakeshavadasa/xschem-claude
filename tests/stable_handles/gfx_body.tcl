@@ -1,0 +1,317 @@
+# Characterization tests for the GRAPHICAL object lifecycle (rect/line/poly/arc)
+# — Phase A of the stable-object-handles step-3 work. These lock the CURRENT
+# behavior as observed through the Tcl surface, so the upcoming lifecycle funnel
+# refactor (route every per-layer rects/lines/polygons/arcs ++/--/= through one
+# family in store.c) is provably behavior-identical. They must be green at every
+# commit from Phase A on.
+#
+# Sourced by gfx_wrap.tcl, which provides `check`, `xcheck`, `::qo_dir`.
+#
+# THE NEW WRINKLE vs wires/instances: graphical objects live in PER-LAYER arrays
+# (xctx->rect[layer][index], count xctx->rects[layer]). An object is addressed by
+# the pair (layer, index), and that pair is what `xschem selection` returns as
+# {type index col id} with col == the layer. There is no name and (today) no id,
+# so a held (layer,index) dangles silently across a delete — the §2e hazard with
+# no handle at all. That is exactly what Phase D will cure.
+#
+# Lifecycle sites exercised (census in code_analysis/graphical_lifecycle_census.md):
+#   BIRTH store fns   -> GC2  (xschem rect/line/polygon/arc ...)   [store.c]
+#   BIRTH merge fns   -> GC13 (xschem copy + paste)                [paste.c]
+#   BIRTH load fns    -> every reload                              [save.c]
+#   DEATH delete      -> GC3 / GC5                                 [select.c:399-488]
+#   REORDER-SHIFT pos>=0 insert -> GC9 (rect/line only, Tcl-reachable) [store.c]
+#   REORDER-SWAP  change_elem_order -> GC8                         [editprop.c:1104]
+#   BULK_RESET clear  -> GC10                                      [actions.c:1096]
+#   undo restore (both backends) -> GC4 / GC12
+# NOT covered (honest gaps, per green-but-hollow rule 4):
+#   DEATH check_collapsing_objects (degenerate cleanup, move.c:133) — only fires
+#   after a move/copy that makes a rect zero-area or a line zero-length; not
+#   cleanly reachable as an isolated op from Tcl. The Phase C funnel routes it
+#   through the same death door, covered structurally by the byte-compare drift
+#   check (GC12) over move-bearing cycles, not directly here.
+
+### stub every modal dialog BEFORE any code path can reach one
+rename tk_messageBox _real_tk_messageBox
+proc tk_messageBox {args} {return ok}
+rename tk_getOpenFile _real_tk_getOpenFile
+proc tk_getOpenFile {args} {return {}}
+catch {rename alert_ _real_alert_}
+proc alert_ {args} {return 1}
+
+set FIX /tmp/sh_gfx_fixture.sch
+
+# sorted, geometry-only graphical-object list (the B/L/P/A save records) from a
+# saveas. A record's first char is B(rect) L(line) A(arc) P(poly); each is one
+# line `<C> <layer> <coords...> {prop}`. The SET of records is the behavior we
+# preserve; per-layer array order is an implementation detail Phase C may change.
+proc gfx_snapshot {tag} {
+  set f /tmp/sh_gfx_snap_$tag.sch
+  file delete -force $f
+  xschem saveas $f schematic
+  set fd [open $f r]; set data [read $fd]; close $fd
+  set out {}
+  foreach line [split $data \n] {
+    if {[regexp {^[BLPA] } $line]} { lappend out $line }
+  }
+  return [lsort $out]
+}
+# count snapshot records of a given prefix letter (B/L/P/A) on a given layer,
+# or all layers if layer is {}
+proc count_recs {tag letter {layer {}}} {
+  set n 0
+  foreach r [gfx_snapshot $tag] {
+    if {[string index $r 0] ne $letter} continue
+    if {$layer ne {} && [lindex $r 1] != $layer} continue
+    incr n
+  }
+  return $n
+}
+proc nrect {c} {return [xschem get rects $c]}
+proc nline {c} {return [xschem get lines $c]}
+proc npoly {c} {return [xschem get polygons $c]}
+proc read_file {f} { set fd [open $f r]; set d [read $fd]; close $fd; return $d }
+# body from the first "G {" record onward — skips the v{} header that memory
+# undo is known not to round-trip (same quirk the wire/instance suites lock)
+proc body_after_header {f} {
+  set lines [split [read_file $f] \n]
+  set i [lsearch -glob $lines {G \{*}]
+  return [join [lrange $lines $i end] \n]
+}
+# build a controlled, fully-known fixture: layer 5 = 3 rects + 1 line + 1 poly,
+# layer 6 = 1 rect + 1 arc. Saved to $FIX so reload exercises the load births.
+proc gfx_build {} {
+  global FIX
+  xschem set modified 0
+  xschem clear force schematic
+  xschem set rectcolor 5
+  xschem rect 0   0 100 100
+  xschem rect 200 0 300 100
+  xschem rect 400 0 500 100
+  xschem line 0 500 600 500
+  xschem polygon 0 700 100 700 50 800
+  xschem set rectcolor 6
+  xschem rect 1000 0 1100 100
+  xschem arc 1000 1000 50 0 360 6
+  xschem saveas $FIX schematic
+}
+proc reload {} {
+  global FIX
+  xschem set modified 0
+  xschem load $FIX
+}
+
+### GC1 — fixture builds and reloads with the expected per-layer population
+gfx_build
+reload
+set ::base_snap [gfx_snapshot base]
+check {GC1a fixture: 3 rects + 1 line + 1 poly on layer 5} \
+  {[nrect 5] == 3 && [nline 5] == 1 && [npoly 5] == 1}
+check {GC1b fixture: 1 rect + 1 arc on layer 6} \
+  {[nrect 6] == 1 && [count_recs gc1 A 6] == 1}
+check {GC1c snapshot has 4 rects + 1 line + 1 poly + 1 arc = 7 records} \
+  {[llength $::base_snap] == 7}
+
+### GC2 — create a rect (BIRTH: storeobject) on layer 5
+reload
+xschem set rectcolor 5
+set before [nrect 5]
+xschem rect 700 0 800 100
+check {GC2a create rect: layer-5 count +1} {[nrect 5] == $before + 1}
+set s2 [gfx_snapshot gc2]
+set diff {}
+foreach l $s2 {if {[lsearch -exact $::base_snap $l] < 0} {lappend diff $l}}
+check {GC2b create rect: snapshot gains exactly the new rect record} \
+  {$diff eq {{B 5 700 0 800 100 {}}} && [llength $s2] == [llength $::base_snap] + 1}
+xschem unselect_all
+xschem select rect 5 [expr {[nrect 5] - 1}]
+set row [lindex [xschem selection] 0]
+check {GC2c selection row is {rect <idx> 5 -1} (col == layer 5, id -1 today)} \
+  {[lindex $row 0] eq {rect} && [lindex $row 2] == 5 && [lindex $row 3] == -1}
+
+### GC3 — delete it (DEATH: delete_objects)
+xschem unselect_all
+xschem select rect 5 [expr {[nrect 5] - 1}]
+xschem delete
+check {GC3a delete rect: count back to baseline} {[nrect 5] == 3}
+check {GC3b delete rect: snapshot equals baseline set} {[gfx_snapshot gc3] eq $::base_snap}
+
+### GC4 — undo/redo round-trip of a DELETE (the undoable op), BOTH backends.
+### NOTE: programmatic graphical create (`xschem rect ...`) does NOT push undo
+### (unlike `xschem instance`), so the undoable cycle is delete->undo, not
+### create->undo; GC4e locks that asymmetry explicitly.
+foreach utype {disk memory} {
+  reload
+  xschem undo_type $utype
+  xschem unselect_all
+  xschem select rect 5 2
+  xschem delete
+  check "GC4a ($utype) delete a fixture rect: layer-5 count 3->2" {[nrect 5] == 2}
+  xschem undo
+  check "GC4b ($utype) undo restores the deleted rect" {[nrect 5] == 3}
+  xschem redo
+  check "GC4c ($utype) redo re-deletes" {[nrect 5] == 2}
+  xschem undo
+  check "GC4d ($utype) undo again: snapshot equals baseline" \
+    {[nrect 5] == 3 && [gfx_snapshot gc4_$utype] eq $::base_snap}
+}
+
+### GC4e — programmatic graphical create is NOT undoable (the rect/line/polygon/
+### arc scheduler commands do not call push_undo): undoing right after a create
+### does not remove it. A real, surprising behavior worth locking before the
+### funnel touches anything.
+reload
+xschem undo_type memory
+xschem set rectcolor 5
+xschem rect 700 0 800 100
+check {GC4e-pre create rect: layer-5 count 3->4} {[nrect 5] == 4}
+xschem undo
+check {GC4e undo-of-create leaves the rect (create not pushed to undo)} {[nrect 5] == 4}
+
+### GC5 — THE per-layer index dangle (the §2e analog, the whole motivation).
+### Locks today's behavior: a rect's array INDEX is unstable across a delete of
+### an EARLIER rect on the same layer (compaction shifts it down), and there is
+### NO name and NO id to fall back on — the held (layer,index) silently names a
+### different rect. This is what Phase D cures with an id.
+reload
+xschem set rectcolor 5
+xschem rect 700 0 800 100   ;# a 4th rect on layer 5, at index 3
+set idx_new [expr {[nrect 5] - 1}]
+# capture which rect lives at idx_new via its save coords
+xschem unselect_all
+xschem select rect 5 $idx_new
+set row_before [lindex [xschem selection] 0]
+check {GC5a created rect sits at the highest index on its layer} {$idx_new == 3}
+# delete rect at index 0 on layer 5 -> every later index shifts down by 1
+xschem unselect_all
+xschem select rect 5 0
+xschem delete
+check {GC5b INDEX is unstable: layer-5 rect count drops to 3, indices renumber} \
+  {[nrect 5] == 3}
+# the rect that WAS at idx 3 is now reachable only at idx 2 — the raw index
+# we held (3) now names a DIFFERENT rect (or is out of range): the dangle
+xschem unselect_all
+set sel3 [xschem select rect 5 3]
+check {GC5c the held index 3 no longer addresses the rect (out of range now)} \
+  {$sel3 == 0}
+
+### GC6 — layer independence: deleting on layer 5 does not disturb layer 6
+reload
+set l6_before [nrect 6]
+xschem unselect_all
+xschem select rect 5 0
+xschem delete
+check {GC6 layer 6 rect count unchanged by a layer-5 delete} {[nrect 6] == $l6_before}
+
+### GC7 — all four types create + their save-record format (B/L/P/A)
+reload
+xschem set rectcolor 7
+xschem rect 2000 0 2100 100
+xschem line 2000 200 2100 200
+xschem polygon 2000 400 2100 400 2050 500
+xschem arc 2000 600 40 0 180 7
+set s7 [gfx_snapshot gc7]
+set new {}
+foreach l $s7 {if {[lsearch -exact $::base_snap $l] < 0} {lappend new $l}}
+check {GC7 the four new records are one each B/L/P/A on layer 7} \
+  {[lsearch -exact $new {B 7 2000 0 2100 100 {}}] >= 0 && \
+   [lsearch -exact $new {L 7 2000 200 2100 200 {}}] >= 0 && \
+   [lsearch -exact $new {P 7 3 2000 400 2100 400 2050 500 {}}] >= 0 && \
+   [lsearch -exact $new {A 7 2000 600 40 0 180 {}}] >= 0 && \
+   [llength $new] == 4}
+
+### GC8 — reorder-swap (change_elem_order) on rects within a layer: executes and
+### preserves the SET (the per-layer analog of the instance CHI9 swap)
+reload
+set snap8a [gfx_snapshot gc8a]
+xschem unselect_all
+xschem select rect 5 2          ;# select the last rect on layer 5
+xschem change_elem_order 0      ;# move it to index 0
+check {GC8a swap executed: layer-5 rect count unchanged} {[nrect 5] == 3}
+check {GC8b swap preserves the rect SET (snapshot unchanged)} \
+  {[gfx_snapshot gc8b] eq $snap8a}
+
+### GC9 — positional-insert reorder (pos>=0), reachable from Tcl for rect/line:
+### inserting at a position shifts later same-layer rects up by one
+reload
+xschem set rectcolor 5
+xschem rect 900 0 950 100 1       ;# insert at position 1 on layer 5
+check {GC9a positional insert: layer-5 rect count +1} {[nrect 5] == 4}
+xschem unselect_all
+xschem select rect 5 1
+set row9 [lindex [xschem selection] 0]
+check {GC9b the inserted rect now occupies index 1} \
+  {[lindex $row9 0] eq {rect} && [lindex $row9 1] == 1 && [lindex $row9 2] == 5}
+
+### GC10 — bulk reset (clear_drawing sets every per-layer count to 0)
+reload
+xschem set modified 0
+xschem clear force schematic
+check {GC10 clear force schematic: zero rects/lines/polys on layers 5,6} \
+  {[nrect 5] == 0 && [nline 5] == 0 && [npoly 5] == 0 && [nrect 6] == 0}
+
+### GC11 — selection enumerates ALL four graphical types with col == layer and
+### id == -1 (no stable id yet). Phase D fills the id; GC11's id assertions are
+### the ones that flip there.
+reload
+xschem unselect_all
+xschem select_all
+set rows [xschem selection]
+# collect the distinct types present among graphical rows
+set types {}
+foreach r $rows {
+  set t [lindex $r 0]
+  if {$t in {rect line poly arc} && [lsearch -exact $types $t] < 0} {lappend types $t}
+}
+check {GC11a select_all enumerates all four graphical types} \
+  {{rect} in $types && {line} in $types && {poly} in $types && {arc} in $types}
+# every graphical row carries col==layer (a valid layer index) and id==-1 today
+set all_minus1 1
+set col_is_layer 1
+foreach r $rows {
+  if {[lindex $r 0] ni {rect line poly arc}} continue
+  if {[lindex $r 3] != -1} {set all_minus1 0}
+  if {[lindex $r 2] < 0} {set col_is_layer 0}
+}
+check {GC11b every graphical row's id slot is -1 today (no stable id)} {$all_minus1 == 1}
+check {GC11c every graphical row's col is a valid layer (>= 0)} {$col_is_layer == 1}
+
+### GC12 — whole-pipeline drift detector (byte-level), like CHI6. Uses the
+### undoable delete->undo cycle (create is not pushed to undo, GC4e).
+reload
+xschem saveas /tmp/sh_gfx_save_clean1.sch schematic
+reload
+xschem saveas /tmp/sh_gfx_save_clean2.sch schematic
+check {GC12a save is deterministic (two clean saves byte-identical)} \
+  {[read_file /tmp/sh_gfx_save_clean1.sch] eq [read_file /tmp/sh_gfx_save_clean2.sch]}
+reload
+xschem undo_type disk
+xschem unselect_all
+xschem select rect 5 0
+xschem delete
+xschem undo
+xschem saveas /tmp/sh_gfx_save_disk.sch schematic
+check {GC12b disk delete+undo cycle: save byte-identical to clean save} \
+  {[read_file /tmp/sh_gfx_save_disk.sch] eq [read_file /tmp/sh_gfx_save_clean1.sch]}
+reload
+xschem undo_type memory
+xschem unselect_all
+xschem select rect 5 0
+xschem delete
+xschem undo
+xschem saveas /tmp/sh_gfx_save_mem.sch schematic
+check {GC12c memory delete+undo cycle: save body identical from G record onward} \
+  {[body_after_header /tmp/sh_gfx_save_mem.sch] eq [body_after_header /tmp/sh_gfx_save_clean1.sch]}
+
+### GC13 — copy/paste as BIRTH (merge_rect path, paste.c): pasting a selected
+### rect adds one to its layer. Exercises the merge birth door that the Phase C
+### funnel will route through the same chokepoint as the store births.
+reload
+xschem unselect_all
+xschem select rect 5 0
+set before [nrect 5]
+xschem copy
+xschem paste 500 0
+check {GC13 copy+paste a rect (merge_rect birth): layer-5 count +1} \
+  {[nrect 5] == $before + 1}
+
+xschem set modified 0
