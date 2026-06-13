@@ -3772,14 +3772,231 @@ static int xschem_cmds_m(Tcl_Interp *interp, int argc, const char *argv[], int *
 /* `xschem n...` commands, moved verbatim from the xschem() dispatcher
  * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
  * matches no command in this group; early returns propagate unchanged. */
+/* --- net-as-object read API (step-3 direction (c2)) -----------------------
+ * A net is DERIVED — no struct, no array, no id of its own. Its durable handle
+ * is the stable id of a wire or label-instance ON it (an "anchor"); resolving
+ * an anchor re-runs connectivity and yields the net's CURRENT token + members.
+ * These helpers are READ-ONLY and assume the caller has already run
+ * prepare_netlist_structs(0) (and rebuild_selected_array() if it reads the
+ * selection) — the §2c coherence rule (tcl_introspection_wire.md, NC3).
+ * See code_analysis/net_identity_decision.md (c2, ratified). */
+
+/* Resolve a net selector to its current net token, or NULL if it does not
+ * resolve (dangling anchor / unknown pin). 'base' is the argv index of the
+ * first selector word. Forms:
+ *   @wire <id>        -> the net wire-id <id> is on (xctx->wire[i].node)
+ *   @inst <id> <pin>  -> the net at instance-id <id>'s named pin
+ *   <token>           -> the token itself (a net name; the human form)
+ * The returned pointer is owned by xctx (.node) or argv — do NOT free it; it is
+ * valid only until the next connectivity rebuild. */
+static const char *net_selector_token(int argc, const char *argv[], int base)
+{
+  if(base >= argc) return NULL;
+  if(!strcmp(argv[base], "@wire")) {
+    int i;
+    if(base + 1 >= argc) return NULL;
+    i = wire_index_from_id((unsigned int)strtoul(argv[base + 1], NULL, 10));
+    if(i < 0) return NULL;
+    return xctx->wire[i].node;                 /* may be NULL: wire on no net */
+  } else if(!strcmp(argv[base], "@inst")) {
+    int i, p, no_of_pins;
+    if(base + 2 >= argc) return NULL;
+    i = inst_index_from_id((unsigned int)strtoul(argv[base + 1], NULL, 10));
+    if(i < 0 || xctx->inst[i].ptr < 0) return NULL;
+    no_of_pins = xctx->sym[xctx->inst[i].ptr].rects[PINLAYER];
+    for(p = 0; p < no_of_pins; p++) {
+      if(!strcmp(get_tok_value(xctx->sym[xctx->inst[i].ptr].rect[PINLAYER][p].prop_ptr, "name", 0),
+                 argv[base + 2])) break;
+    }
+    if(p >= no_of_pins) return NULL;            /* no such pin */
+    if(xctx->inst[i].node && xctx->inst[i].node[p]) return xctx->inst[i].node[p];
+    return NULL;
+  } else {
+    return argv[base];                          /* a net name (token) */
+  }
+}
+
+/* Append the bare descriptor of the net named 'token' to the interp result:
+ *   name {<token>} nwires N npins M anchor {wire <id>} | {inst <id> <pin>} | {}
+ * Counts wire segments and instance pins on the net; the anchor prefers a
+ * label/pin DRIVER (lowest instance id, the net's authority per §2d), else the
+ * lowest-id wire, else {} (an anchorless net). Ids are stable step-1/2 ids. */
+static void net_emit_descriptor(Tcl_Interp *interp, const char *token)
+{
+  int i, p, no_of_pins, nwires = 0, npins = 0;
+  int anc_wire_id = -1;                          /* lowest wire id on the net */
+  int anc_inst_id = -1;                          /* lowest label/pin driver id */
+  const char *anc_pin = NULL;
+  char buf[512];
+  for(i = 0; i < xctx->wires; i++) {
+    if(xctx->wire[i].node && !strcmp(xctx->wire[i].node, token)) {
+      nwires++;
+      if(anc_wire_id < 0 || (int)xctx->wire[i].id < anc_wire_id) anc_wire_id = (int)xctx->wire[i].id;
+    }
+  }
+  for(i = 0; i < xctx->instances; i++) {
+    const char *type;
+    if(xctx->inst[i].ptr < 0 || !xctx->inst[i].node) continue;
+    type = xctx->sym[xctx->inst[i].ptr].type;
+    no_of_pins = xctx->sym[xctx->inst[i].ptr].rects[PINLAYER];
+    for(p = 0; p < no_of_pins; p++) {
+      if(xctx->inst[i].node[p] && !strcmp(xctx->inst[i].node[p], token)) {
+        npins++;
+        if(type && IS_LABEL_SH_OR_PIN(type) &&
+           (anc_inst_id < 0 || (int)xctx->inst[i].id < anc_inst_id)) {
+          anc_inst_id = (int)xctx->inst[i].id;
+          anc_pin = get_tok_value(xctx->sym[xctx->inst[i].ptr].rect[PINLAYER][p].prop_ptr, "name", 0);
+        }
+      }
+    }
+  }
+  if(anc_inst_id >= 0)
+    my_snprintf(buf, S(buf), "name {%s} nwires %d npins %d anchor {inst %d %s}",
+                token, nwires, npins, anc_inst_id, anc_pin ? anc_pin : "");
+  else if(anc_wire_id >= 0)
+    my_snprintf(buf, S(buf), "name {%s} nwires %d npins %d anchor {wire %d}",
+                token, nwires, npins, anc_wire_id);
+  else
+    my_snprintf(buf, S(buf), "name {%s} nwires %d npins %d anchor {}",
+                token, nwires, npins);
+  Tcl_AppendResult(interp, buf, NULL);
+}
+
+/* Add 'tok' to the distinct-token list (*seen, *nseen) if non-empty and not
+ * already present. Stores the pointer (owned by xctx), not a copy; used by
+ * `xschem nets` to dedup. Returns 1 if newly added, 0 otherwise. */
+static int net_token_add(const char ***seen, int *nseen, const char *tok)
+{
+  int k;
+  if(!tok || !tok[0]) return 0;
+  for(k = 0; k < *nseen; k++) if(!strcmp((*seen)[k], tok)) return 0;
+  my_realloc(_ALLOC_ID_, seen, (*nseen + 1) * sizeof(char *));
+  (*seen)[*nseen] = tok;
+  (*nseen)++;
+  return 1;
+}
+
 static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *cmd_found)
 {
+    /* net <selector>
+     *   Return the uniform descriptor of ONE net, or "" if it does not resolve.
+     *   A net is derived, so it is addressed by an ANCHOR (a stored-object
+     *   handle on it) or by its current name. <selector> is one of
+     *     @wire <id>          the net the wire with stable id <id> is on
+     *     @inst <id> <pin>    the net at instance-id <id>'s named pin
+     *     <token>             by current net name (the human form; may alias)
+     *   The descriptor is {name {<tok>} nwires N npins M anchor {wire <id>} |
+     *   {inst <id> <pin>} | {}}. Read-only. See `xschem nets` /
+     *   `xschem net_members`; code_analysis/net_identity_decision.md (c2). */
+    if(!strcmp(argv[1], "net"))
+    {
+      const char *token;
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc < 3) {
+        Tcl_SetResult(interp, "xschem net needs a selector "
+                      "(@wire <id> | @inst <id> <pin> | <token>)", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      prepare_netlist_structs(0);
+      Tcl_ResetResult(interp);  /* prepare_netlist_structs leaves "0" in result */
+      token = net_selector_token(argc, argv, 2);
+      if(token) net_emit_descriptor(interp, token);
+      /* else leave the result empty — a dangling anchor / unknown net */
+    }
+
+    /* nets [-selected]
+     *   Return a Tcl LIST of net descriptors, one per DISTINCT net (deduped by
+     *   token). With -selected, restrict to nets touched by the current
+     *   selection (selected wires + selected instances' pins). Each element is a
+     *   {name {<tok>} nwires N npins M anchor {..}} dict. Read-only.
+     *   -selected rebuilds the selection array first, so a COLD call is correct
+     *   (the §2c fix resolved_net lacks — see test NC3 vs NH5). */
+    else if(!strcmp(argv[1], "nets"))
+    {
+      int only_sel = 0, a, i, p, no_of_pins, first = 1;
+      const char **seen = NULL;
+      int nseen = 0;
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      for(a = 2; a < argc; a++) if(!strcmp(argv[a], "-selected")) only_sel = 1;
+      prepare_netlist_structs(0);
+      if(only_sel) rebuild_selected_array();
+      Tcl_ResetResult(interp);  /* prepare_netlist_structs leaves "0" in result */
+      for(i = 0; i < xctx->wires; i++) {
+        if(only_sel && xctx->wire[i].sel != SELECTED) continue;
+        net_token_add(&seen, &nseen, xctx->wire[i].node);
+      }
+      for(i = 0; i < xctx->instances; i++) {
+        if(only_sel && xctx->inst[i].sel != SELECTED) continue;
+        if(xctx->inst[i].ptr < 0 || !xctx->inst[i].node) continue;
+        no_of_pins = xctx->sym[xctx->inst[i].ptr].rects[PINLAYER];
+        for(p = 0; p < no_of_pins; p++) net_token_add(&seen, &nseen, xctx->inst[i].node[p]);
+      }
+      for(i = 0; i < nseen; i++) {
+        if(!first) Tcl_AppendResult(interp, " ", NULL);
+        Tcl_AppendResult(interp, "{", NULL);
+        net_emit_descriptor(interp, seen[i]);
+        Tcl_AppendResult(interp, "}", NULL);
+        first = 0;
+      }
+      if(seen) my_free(_ALLOC_ID_, &seen);
+    }
+
+    /* net_members <selector>
+     *   Return the membership of a net BY HANDLE:
+     *     {wires {<id> <id> ...} pins {{<inst-id> <pin>} ...}}
+     *   <selector> is as for `xschem net`. wires lists the stable ids of the
+     *   wire segments on the net; pins lists {stable-instance-id pin-name} for
+     *   every instance pin on it (including the driving label/pin). Read-only;
+     *   composes with `xschem object <type> @id`. */
+    else if(!strcmp(argv[1], "net_members"))
+    {
+      const char *token;
+      int i, p, no_of_pins, first;
+      char num[64];
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc < 3) {
+        Tcl_SetResult(interp, "xschem net_members needs a selector "
+                      "(@wire <id> | @inst <id> <pin> | <token>)", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      prepare_netlist_structs(0);
+      token = net_selector_token(argc, argv, 2);
+      Tcl_ResetResult(interp);  /* prepare_netlist_structs leaves "0" in result */
+      if(!token) return TCL_OK;                  /* empty: dangling / unknown */
+      Tcl_AppendResult(interp, "wires {", NULL);
+      first = 1;
+      for(i = 0; i < xctx->wires; i++) {
+        if(xctx->wire[i].node && !strcmp(xctx->wire[i].node, token)) {
+          my_snprintf(num, S(num), "%d", (int)xctx->wire[i].id);
+          if(!first) Tcl_AppendResult(interp, " ", NULL);
+          Tcl_AppendResult(interp, num, NULL);
+          first = 0;
+        }
+      }
+      Tcl_AppendResult(interp, "} pins {", NULL);
+      first = 1;
+      for(i = 0; i < xctx->instances; i++) {
+        if(xctx->inst[i].ptr < 0 || !xctx->inst[i].node) continue;
+        no_of_pins = xctx->sym[xctx->inst[i].ptr].rects[PINLAYER];
+        for(p = 0; p < no_of_pins; p++) {
+          if(xctx->inst[i].node[p] && !strcmp(xctx->inst[i].node[p], token)) {
+            const char *pin = get_tok_value(xctx->sym[xctx->inst[i].ptr].rect[PINLAYER][p].prop_ptr, "name", 0);
+            my_snprintf(num, S(num), "%d", (int)xctx->inst[i].id);
+            if(!first) Tcl_AppendResult(interp, " ", NULL);
+            Tcl_AppendResult(interp, "{", num, " ", pin, "}", NULL);
+            first = 0;
+          }
+        }
+      }
+      Tcl_AppendResult(interp, "}", NULL);
+    }
+
     /* net_label [type]
      *   Place a new net label
      *   'type': 1: place a 'lab_pin.sym' label
      *           0: place a 'lab_wire.sym' label
      *   User should complete the placement in the GUI. */
-    if(!strcmp(argv[1], "net_label"))
+    else if(!strcmp(argv[1], "net_label"))
     {
       if(argc > 2) {
         place_net_label(atoi(argv[2]));
