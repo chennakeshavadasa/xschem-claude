@@ -1535,6 +1535,8 @@ extern void check_touch(int i, int j,
 extern int storeobject(int pos, double x1,double y1,double x2,double y2,
                         unsigned short type,unsigned int rectcolor,
                         unsigned short sel, const char *prop_ptr);
+extern int wire_store(int pos, double x1, double y1, double x2, double y2,
+                        unsigned short sel, const char *prop_ptr);
 extern void store_poly(int pos, double *x, double *y, int points,
            unsigned int rectcolor, unsigned short sel, char *prop_ptr);
 extern void store_arc(int pos, double x, double y, double r, double a, double b,

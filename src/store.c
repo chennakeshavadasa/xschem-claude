@@ -326,35 +326,47 @@ int storeobject(int pos, double x1,double y1,double x2,double y2,
     }
     if(type == WIRE)
     {
-     check_wire_storage();
-     if(pos==-1) n=xctx->wires;
-     else
-     {
-      for(j=xctx->wires;j>pos;j--)
-      {
-       xctx->wire[j]=xctx->wire[j-1];
-      }
-      n=pos;
-     }
-     dbg(2, "storeobject(): storing WIRE %d\n",n);
-     xctx->wire[n].x1=x1;
-     xctx->wire[n].y1=y1;
-     xctx->wire[n].x2=x2;
-     xctx->wire[n].y2=y2;
-     xctx->wire[n].prop_ptr=NULL;
-     xctx->wire[n].node=NULL;
-     xctx->wire[n].end1=0;
-     xctx->wire[n].end2=0;
-     my_strdup(_ALLOC_ID_, &xctx->wire[n].prop_ptr, prop_ptr);
-     xctx->wire[n].bus = 0.0;
-     if(prop_ptr) {
-       xctx->wire[n].bus = get_attr_val(get_tok_value(prop_ptr,"bus",0));
-     }
-     xctx->wire[n].sel=sel;
-     set_wire_flags(&xctx->wire[n]);
-     if(sel == SELECTED) set_first_sel(WIRE, n, 0);
-     xctx->wires++;
+     wire_store(pos, x1, y1, x2, y2, sel, prop_ptr);
      modified = 1;
     }
     return modified;
+}
+
+/* The single entry point for storing a wire into xctx->wire[] ("birth door"
+ * of the wire lifecycle funnel — see code_analysis/wire_lifecycle_census.md).
+ * pos == -1 appends, pos >= 0 inserts shifting up every index >= pos.
+ * Returns the array index the wire was stored at. */
+int wire_store(int pos, double x1, double y1, double x2, double y2,
+               unsigned short sel, const char *prop_ptr)
+{
+ int n, j;
+ check_wire_storage();
+ if(pos==-1) n=xctx->wires;
+ else
+ {
+  for(j=xctx->wires;j>pos;j--)
+  {
+   xctx->wire[j]=xctx->wire[j-1];
+  }
+  n=pos;
+ }
+ dbg(2, "wire_store(): storing WIRE %d\n",n);
+ xctx->wire[n].x1=x1;
+ xctx->wire[n].y1=y1;
+ xctx->wire[n].x2=x2;
+ xctx->wire[n].y2=y2;
+ xctx->wire[n].prop_ptr=NULL;
+ xctx->wire[n].node=NULL;
+ xctx->wire[n].end1=0;
+ xctx->wire[n].end2=0;
+ my_strdup(_ALLOC_ID_, &xctx->wire[n].prop_ptr, prop_ptr);
+ xctx->wire[n].bus = 0.0;
+ if(prop_ptr) {
+   xctx->wire[n].bus = get_attr_val(get_tok_value(prop_ptr,"bus",0));
+ }
+ xctx->wire[n].sel=sel;
+ set_wire_flags(&xctx->wire[n]);
+ if(sel == SELECTED) set_first_sel(WIRE, n, 0);
+ xctx->wires++;
+ return n;
 }
