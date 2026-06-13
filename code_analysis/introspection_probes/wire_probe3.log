@@ -1,0 +1,25 @@
+old: coords of wire 6 before deleting wire 5 | 1110 -600 1110 -560
+old: delete wire 5 (wires 91 -> 90) | 90
+old: coords of "wire 6" after delete — A STRANGER | 180 -1110 180 -1070
+old: undo to restore | 91
+new: id of wire 6 | 98
+new: coords of wire 6 (what the handle must keep naming) | 1110 -600 1110 -560
+new: delete wire 5 again | 90
+new: wire_index of held id — index moved | 5
+new: coords at resolved index — SAME WIRE | 1110 -600 1110 -560
+new: coords unchanged? | YES — handle survived the delete
+new: undo to restore | 91
+dangle: re-fetch id of wire 6 | 189
+dangle: delete wire 6 itself | 90
+dangle: wire_index of held id | -1
+dangle: undo to restore | 91
+disk-undo: undo_type | 
+disk-undo: id of wire 6 before the cycle | 280
+disk-undo: edit + undo (forces a restore from .sch temp file) | 91
+disk-undo: held id after restore — invalidated | -1
+disk-undo: wire 6 has a fresh id | old 280 new 372
+mem-undo: undo_type | 
+mem-undo: id of wire 6 | 372
+mem-undo: edit + undo + redo + undo cycle | 91
+mem-undo: held id still resolves | 6
+mem-undo: same coords | 1110 -600 1110 -560

@@ -13,7 +13,19 @@ Phase C DONE (C1 9c332c76, C2 ea08bb0e, C3 6a6986a2, C4 ba13cc1f): all 18
 census sites route through store.c — wire_store / wire_store_split /
 wire_delete_compact / wire_storage_reset; suite grew to 32 checks (split
 births now provably executed, verified green on the PRE-refactor build
-first via git stash). Phases D–E pending.
+first via git stash).
+Phase D DONE (D1 dd0a56d6 RED: 12 xchecks logged XFAIL on the
+pre-implementation build; D2 6e0c6eaf GREEN: xWire.id stamped at both
+birth doors, per-context monotonic wire_id_counter, `xschem wire_id` /
+`xschem wire_index`, id→index resolution is a deliberate linear scan —
+ids travel in the structs so the array is the map, no coherence
+machinery to go stale; D3 d539e30e: user chose option (b)
+invalidate-on-restore for disk undo — zero C change, the monotonic
+counter makes aliasing impossible, H7a–c assert the contract).
+Phase E DONE (probe3.tcl re-runs the §2e failure side-by-side with the
+handle version; cross-refs in tcl_introspection_wire.md §5 defect 7 and
+§6.4). Suite: 46 checks, 0 XFAIL. STEP 1 COMPLETE — step 2 awaits the
+user's pick from the decision menu (E3).
 Prereqs: `code_analysis/tcl_introspection_wire.md` (the why),
 `code_analysis/objects_in_c_vs_cpp.md` §5 (the how),
 FAQ Q7 (why the funnel comes before the handle).

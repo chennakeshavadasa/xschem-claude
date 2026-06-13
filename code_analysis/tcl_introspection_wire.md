@@ -213,7 +213,7 @@ self-documentation.
 | 4 | `selected_set` omits WIRE, LINE, POLYGON, ARC | `scheduler.c:5589` | API hole |
 | 5 | no whole-prop read for wires (instances have it) | `scheduler.c:2193` | API hole |
 | 6 | `setprop wire n lab` silently overwritten by connectivity engine | `netlist.c:1051,1075` | trap — needs doc or rejection |
-| 7 | indices not stable across delete (compaction reorders) | `storeobject`/delete path | architectural |
+| 7 | indices not stable across delete (compaction reorders) | `storeobject`/delete path | architectural — **ADDRESSED for wires** (2026-06-12): session-stable ids via `xschem wire_id <index>` / `xschem wire_index <id>`, stamped at the store.c lifecycle funnel (`plan_stable_handles_step1.md` Phases C–D). Memory undo round-trips ids; disk undo invalidates them loudly (deref → −1, never a stranger). Probe `introspection_probes/probe3.tcl` re-runs the §2e failure side-by-side with the handle version. Other six object types: pending (step 2) |
 | 8 | unknown `get` attr → silent `""` | `scheduler.c:1466` ff. | typo hazard |
 | 9 | no `get texts` (counts inconsistent across types) | `scheduler.c` get branch | API hole |
 
@@ -241,7 +241,9 @@ existing commands:
    is pure addition.
 4. **Stable handles** — the real fix for identity: a monotonically
    increasing id stamped on every object at creation (survives array
-   compaction; map id→index maintained by store/delete). Then
+   compaction; map id→index maintained by store/delete). *Step 1 (wires)
+   implemented 2026-06-12 on `feature/stable-object-handles` — see §5
+   defect 7 for the surface and contract.* Then
    `xschem object @1234 ...` works across edits, selections can be saved
    and replayed, and the action log gains stable referents — note this is
    the same problem as deferred issue **0005** in the action-logging work
@@ -261,3 +263,6 @@ cd src && ./xschem -q --script ../code_analysis/introspection_probes/probe.tcl
 cat /tmp/wire_probe.log     # probe2.tcl / wire_probe2.log likewise
 ```
 Captured logs from the runs cited above are checked in next to the probes.
+`probe3.tcl` / `wire_probe3.log` (added with the stable-handles work) re-run
+the §2e identity failure side-by-side with the `wire_id`/`wire_index` handle
+version and demonstrate the memory-undo/disk-undo identity contract.
