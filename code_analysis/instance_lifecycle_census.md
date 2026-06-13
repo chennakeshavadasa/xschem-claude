@@ -106,11 +106,12 @@ maintenance. Suite green throughout (instances 33/33, wires 57/57).
   the structs.
 - **The decision wires did not have:** instances already own a *stable handle*
   — the **name** (`instname`), which CHI7 proves survives compaction while the
-  index does not. So Phase D for instances is a genuine design choice to bring
-  to the user: a numeric `id` still adds value (rename-stable, always present
-  even for unnamed objects, uniform with the wire mechanism and the
-  `selection` enumerator), but unlike wires the name already covers much of the
-  need. Decide id-vs-name-vs-both before stamping.
+  index does not. So Phase D for instances is a genuine design choice
+  (id vs. name vs. both) — **analysed and recorded in
+  `instance_identity_decision.md`** (recommendation: both, id as the durable
+  session handle, name as the human / cross-session form; verified that names
+  are *reused* — `R37` came back after delete — so name-only is unsafe).
+  Decision awaits user ratification before any field is stamped.
 - **Symbol coupling:** `ptr` indexes `xctx->sym[]`; the birth door must link it
   (lookup for IB1/IB3/IB4, `link_symbols_to_instances()` for IB2). The funnel
   does not touch symbol lifecycle — that is a later type.
