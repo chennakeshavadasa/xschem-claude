@@ -20,6 +20,23 @@ Newest entries on top.
 - **Project state:** branch `feature/stable-object-handles` @ `7539fa68`
   (wire stable handles shipped; selection-as-data still a gap).
 
+> **Update (2026-06-13, same day): the gap is now closed.** The
+> `xschem selection` command described at the bottom of this answer was
+> implemented (TDD, RED commit then GREEN) and is the recommended way to
+> iterate the whole selection:
+>
+> ```tcl
+> xschem selection
+> ;# -> {text 0 3 -1} {wire 0 1 6} {line 0 4 -1} ...
+> ```
+>
+> It returns one `{type index col id}` Tcl list element per selected object
+> across all seven types — `type` ∈ `wire|instance|rect|line|poly|arc|text`,
+> `index`/`col` address the object, and `id` is the session-stable wire id for
+> wire rows (`-1` for the other types, which have no stable id yet). So
+> `foreach o [xschem selection] { lassign $o type idx col id … }` now works.
+> The analysis below is kept as the historical "before" picture.
+
 **Partially — and the gap is instructive.** The *complete* selection already
 exists inside the engine, but only fragments of it are exposed to Tcl, so a
 single generic "for each selected object" loop is **not** possible through the

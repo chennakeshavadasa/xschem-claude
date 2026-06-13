@@ -371,15 +371,32 @@ xschem selected_wire     ;# -> {OUTI} {E1}  (net LABELS of the selected wires,
                          ;#                   not their indices or ids)
 ```
 
-So you can learn *how many* objects are selected and the *net names* of
-selected wires, but there is no clean call that hands you the **indices** of
-every selected wire. (`first_sel` gives only the first.) That is a known hole
-to be filled by the future `xschem object` / `xschem selection` work.
+So `first_sel` gives only the first object, and the older calls each see only
+part of the picture. The general "iterate every selected object" gap is now
+filled by **`xschem selection`**, which returns one `{type index col id}` row
+per selected object across all seven types — and hands back each selected
+wire's **stable id** inline:
 
-The practical consequence: **don't try to read an existing selection
-geometrically.** Instead, compute the wires you want from geometry — which
-gives you stable ids directly — and *then* select them if you want them
-highlighted. "Compute, then select," not "select, then read back."
+```tcl
+xschem unselect_all
+xschem select wire 5 ; xschem select wire 7
+xschem selection
+;# -> {wire 5 1 6} {wire 7 1 8}
+;#       │  │ │ └ stable id (resolve later with wire_index)
+;#       │  │ └ col (layer)
+;#       │  └ current index
+;#       └ type
+foreach o [xschem selection] {
+  lassign $o type idx col id
+  if {$type eq "wire"} { lappend handles $id }   ;# durable, survives edits
+}
+```
+
+That makes "read the current selection" a first-class operation. The geometric
+query below is still useful for the *different* question "what is at this
+point (whether selected or not)," and it composes the same way — both return
+stable ids you can keep. A good habit either way: **remember by id, re-resolve
+to indices on demand**, rather than holding indices across edits.
 
 ### A reusable point-on-segment test
 
@@ -616,10 +633,12 @@ Be clear-eyed about the current scope:
 - **Session-scoped.** Ids are not written to `.sch` files. They are stable
   *within* a running editor context, not *across* save/load. Persisting them is
   an explicit non-goal of this step.
-- **No bulk/typed read API yet.** You still enumerate by index loop, and
-  reading back a selection's wire indices is a gap (§7). The planned
-  `xschem object <type> <n>` / `xschem selection` layer will sit on top of
-  these ids.
+- **Partial typed read API.** Reading the current selection is now first-class
+  via `xschem selection` (§7) — one `{type index col id}` row per selected
+  object across all seven types, with the stable id inline for wires. What's
+  still missing is the per-object typed *read* (`xschem object <type> <n>`
+  returning a full attribute dict); enumerating non-selected objects is still
+  an index loop.
 - **The `wire_coord 0` off-by-one** (§4) is a separate trivial fix, not yet
   applied.
 
