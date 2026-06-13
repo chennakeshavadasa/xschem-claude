@@ -503,3 +503,20 @@ int inst_delete_compact(int (*doomed)(int n, void *arg), void *arg)
  xctx->instances -= j;
  return j;
 }
+
+/* Bulk-reset channel of the instance lifecycle funnel (census site IZ1): free
+ * all instance heap data and empty the instance array. Callers own
+ * derived-state invalidation, as with the other funnel doors. */
+void inst_storage_reset(void)
+{
+ int i;
+ for(i = 0; i < xctx->instances; ++i)
+ {
+  my_free(_ALLOC_ID_, &xctx->inst[i].prop_ptr);
+  my_free(_ALLOC_ID_, &xctx->inst[i].name);
+  my_free(_ALLOC_ID_, &xctx->inst[i].instname);
+  my_free(_ALLOC_ID_, &xctx->inst[i].lab);
+  delete_inst_node(i);
+ }
+ xctx->instances = 0;
+}

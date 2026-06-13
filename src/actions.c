@@ -1062,15 +1062,7 @@ void clear_drawing(void)
  my_free(_ALLOC_ID_, &xctx->version_string);
  if(xctx->header_text) my_free(_ALLOC_ID_, &xctx->header_text);
  wire_storage_reset();
- for(i=0;i<xctx->instances; ++i)
- {
-  my_free(_ALLOC_ID_, &xctx->inst[i].prop_ptr);
-  my_free(_ALLOC_ID_, &xctx->inst[i].name);
-  my_free(_ALLOC_ID_, &xctx->inst[i].instname);
-  my_free(_ALLOC_ID_, &xctx->inst[i].lab);
-  delete_inst_node(i);
- }
- xctx->instances = 0;
+ inst_storage_reset();
  for(i=0;i<xctx->texts; ++i)
  {
   my_free(_ALLOC_ID_, &xctx->text[i].font);
