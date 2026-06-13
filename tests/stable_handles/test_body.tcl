@@ -365,4 +365,91 @@ check {H7c restored wire carries a fresh, valid, resolvable id} \
   {$id7r > 0 && $id7r != $id7 && [h_widx $id7r] == 1}
 xschem undo_type memory
 
+### S1–S5 — `xschem selection`: iterate ALL selected objects across the seven
+### object types as {type index col id} rows. type is one of
+### wire|instance|rect|line|poly|arc|text; index/col address the object; id is
+### the session-stable wire id for wire rows and -1 for the other types (no
+### stable id yet). This closes the selected_set gap (which reports only
+### instances/rect/text and is blind to WIRE/LINE/POLYGON/ARC — see FAQ Q11,
+### tcl_introspection_wire.md §4, defect 4). Committed RED first per the TDD
+### discipline: every xcheck logs XFAIL until the command exists. The sel_cmd
+### wrapper returns the sentinel "ERR" (a non-list, non-empty token) while the
+### command is absent so the RED suite runs to completion; structural checks
+### make that sentinel fail every assertion.
+proc sel_cmd {} { if {[catch {xschem selection} r]} {return ERR}; return $r }
+proc sel_row {sel t} {
+  foreach row $sel { if {[lindex $row 0] eq $t} {return $row} }
+  return {}
+}
+# 1 iff every row of the current selection is a well-formed {type index col id}
+proc sel_rows_wellformed {} {
+  foreach row [sel_cmd] {
+    if {[llength $row] != 4} {return 0}
+    if {[lsearch -exact {wire instance rect line poly arc text} [lindex $row 0]] < 0} {return 0}
+    if {![string is integer -strict [lindex $row 1]]} {return 0}
+    if {![string is integer -strict [lindex $row 2]]} {return 0}
+  }
+  return 1
+}
+
+# S1 — no selection yields an empty list
+xschem set modified 0
+xschem clear force schematic
+xschem unselect_all
+xcheck {S1 empty selection is an empty list} {[llength [sel_cmd]] == 0}
+
+# S2 — a single selected wire: one well-formed row, id consistent with the
+# handle commands, col == WIRELAYER (1)
+xschem set modified 0
+xschem clear force schematic
+xschem wire 0 0 100 0 -1 {} 1
+set s2 [sel_cmd]
+set r2 [sel_row $s2 wire]
+xcheck {S2a one wire selected → exactly one row, typed wire} \
+  {[llength $s2] == 1 && [lindex $r2 0] eq {wire}}
+xcheck {S2b wire row reports index 0 and col WIRELAYER(1)} \
+  {[lindex $r2 1] == 0 && [lindex $r2 2] == 1}
+xcheck {S2c wire row's id == wire_id of that index, and > 0} \
+  {[lindex $r2 3] == [xschem wire_id 0] && [lindex $r2 3] > 0}
+xcheck {S2d that id resolves back through wire_index to the same row index} \
+  {[xschem wire_index [lindex $r2 3]] == [lindex $r2 1]}
+
+# S3 — mixed selection (wire + text + line): count matches lastsel, every
+# type present (incl. line, which selected_set omits), wire carries a real id,
+# the non-wire types carry id -1
+xschem set modified 0
+xschem clear force schematic
+xschem wire 0 0 100 0
+xschem text 0 0 0 0 hello {} 0.3 0
+xschem line 0 0 100 0
+xschem select_all
+set s3 [sel_cmd]
+set types3 [lsort -unique [lmap row $s3 {lindex $row 0}]]
+xcheck {S3a selection count equals lastsel and is 3} \
+  {[llength $s3] == [xschem get lastsel] && [llength $s3] == 3}
+xcheck {S3b all three selected types reported (incl. line)} \
+  {$types3 eq {line text wire}}
+xcheck {S3c the wire row carries a real stable id (> 0)} \
+  {[lindex [sel_row $s3 wire] 3] > 0}
+xcheck {S3d text and line rows carry id -1 (no stable id yet)} \
+  {[lindex [sel_row $s3 text] 3] == -1 && [lindex [sel_row $s3 line] 3] == -1}
+
+# S4 — every one of the seven object types is enumerable (the strong gap test:
+# line, poly and arc are invisible to selected_set entirely)
+reload
+xschem line 0 0 100 0
+xschem rect 0 0 100 100
+xschem arc 0 0 50 0 360 4
+xschem polygon 0 0 100 0 100 100 0 0
+xschem text 0 0 0 0 hi {} 0.3 0
+xschem select_all
+set s4types [lsort -unique [lmap row [sel_cmd] {lindex $row 0}]]
+xcheck {S4 all seven object types appear in one selection enumeration} \
+  {$s4types eq {arc instance line poly rect text wire}}
+
+# S5 — every row is well-formed: 4 fields, a known type token, integer index+col
+xcheck {S5 every selection row is {type index col id} with a known type} \
+  {[sel_rows_wellformed]}
+xschem unselect_all
+
 xschem set modified 0
