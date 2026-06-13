@@ -513,6 +513,7 @@ static void alloc_xschem_data(const char *top_path, const char *win_path)
   xctx->wires = 0;
   xctx->wire_id_counter = 0; /* first stamped wire id will be 1 */
   xctx->inst_id_counter = 0; /* first stamped instance id will be 1 */
+  xctx->gfx_id_counter = 0;  /* first stamped graphical-object id will be 1 */
   xctx->instances = 0;
   xctx->symbols = 0;
   xctx->sym_txt = 1;

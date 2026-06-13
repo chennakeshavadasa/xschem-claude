@@ -387,6 +387,40 @@ static int xschem_cmds_a(Tcl_Interp *interp, int argc, const char *argv[], int *
      *   if arguments are given (center x and y, radius r, start angle a, end angle b, layer number)
      *   place specified arc, otherwise start a GUI placement of an arc.
      *   For GUI placement user should click 3 unaligned points to define the arc */
+    /* arc_id layer index
+     *   session-stable id of the arc at (layer, index), or -1 if out of range.
+     *   Shared graphical id space; resolve back with `xschem arc_index id` */
+    else if(!strcmp(argv[1], "arc_id"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 3) {
+        int c = atoi(argv[2]), n = atoi(argv[3]);
+        if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->arcs[c]) {
+          char s[30];
+          my_snprintf(s, S(s), "%u", xctx->arc[c][n].id);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        } else {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        }
+      }
+    }
+    /* arc_index id
+     *   current "{layer index}" of the arc with that id, or -1 if none */
+    else if(!strcmp(argv[1], "arc_index"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        unsigned int id = (unsigned int)strtoul(argv[2], NULL, 10);
+        int layer, idx = gfx_index_from_id(ARC, id, &layer);
+        if(idx < 0) {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        } else {
+          char s[40];
+          my_snprintf(s, S(s), "%d %d", layer, idx);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        }
+      }
+    }
     else if(!strcmp(argv[1], "arc"))
     {
       const char *prop = NULL;
@@ -3117,6 +3151,40 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
       }
     }
 
+    /* line_id layer index
+     *   session-stable id of the line at (layer, index), or -1 if out of range.
+     *   Shared graphical id space; resolve back with `xschem line_index id` */
+    else if(!strcmp(argv[1], "line_id"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 3) {
+        int c = atoi(argv[2]), n = atoi(argv[3]);
+        if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->lines[c]) {
+          char s[30];
+          my_snprintf(s, S(s), "%u", xctx->line[c][n].id);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        } else {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        }
+      }
+    }
+    /* line_index id
+     *   current "{layer index}" of the line with that id, or -1 if none */
+    else if(!strcmp(argv[1], "line_index"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        unsigned int id = (unsigned int)strtoul(argv[2], NULL, 10);
+        int layer, idx = gfx_index_from_id(LINE, id, &layer);
+        if(idx < 0) {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        } else {
+          char s[40];
+          my_snprintf(s, S(s), "%d %d", layer, idx);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        }
+      }
+    }
     /* line_width n
      *   set line width to floating point number 'n' */
     else if(!strcmp(argv[1], "line_width"))
@@ -4113,6 +4181,40 @@ static int xschem_cmds_p(Tcl_Interp *interp, int argc, const char *argv[], int *
      *   Start a GUI placement of a polygon
      *   if `gui` argument is given start a polygon GUI placement with 1st point
      *   set to current mouse coordinates */
+    /* poly_id layer index
+     *   session-stable id of the polygon at (layer, index), or -1 if out of
+     *   range. Shared graphical id space; resolve back with `poly_index id` */
+    else if(!strcmp(argv[1], "poly_id"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 3) {
+        int c = atoi(argv[2]), n = atoi(argv[3]);
+        if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->polygons[c]) {
+          char s[30];
+          my_snprintf(s, S(s), "%u", xctx->poly[c][n].id);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        } else {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        }
+      }
+    }
+    /* poly_index id
+     *   current "{layer index}" of the polygon with that id, or -1 if none */
+    else if(!strcmp(argv[1], "poly_index"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        unsigned int id = (unsigned int)strtoul(argv[2], NULL, 10);
+        int layer, idx = gfx_index_from_id(POLYGON, id, &layer);
+        if(idx < 0) {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        } else {
+          char s[40];
+          my_snprintf(s, S(s), "%d %d", layer, idx);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        }
+      }
+    }
     else if(!strcmp(argv[1], "polygon"))
     {
       char *endp;
@@ -4951,6 +5053,46 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
      *   rect gui
      *     if `gui` argument is given start a GUI placement of a rectangle with 1st
      *     point starting from current mouse coordinates */
+    /* rect_id layer index
+     *   return the session-stable id of the rect at (layer, index), or -1 if
+     *   out of range. Graphical ids are stamped at creation (store.c
+     *   gfx_register), one shared id space across rect/line/poly/arc, never
+     *   reused within a window/tab session and not persisted in .sch files.
+     *   Resolve back with `xschem rect_index id` */
+    else if(!strcmp(argv[1], "rect_id"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 3) {
+        int c = atoi(argv[2]), n = atoi(argv[3]);
+        if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->rects[c]) {
+          char s[30];
+          my_snprintf(s, S(s), "%u", xctx->rect[c][n].id);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        } else {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        }
+      }
+    }
+    /* rect_index id
+     *   return the current location "{layer index}" of the rect whose
+     *   session-stable id (see `xschem rect_id`) is given, or -1 if no live
+     *   rect carries that id (deleted, layer-changed -> reconstructed with a
+     *   new id, or invalidated by a disk-undo restore) */
+    else if(!strcmp(argv[1], "rect_index"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        unsigned int id = (unsigned int)strtoul(argv[2], NULL, 10);
+        int layer, idx = gfx_index_from_id(xRECT, id, &layer);
+        if(idx < 0) {
+          Tcl_SetResult(interp, "-1", TCL_STATIC);
+        } else {
+          char s[40];
+          my_snprintf(s, S(s), "%d %d", layer, idx);
+          Tcl_SetResult(interp, s, TCL_VOLATILE);
+        }
+      }
+    }
     else if(!strcmp(argv[1], "rect"))
     {
       double x1,y1,x2,y2;
@@ -5710,12 +5852,12 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
         c = xctx->sel_array[n].col;
         switch(xctx->sel_array[n].type) {
           case WIRE:    tname = "wire";     id = (int)xctx->wire[i].id; break;
-          case xRECT:   tname = "rect";     break;
-          case LINE:    tname = "line";     break;
+          case xRECT:   tname = "rect";     id = (int)xctx->rect[c][i].id; break;
+          case LINE:    tname = "line";     id = (int)xctx->line[c][i].id; break;
           case ELEMENT: tname = "instance"; id = (int)xctx->inst[i].id; break;
           case xTEXT:   tname = "text";     break;
-          case POLYGON: tname = "poly";     break;
-          case ARC:     tname = "arc";      break;
+          case POLYGON: tname = "poly";     id = (int)xctx->poly[c][i].id; break;
+          case ARC:     tname = "arc";      id = (int)xctx->arc[c][i].id; break;
           default:      tname = "unknown";  break;
         }
         my_snprintf(row, S(row), "{%s %d %d %d}", tname, i, c, id);

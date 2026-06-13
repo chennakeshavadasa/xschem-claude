@@ -577,12 +577,53 @@ int inst_index_from_id(unsigned int id)
  * xRECT/LINE/POLYGON/ARC; slot n is the just-filled slot. */
 void gfx_register(int type, int c, int n)
 {
- (void)n; /* used in Phase D to stamp xctx->{rect,line,poly,arc}[c][n].id */
  switch(type) {
-   case xRECT:   xctx->rects[c]++;    break;
-   case LINE:    xctx->lines[c]++;    break;
-   case POLYGON: xctx->polygons[c]++; break;
-   case ARC:     xctx->arcs[c]++;     break;
+   case xRECT:   xctx->rect[c][n].id = ++xctx->gfx_id_counter; xctx->rects[c]++;    break;
+   case LINE:    xctx->line[c][n].id = ++xctx->gfx_id_counter; xctx->lines[c]++;    break;
+   case POLYGON: xctx->poly[c][n].id = ++xctx->gfx_id_counter; xctx->polygons[c]++; break;
+   case ARC:     xctx->arc[c][n].id  = ++xctx->gfx_id_counter; xctx->arcs[c]++;     break;
    default: break;
  }
+}
+
+/* Resolve a session-stable graphical-object id (stamped by gfx_register above)
+ * to its current location, returning the per-layer index and setting *layer_out
+ * to the layer, or -1 (and *layer_out = -1) if no live object of that 'type'
+ * carries the id (deleted, layer-changed -> reconstructed with a new id, or
+ * invalidated by a disk-undo restore). A deliberate linear scan over ALL layers
+ * of the type, not a maintained map — the id travels inside the struct so the
+ * array is the authoritative id->location relation under every census mutation
+ * (per-layer compaction, pos>=0 insert, change_elem_order swap, mem-undo bulk
+ * replace, clear) with zero coherence machinery to go stale, exactly as for
+ * wires and instances. 'type' is one of xRECT/LINE/POLYGON/ARC; the resolver is
+ * type-scoped (an id belonging to another type returns -1), but the id space is
+ * shared so values never collide across types. */
+int gfx_index_from_id(int type, unsigned int id, int *layer_out)
+{
+ int c, i, cnt;
+ if(layer_out) *layer_out = -1;
+ if(id == 0) return -1;
+ for(c = 0; c < cadlayers; ++c)
+ {
+   switch(type) {
+     case xRECT:   cnt = xctx->rects[c];    break;
+     case LINE:    cnt = xctx->lines[c];    break;
+     case POLYGON: cnt = xctx->polygons[c]; break;
+     case ARC:     cnt = xctx->arcs[c];     break;
+     default:      return -1;
+   }
+   for(i = 0; i < cnt; ++i)
+   {
+     unsigned int oid;
+     switch(type) {
+       case xRECT:   oid = xctx->rect[c][i].id; break;
+       case LINE:    oid = xctx->line[c][i].id; break;
+       case POLYGON: oid = xctx->poly[c][i].id; break;
+       case ARC:     oid = xctx->arc[c][i].id;  break;
+       default:      oid = 0; break;
+     }
+     if(oid == id) { if(layer_out) *layer_out = c; return i; }
+   }
+ }
+ return -1;
 }

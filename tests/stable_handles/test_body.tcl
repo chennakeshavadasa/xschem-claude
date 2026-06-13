@@ -431,8 +431,13 @@ check {S3b all three selected types reported (incl. line)} \
   {$types3 eq {line text wire}}
 check {S3c the wire row carries a real stable id (> 0)} \
   {[lindex [sel_row $s3 wire] 3] > 0}
-check {S3d text and line rows carry id -1 (no stable id yet)} \
-  {[lindex [sel_row $s3 text] 3] == -1 && [lindex [sel_row $s3 line] 3] == -1}
+# the LINE row now carries a real stable graphical id (step-3 Phase D); only
+# text remains without one. (Updated from "text and line both -1" when graphical
+# handles landed — the selection enumerator now fills line/rect/poly/arc ids.)
+check {S3d the text row still carries id -1 (text has no stable id yet)} \
+  {[lindex [sel_row $s3 text] 3] == -1}
+check {S3e the line row now carries a real graphical id (> 0)} \
+  {[lindex [sel_row $s3 line] 3] > 0}
 
 # S4 — every one of the seven object types is enumerable (the strong gap test:
 # line, poly and arc are invisible to selected_set entirely)

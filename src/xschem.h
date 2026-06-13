@@ -478,6 +478,9 @@ typedef struct
   char *prop_ptr;
   short dash;
   double bus;
+  unsigned int id; /* session-stable identity, stamped at birth (gfx_register),
+                    * never reused within a context's lifetime, not persisted.
+                    * Shared id space with rect/poly/arc. 0 = never stamped. */
 } xLine;
 
 #if HAS_CAIRO==1
@@ -512,6 +515,9 @@ typedef struct
    * bit10: image embedding (png)
    */
   unsigned short flags;
+  unsigned int id; /* session-stable identity, stamped at birth (gfx_register),
+                    * never reused within a context's lifetime, not persisted.
+                    * Shared id space with line/poly/arc. 0 = never stamped. */
 } xRect;
 
 typedef struct
@@ -527,6 +533,9 @@ typedef struct
   short fill;
   short dash;
   double bus;
+  unsigned int id; /* session-stable identity, stamped at birth (gfx_register),
+                    * never reused within a context's lifetime, not persisted.
+                    * Shared id space with rect/line/arc. 0 = never stamped. */
 } xPoly;
 
 typedef struct
@@ -541,6 +550,9 @@ typedef struct
   short fill;
   short dash;
   double bus;
+  unsigned int id; /* session-stable identity, stamped at birth (gfx_register),
+                    * never reused within a context's lifetime, not persisted.
+                    * Shared id space with rect/line/poly. 0 = never stamped. */
 } xArc;
 
 typedef struct
@@ -952,6 +964,10 @@ typedef struct {
   unsigned int inst_id_counter; /* store.c: last instance id stamped at inst_register;
                                  * monotonic per context, survives clear_drawing/load
                                  * so ids are never reused within a window/tab session */
+  unsigned int gfx_id_counter;  /* store.c: last graphical-object id stamped at
+                                 * gfx_register; ONE shared counter for all four
+                                 * graphical types, monotonic per context, survives
+                                 * clear_drawing/load so ids are never reused */
   char *schprop;
   char *schtedaxprop;
   char *schvhdlprop;
@@ -1561,6 +1577,7 @@ extern void inst_storage_reset(void);
 extern void inst_register(int n);
 extern int inst_index_from_id(unsigned int id);
 extern void gfx_register(int type, int c, int n);
+extern int gfx_index_from_id(int type, unsigned int id, int *layer_out);
 extern void store_poly(int pos, double *x, double *y, int points,
            unsigned int rectcolor, unsigned short sel, char *prop_ptr);
 extern void store_arc(int pos, double x, double y, double r, double a, double b,
