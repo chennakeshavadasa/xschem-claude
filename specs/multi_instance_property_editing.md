@@ -1,9 +1,11 @@
 # Spec — multi-instance property editing (Cadence-style)
 
-*Status:* **P1 IMPLEMENTED (2026-06-13) — default-fix + sticky "Apply to" scope +
-name-greying, changed-fields-only for all scopes. Next: P2 (Apply button +
-Next/Prev, needs the mid-session `apply_properties` command), then P3
-(varying-value warning); highlighting backlogged.** Key decisions ratified
+*Status:* **P1 + P2 IMPLEMENTED (2026-06-13). P1 = default-fix + sticky "Apply
+to" scope + name-greying. P2 = Apply button (apply + stay open) + Next/Prev
+navigation through the selected set + per-Apply undo, via the mid-session
+`xschem apply_properties <scope> <displayed_id> <new> <old>` command (applies by
+session-stable id). Changed-fields-only throughout. Next: P3 (varying-value red
+status-line warning); highlighting backlogged.** Key decisions ratified
 (2026-06-14). Builds on the slick per-field property form ([[slick-property-forms]],
 branch `slick-property-forms`) and the stable instance handles
 ([[stable-object-handles]]). Highlighting (§3 deferred) is explicitly **backlog**,
