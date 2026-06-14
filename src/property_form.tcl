@@ -336,6 +336,14 @@ proc slickprop::log_apply {line} {
   catch {xschem log_action $line}
 }
 
+# Append one already-built line to the action log (sibling of log_apply, for
+# non-command MARKER lines that begin with `#`). The marker is a Tcl comment, so
+# sourcing the log on replay skips it — used to record interactive, non-replayable
+# events (e.g. the form launch) for audit/readability without breaking replay.
+proc slickprop::log_event {line} {
+  catch {xschem log_action $line}
+}
+
 # The Apply button (P2): apply the change set to the scope and STAY OPEN,
 # refreshing the displayed instance so its applied values become the new
 # baseline (dirty dots clear, further edits diff against the applied state).
@@ -705,6 +713,11 @@ proc slickprop::edit_form {txtlabel} {
   slickprop::init_fonts
   xschem set semaphore [expr {[xschem get semaphore] + 1}]
   set ::slickprop_form_open 1   ;# modeless: let the canvas keep selecting (M1)
+  # record the LAUNCH as a non-replayable marker (every launch route — q / menu /
+  # `xschem edit_prop` — converges here). A `#` comment, so replay skips it: the
+  # form is modal and the only replayable effect is the apply (logged separately).
+  slickprop::log_event \
+    "# xschem edit_prop $::slickprop_apply_scope — Edit Properties form opened (non-replayable: modal)"
   toplevel .dialog -class Dialog
   wm title .dialog {Edit Properties}
   wm transient .dialog [xschem get topwindow]
