@@ -1,6 +1,13 @@
 # Spec — apply-scope highlight (white outline on edit targets)
 
-*Status:* **DESIGN — not yet implemented. Ready for a design-first session.**
+*Status:* **H1 IMPLEMENTED 2026-06-14 (primitive + Only Current).** Decisions
+D1–D7 ratified — see `code_analysis/apply_scope_highlight_decision.md` (§6
+answers, §7 plan). H1 landed the `gc_scope` GC, the redraw-persistent overlay
+(`draw_scope_highlight` at the end of `draw()`), the shared `scope_targets()`
+(outlined == applied), the `xschem highlight_scope` / `highlight_objects`
+commands, and the form wiring (`slickprop::update_highlight`). Tests PF36–PF39
+(property_form suite now 102 checks). **H2** (drive All Selected + All) and
+**H3** (theme/halo polish, pan/zoom redraw pass, text bbox) remain.
 This is the on-canvas highlight that was deferred to backlog throughout the
 multi-instance property-editing work
 ([[multi_instance_property_editing]] §3 "deferred", §4 "highlight", §6.E). It
@@ -184,10 +191,10 @@ writing code, exactly as the earlier phases did.
 
 ## 7. Phasing (incremental, each shippable)
 
-1. **H1 — the primitive + one scope.** A C overlay that white-outlines a given
-   id list, reusing `draw_selection`'s per-type shape logic; wire it to the form
-   for **Only Current** (outline the displayed instance, follow Next/Prev). Erase
-   on close. Settle D1/D2/D3 here.
+1. **H1 — the primitive + one scope. ✅ DONE 2026-06-14.** A C overlay that
+   white-outlines a given id list, reusing `draw_selection`'s per-type shape
+   logic; wired to the form for **Only Current** (outline the displayed instance,
+   follow Next/Prev), cleared on close. D1/D2/D3 settled and implemented.
 2. **H2 — the other scopes.** Drive the overlay for **All Selected** and
    **All (same symbol)**, sharing the target-set computation with the apply so
    "outlined == applied" holds by construction.

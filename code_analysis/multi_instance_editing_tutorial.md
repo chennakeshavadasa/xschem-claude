@@ -529,6 +529,75 @@ Three things make this small change a good one, and each is a transferable habit
 
 ---
 
+## Part 7¾ — The scope highlight: a redraw-persistent overlay from one source of truth
+
+The last backlogged piece (phase H1) draws a **white outline** on the canvas
+around exactly the objects an OK/Apply will write to, updated live as you change
+scope or step Next/Prev. Three design choices carry it, and each is a transferable
+habit.
+
+**1 — Persist by re-rendering, not by remembering pixels.** XSCHEM's selection
+highlight isn't a sprite layered on top of a static image; it is *re-stroked at
+the end of `draw()`*, after the canvas is rebuilt from its pixmap. The scope
+outline simply joins that tail:
+
+```c
+draw_selection(xctx->gc[SELLAYER], 0);
+draw_scope_highlight();   /* re-strokes the overlay every redraw */
+```
+
+Because the renderer runs on every `draw()`, the outline survives pan/zoom/any
+redraw for free, and **clearing it is just `count = 0` then one more `draw()`** —
+no XOR un-draw, no saved background to restore. The canvas rebuilds from the
+pixmap (which never held the overlay), so it returns pixel-identical. When state
+is cheap to recompute, *recomputing on every frame is simpler and more correct
+than incrementally patching a cache.*
+
+**2 — Outlined set == applied set, by construction.** The cardinal rule is "if
+the user sees N outlines, OK writes exactly those N." The way to guarantee that
+is not to compute the set carefully in two places — it is to compute it in
+**one** place and call it from both:
+
+```c
+int scope_targets(int displayed_inst, const char *scope, int *targets); /* the helper */
+```
+
+`apply_symbol_prop()` (the write) and `xschem highlight_scope` (the outline) both
+go through it. They *cannot* disagree, because there is only one computation. The
+sabotage test proves the seam is real: freezing `scope_targets`'s `current` case
+to "instance 0" reddened both the highlight follow-test **and** the apply tests —
+one wrong line, caught on both sides.
+
+> **▶ Level up — "Two things must agree" is a smell; "two things share one
+> source" is the fix.** Any time a spec says invariant X must hold between a
+> display and an action, resist writing the logic twice and keeping them in sync.
+> Extract the shared computation and let both consumers call it. The invariant
+> then holds *by construction* rather than by vigilance — and a single test (or
+> sabotage) exercises both consumers at once.
+
+**3 — Hold the set by stable id, resolve at draw time.** The overlay stores
+`{type, stable-id}`, not array indices. While the dialog is open the user can do
+things that reindex the arrays; an index would dangle, but the id still resolves
+(`inst_index_from_id`, `wire_index_from_id`, …) — or cleanly *fails* to resolve
+(a deleted object is skipped, not mis-drawn). This is the same discipline the
+stable-handles work established, now paying off in a feature that holds a
+reference across redraws.
+
+One C↔Tcl seam, kept thin: the form hands C a scope string and a stable id
+(`slickprop::update_highlight` → `xschem highlight_scope <scope> <id>`); **C owns
+all the drawing.** The form never computes geometry, never touches a GC. That is
+the same engine/GUI split as the rest of the feature — the Tcl side decides
+*what* and *when*, the C side decides *how to draw*.
+
+> **▶ Level up — A general primitive, a specific consumer.** The renderer
+> dispatches on object type (instance → bbox, wire → its line segment, …) even
+> though this dialog only ever feeds it instances. Building the primitive general
+> — and testing the dormant wire path directly via `xschem highlight_objects` —
+> costs little and means the next consumer ("outline these search hits") needs no
+> engine change. Generalize the *mechanism*; specialize the *caller*.
+
+---
+
 ## Part 8 — Try it yourself (exercises)
 
 1. **Add a per-field "varies" marker.** P3 implements the required red footer

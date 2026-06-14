@@ -148,6 +148,30 @@ Current**.
 
 ---
 
+## Scope highlight — seeing what an edit will touch
+
+While the dialog is open, the objects an **OK / Apply** would write to are marked
+on the canvas with a **white outline** (a halo around each one). It is a *second*
+cue, separate from the usual selection colour, so you can tell at a glance which
+instances the current scope reaches:
+
+- **Only Current** — just the one instance shown in the dialog.
+- **All Selected** — every selected instance of the *same symbol* as the
+  displayed one.
+- **All (same symbol)** — every instance of that symbol on the sheet, including
+  ones you never selected.
+
+The outline tracks your choices **live**: change the "Apply to" dropdown or step
+**Next / Prev** and it follows. Each object is outlined in its **natural shape**
+(an instance by its bounding box, a wire as its line). It disappears when you
+close the dialog (OK / Apply-then-close / Cancel). The outlined set is *exactly*
+the set OK writes — there is no daylight between what you see and what changes.
+
+> On the light colour scheme the outline is drawn near-black instead of white so
+> it stays visible; set `slickprop_highlight_color` to force a fixed colour.
+
+---
+
 ## Customization
 
 These optional Tcl variables (set them in `~/.xschem/xschemrc`, a script, or the
@@ -157,6 +181,7 @@ command window) tune the form:
 | --- | --- | --- |
 | `slickprop_apply_scope` | The current scope: `current`, `selected`, or `all`. | `current` |
 | `slickprop_warn` | Colour of the "values differ" warning. | `#d02020` (red) |
+| `slickprop_highlight_color` | Colour of the scope-highlight outline. | white (dark theme) / near-black (light theme) |
 | `slickprop_fontsize` | Base font size of the whole form. | system size + 1 |
 | `slickprop_entry_width` | Width of value entries, in characters. | 36 |
 | `slickprop_accent` | Colour of the "modified field" dot. | `#d08000` (amber) |
