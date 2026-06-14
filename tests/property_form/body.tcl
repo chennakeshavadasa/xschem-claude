@@ -1016,4 +1016,66 @@ if {[gui2_ok]} {
   foreach t {PF48a PF48b PF48c} { check "$t (skipped: no main window)" {1} }
 }
 
+# ===========================================================================
+# PF49-PF50 — H2: drive the scope highlight for All Selected + All (same symbol),
+# and prove "outlined == applied" for those scopes incl. the mixed-master D7 rule
+# (the displayed instance's master decides the edited kind). PF49 asserts the
+# highlight TARGET SET per scope directly via `xschem highlight_scope <scope>
+# <id>` (pixel-free, standalone — the set is resolved by the shared scope_targets
+# the apply also uses). PF50 proves the APPLY side of the same rule (the
+# previously-untested mixed-master selected apply). Decision doc §7/D7.
+# ===========================================================================
+
+catch {xschem highlight_scope clear}
+pf_setup_insts        ;# R1,R2,R3 = res (1k); C1 = capa (1p) — a different master
+set ::pf49_r1 [xschem instance_id R1]
+set ::pf49_r2 [xschem instance_id R2]
+set ::pf49_r3 [xschem instance_id R3]
+set ::pf49_c1 [xschem instance_id C1]
+set ::pf49_res [lsort [list $::pf49_r1 $::pf49_r2 $::pf49_r3]]
+
+### PF49a — All Selected: outline the selected same-master instances.
+xschem unselect_all
+xschem select instance R1; xschem select instance R2; xschem select instance R3
+check {PF49a All Selected outlines the selected same-master set (3 res)} \
+  {[lsort [xschem highlight_scope selected $::pf49_r1]] eq $::pf49_res}
+
+### PF49b — All (same symbol): outline every same-master instance, including the
+### ones not selected (only R1 selected here, but R2/R3 still outline).
+xschem unselect_all
+xschem select instance R1
+check {PF49b All (same symbol) outlines every same-master instance incl. unselected} \
+  {[lsort [xschem highlight_scope all $::pf49_r1]] eq $::pf49_res}
+
+### PF49c — mixed selection + D7: select 3 res AND the capa, edit a res, scope
+### selected -> only the res are outlined; the capa (different master) is excluded.
+xschem unselect_all
+xschem select instance R1; xschem select instance R2; xschem select instance R3
+xschem select instance C1
+set ::pf49_mix [lsort [xschem highlight_scope selected $::pf49_r1]]
+check {PF49c mixed selection outlines only the displayed master (capa excluded)} \
+  {$::pf49_mix eq $::pf49_res && [lsearch -exact $::pf49_mix $::pf49_c1] < 0}
+
+### PF49d — All from a res never reaches the capa (different master).
+check {PF49d All (same symbol) never includes a different master} \
+  {[lsearch -exact [xschem highlight_scope all $::pf49_r1] $::pf49_c1] < 0 &&
+   [llength [xschem highlight_scope all $::pf49_r1]] == 3}
+catch {xschem highlight_scope clear}
+
+### PF50 — the APPLY side of D7 (was untested: PF21 used a homogeneous selection).
+### Select 3 res + the capa, edit `value` under All Selected: only the same-master
+### res are written; the capa is left alone. Proves outlined(PF49c) == applied.
+if {[gui2_ok]} {
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  xschem select instance C1
+  pf_edit_value selected 2k
+  check {PF50a selected apply writes only the same-master instances (3 res)} \
+    {[pf_count_value 2k] == 3}
+  check {PF50b the capa (different master) is untouched} \
+    {[xschem get_tok [xschem getprop instance 3] value 2] eq "1p"}
+} else {
+  foreach t {PF50a PF50b} { check "$t (skipped: no main window)" {1} }
+}
+
 xschem set modified 0
