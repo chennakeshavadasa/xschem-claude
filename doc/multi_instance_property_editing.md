@@ -1,0 +1,198 @@
+# Editing many instances at once — user guide
+
+*How to use the multi-instance features of the "Edit Properties" dialog: the
+**Apply to** scope, **Next/Prev** navigation, the **Apply** button, automatic
+**name** protection, and the **"values differ"** warning.*
+
+This is the hands-on manual. For the design rationale see
+`specs/multi_instance_property_editing.md`; for how it was built (a tutorial for
+developers) see `code_analysis/multi_instance_editing_tutorial.md`.
+
+---
+
+## The one thing to know
+
+**Editing properties only ever changes the fields you actually edited.** Every
+other attribute of every instance is left exactly as it was. Choosing a wider
+scope does **not** make instances identical — it just sends *your edits* to more
+of them. Each instance keeps its own name and its own untouched values.
+
+---
+
+## Opening the dialog
+
+Select one or more component instances and open **Edit Properties** — press
+**`q`**, or use the menu / right-click. The dialog shows one labelled field per
+declared attribute of the displayed instance (`name`, `value`, `footprint`, …),
+plus the symbol and a few options.
+
+If you selected several instances, the dialog opens on the **first** one and —
+importantly — does **not** touch the others unless you ask it to (see scope,
+below). This is a change from older versions, which silently edited the whole
+selection.
+
+---
+
+## "Apply to" — choosing how far an edit reaches
+
+At the top of the dialog is the **Apply to** dropdown. It has three settings:
+
+| Setting | What an OK / Apply touches |
+| --- | --- |
+| **Only Current** *(default)* | Just the one instance shown in the dialog. |
+| **All Selected** | Every instance you selected. |
+| **All (same symbol)** | Every instance of the **same symbol** on the current sheet — even ones you didn't select. A *different* symbol is never touched. |
+
+Pick the scope, edit the field(s) you want, then **OK** or **Apply**. Only the
+fields you changed are written to the in-scope instances.
+
+The setting is **sticky**: it stays where you left it the next time you open the
+dialog, so a workflow like "select a few, set them all" doesn't need re-choosing
+each time. If you want the safe default back, set it to **Only Current**.
+
+> **Example.** Three resistors selected, each a different value. Set **Apply to →
+> All Selected**, change `value` to `2k`, click OK. All three become `2k`. Their
+> *names* (R1, R2, R3) are untouched — see "Name is protected" below.
+
+---
+
+## Name is protected under multi scopes
+
+Instance names must be unique, so a single name can't sensibly be copied onto
+many instances. When **Apply to** is **All Selected** or **All**, the **name**
+field is greyed out (read-only). Each instance keeps its own name. Switch back to
+**Only Current** and the name field re-enables, because then you're editing just
+one instance.
+
+---
+
+## Next / Prev — walking the selection
+
+When you've selected several instances, use **◀ Prev** and **Next ▶** (or
+**Alt+Left** / **Alt+Right**) to step the dialog through them one at a time. The
+readout between the buttons shows your position, e.g. **"2 of 7"**. **Prev** is
+disabled on the first instance, **Next** on the last.
+
+- Navigating shows the next instance **with its own current values**.
+- **Navigating away discards any edits you haven't applied yet.** The change you
+  type belongs to the instance on screen; commit it with **Apply** or **OK**
+  before stepping on, or it's dropped. (Modified fields are flagged with a dot, so
+  pending edits are visible before you leave.)
+
+This lets you sweep a selection: land on an instance, tweak it, **Apply**, step to
+the next, and so on — all without closing the dialog.
+
+---
+
+## OK, Apply, Cancel
+
+| Button | Effect |
+| --- | --- |
+| **OK** | Apply your edits to the scope, then **close**. |
+| **Apply** | Apply your edits to the scope, **stay open** (so you can keep going / step to the next). |
+| **Cancel** *(Esc)* | Close without applying anything pending. |
+
+**Apply** is what makes Next/Prev useful: edit, Apply, Next, edit, Apply, … in one
+sitting.
+
+---
+
+## Undo
+
+Each **Apply** (and the apply that **OK** performs) is its **own** undo step.
+
+- One Apply with scope **All Selected / All** → a single **Undo** reverses the
+  change across *all* affected instances at once.
+- If you step through with Next/Prev and Apply on several instances, each Apply is
+  a separate undo: **Undo** reverses only the most recent one.
+
+---
+
+## The "values differ" warning
+
+When the scope is **All Selected** or **All**, the footer line normally shows the
+keyboard hint. If you click into a field whose value is **not the same across all
+the in-scope instances**, the footer turns into a **red warning**, e.g.:
+
+> ⚠  'value' differs across 5 instances — Apply overwrites them
+
+It's telling you that applying your single value will **overwrite** those
+differing values. This is exactly what you want when you mean to unify them — and a
+useful "wait, are you sure?" when you don't. The warning is per-field: it clears
+when the focused field is uniform across the set, or when the scope is **Only
+Current**.
+
+---
+
+## Customization
+
+These optional Tcl variables (set them in `~/.xschem/xschemrc`, a script, or the
+command window) tune the form:
+
+| Variable | Effect | Default |
+| --- | --- | --- |
+| `slickprop_apply_scope` | The current scope: `current`, `selected`, or `all`. | `current` |
+| `slickprop_warn` | Colour of the "values differ" warning. | `#d02020` (red) |
+| `slickprop_fontsize` | Base font size of the whole form. | system size + 1 |
+| `slickprop_entry_width` | Width of value entries, in characters. | 36 |
+| `slickprop_accent` | Colour of the "modified field" dot. | `#d08000` (amber) |
+
+For example, to default new sessions to editing the whole selection:
+
+```tcl
+set slickprop_apply_scope selected
+```
+
+---
+
+## For scripters: the apply command
+
+The dialog applies edits through one Tcl command, which you can also call directly
+from scripts:
+
+```tcl
+xschem apply_properties <scope> <displayed_id> <new_prop> <old_prop>
+```
+
+- `<scope>` — `current`, `selected`, or `all`.
+- `<displayed_id>` — the **session-stable id** of the reference instance (get it
+  with `xschem instance_id <name|index>`). For `current`/`all` this is the
+  instance the scope is measured from; for `all` it picks the master.
+- `<new_prop>` — the desired property string (reference instance's string with
+  your edits).
+- `<old_prop>` — the reference instance's *original* string.
+
+Only the tokens that differ between `<new_prop>` and `<old_prop>` are applied to
+each in-scope instance (each keeps its other attributes). The command pushes one
+undo entry and returns `1` if anything changed, else `0`. Because it takes a
+*stable id*, the reference survives any re-indexing between calls.
+
+```tcl
+# Example: set value=2k on every instance of the displayed one's master,
+# preserving everything else.
+set id  [xschem instance_id R1]
+set old [xschem getprop instance R1]
+set new [xschem subst_tok $old value 2k]
+xschem apply_properties all $id $new $old
+```
+
+---
+
+## Quick reference
+
+| Action | How |
+| --- | --- |
+| Open Edit Properties | select instance(s), press **`q`** |
+| Choose how far edits reach | **Apply to** dropdown (sticky) |
+| Step through the selection | **◀ Prev / Next ▶** or **Alt+Left / Alt+Right** |
+| Apply and keep editing | **Apply** |
+| Apply and close | **OK** (or **Enter**) |
+| Discard and close | **Cancel** (or **Esc**) |
+| Undo one apply | **Undo** (`u`) |
+| See if a field varies across the set | watch the red footer warning |
+
+---
+
+*Reference: design + decisions in `specs/multi_instance_property_editing.md`;
+implementation walkthrough in
+`code_analysis/multi_instance_editing_tutorial.md`.*
