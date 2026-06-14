@@ -1,12 +1,13 @@
 # Issue 0006 — legacy property dialogs clip their action buttons (no `wm minsize` floor)
 
 **Opened:** 2026-06-14
-**Status:** FIXED (code) — minsize floor implemented on the three affected legacy
-dialogs (`enter_text`, `text_line`, `edit_prop_legacy`) via a shared
-`dialog_minsize_floor` helper; the stretch dialogs were inspected and found
-unaffected (position-only geometry, naturally sized). **One step remains: the
-eyeball pass on a real display** (§5) before this can be marked fully RESOLVED.
-See §8 for the resolution record.
+**Status:** RESOLVED (2026-06-14) — minsize floor implemented on the three
+affected legacy dialogs (`enter_text`, `text_line`, `edit_prop_legacy`) via a
+shared `dialog_minsize_floor` helper; the stretch dialogs were inspected and
+found unaffected (position-only geometry, naturally sized). The §5 eyeball pass
+on a real display was completed and confirmed the action-button row is visible
+at default and remembered sizes and the WM refuses to shrink past it. See §8 for
+the resolution record. Fix committed in `87791b4b` on `slick-property-forms`.
 **Affects:** the legacy Tk property/edit dialogs (`enter_text`, `text_line`,
 `edit_prop_legacy`, …) — usability when the window opens (or is remembered) too
 short. NOT the slick property form (`slickprop::edit_form`), which sizes to
@@ -213,8 +214,7 @@ would be inert; left untouched to keep the change minimal.
 change is Tcl-only (no C touched); the slick form (`slickprop::edit_form`) is
 untouched.
 
-**Remaining gate:** the §5 eyeball pass on a real display (WSLg-flaky for scripted
-GUI runs — drive by hand): open each of the three dialogs, confirm the OK/Cancel/
-Load/Del row is visible at the default and any remembered size, and that the WM
-refuses to shrink the window past the buttons. Once confirmed, flip the §Status
-line to RESOLVED.
+**Eyeball gate — PASSED (2026-06-14):** verified on a real display that each of the
+three dialogs shows the OK/Cancel/Load/Del row at the default and at remembered
+sizes, and that the WM refuses to shrink the window past the buttons. Issue
+RESOLVED.
