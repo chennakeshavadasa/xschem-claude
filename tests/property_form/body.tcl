@@ -1113,3 +1113,91 @@ check {PF51c instance+wire+text overlay renders without error (count 3)} \
 catch {xschem highlight_scope clear}
 
 xschem set modified 0
+
+# ===========================================================================
+# Slick enter_text dialog — discoverable text attributes.
+# Spec: specs/slick_text_dialog.md. Scope: enter_text first, common visual
+# attrs. Widget-independent CORE under test:
+#   slickprop::text_schema          -> ordered static field descriptors for the
+#                                      tokens the Appearance panel OWNS.
+#   slickprop::text_fields <props>  -> the schema list with each token's current
+#                                      value parsed out of <props> (+present flag).
+#   slickprop::text_extra  <props>  -> the leftover "Other properties" string:
+#                                      <props> with the owned tokens stripped, the
+#                                      rest preserved (round-trips verbatim).
+# Assembly reuses the existing subst-into-original slickprop::apply (no new proc).
+# RED first: text_schema/text_fields/text_extra do not exist yet -> TX1..TX5 fail;
+# TX6..TX7 exercise the already-present apply (the reuse contract).
+# ===========================================================================
+
+proc f_tschema {}  { if {[catch {slickprop::text_schema} r]}   {return -2}; return $r }
+proc f_tfields {p} { if {[catch {slickprop::text_fields $p} r]} {return -2}; return $r }
+proc f_textra  {p} { if {[catch {slickprop::text_extra $p} r]}  {return -2}; return $r }
+proc f_trow {fields tok} {
+  if {$fields eq "-2"} {return {}}
+  foreach row $fields { if {[f_dg $row tok] eq $tok} {return $row} }
+  return {}
+}
+proc tx_toks {fields} {
+  if {$fields eq "-2"} {return {}}
+  set t {}; foreach r $fields { lappend t [f_dg $r tok] }; return $t
+}
+
+### TX1 — the static schema: the owned tokens, in form-display order, each with
+### its widget kind. Size (hsize/vsize) is NOT here — it is a separate xscale/
+### yscale pair the dialog already carries.
+set ::SC [f_tschema]
+check {TX1a schema lists 8 owned fields} {[llength $::SC] == 8}
+check {TX1b schema order = font weight slant hcenter vcenter layer hide floater} \
+  {[tx_toks $::SC] eq {font weight slant hcenter vcenter layer hide floater}}
+check {TX1c weight is a bool widget whose checked value is 'bold'} \
+  {[f_dg [f_trow $::SC weight] widget] eq "bool" && [f_dg [f_trow $::SC weight] on] eq "bold"}
+check {TX1d slant is a bool widget whose checked value is 'italic'} \
+  {[f_dg [f_trow $::SC slant] widget] eq "bool" && [f_dg [f_trow $::SC slant] on] eq "italic"}
+check {TX1e hcenter is a bool widget whose checked value is 'true'} \
+  {[f_dg [f_trow $::SC hcenter] widget] eq "bool" && [f_dg [f_trow $::SC hcenter] on] eq "true"}
+check {TX1f font is a combo widget} {[f_dg [f_trow $::SC font] widget] eq "combo"}
+check {TX1g layer is a layer (colour swatch) widget} {[f_dg [f_trow $::SC layer] widget] eq "layer"}
+
+### TX2 — parse current values out of a populated text prop string.
+set ::P2 {font=Sans weight=bold slant=italic hcenter=true vcenter=true layer=4 hide=true floater=true}
+set ::TF2 [f_tfields $::P2]
+check {TX2a font value extracted clean}  {[f_dg [f_trow $::TF2 font] value]  eq "Sans"}
+check {TX2b weight value 'bold'}         {[f_dg [f_trow $::TF2 weight] value] eq "bold"}
+check {TX2c slant value 'italic'}        {[f_dg [f_trow $::TF2 slant] value]  eq "italic"}
+check {TX2d hcenter value 'true'}        {[f_dg [f_trow $::TF2 hcenter] value] eq "true"}
+check {TX2e layer value '4'}             {[f_dg [f_trow $::TF2 layer] value]   eq "4"}
+check {TX2f hide value 'true'}           {[f_dg [f_trow $::TF2 hide] value]    eq "true"}
+check {TX2g present flag set for a token in the string} {[f_dg [f_trow $::TF2 weight] present] == 1}
+
+### TX3 — absent owned tokens: empty value, present=0 (so they are not written
+### back unless the user actually toggles them).
+set ::TF3 [f_tfields {font=Sans}]
+check {TX3a absent weight -> empty value}  {[f_dg [f_trow $::TF3 weight] value] eq ""}
+check {TX3b absent weight -> present=0}     {[f_dg [f_trow $::TF3 weight] present] == 0}
+check {TX3c present font  -> present=1}      {[f_dg [f_trow $::TF3 font] present] == 1}
+
+### TX4 — hide carries the non-bool value 'instance' (hide-when-instantiated);
+### the value is preserved verbatim, not coerced to a bool.
+check {TX4 hide=instance value preserved} {[f_dg [f_trow [f_tfields {hide=instance}] hide] value] eq "instance"}
+
+### TX5 — the leftover "Other properties" string: owned tokens stripped, every
+### other token (incl. unknown ones) preserved with its value.
+set ::X5 [f_textra {name=note1 weight=bold font=Sans xyz=99}]
+check {TX5a owned token weight removed from extra} {[lsearch [xschem list_tokens $::X5 0] weight] < 0}
+check {TX5b owned token font removed from extra}   {[lsearch [xschem list_tokens $::X5 0] font] < 0}
+check {TX5c unknown token name preserved in extra} {[lsearch [xschem list_tokens $::X5 0] name] >= 0}
+check {TX5d unknown token xyz preserved in extra}  {[lsearch [xschem list_tokens $::X5 0] xyz] >= 0}
+check {TX5e extra keeps the unknown token's value} {[xschem get_tok $::X5 name 2] eq "note1"}
+
+### TX6 — assembly reuses slickprop::apply (subst-into-original): overlay the
+### edited owned values onto a base string; unknown tokens survive, owned tokens
+### land, an emptied value removes its token (Bold turned off).
+set ::OUT6 [f_apply {name=note1 weight=bold font=Sans} {weight {} font Mono}]
+check {TX6a unknown token name survives}     {[xschem get_tok $::OUT6 name 2] eq "note1"}
+check {TX6b weight removed when turned off}  {[xschem get_tok $::OUT6 weight 2] eq ""}
+check {TX6c font updated to Mono}            {[xschem get_tok $::OUT6 font 2] eq "Mono"}
+
+### TX7 — the cardinal invariant carried to text props: assembling with no edits
+### is byte-identical (apply with empty changes returns the original string).
+check {TX7 no-edit assembly is byte-identical} {[f_apply {font=Sans weight=bold name=note1} {}] eq {font=Sans weight=bold name=note1}}
