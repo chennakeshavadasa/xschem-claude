@@ -1078,4 +1078,38 @@ if {[gui2_ok]} {
   foreach t {PF50a PF50b} { check "$t (skipped: no main window)" {1} }
 }
 
+# ===========================================================================
+# PF51 — H3 polish: (a/b) the overlay SURVIVES a redraw — the D2 persistence the
+# whole design rests on (re-stroked at the end of draw(), so pan/zoom keep it);
+# (c) the completed per-type primitive renders every drawable type, including
+# TEXT (its bounding box), without error. Pixel correctness (colour on both
+# themes, halo thickness, distinct-from-selection, the text box shape) is a
+# manual eyeball item — see code_analysis/apply_scope_highlight_decision.md.
+# ===========================================================================
+
+catch {xschem highlight_scope clear}
+pf_setup_insts
+set ::pf51_r1 [xschem instance_id R1]
+xschem unselect_all; xschem select instance R1
+set ::pf51_ids [lsort [xschem highlight_scope all $::pf51_r1]]
+xschem redraw
+check {PF51a the overlay survives a redraw (count unchanged)} \
+  {[xschem highlight_scope] == 3}
+check {PF51b the overlay survives a redraw (stored ids unchanged)} \
+  {[lsort [xschem highlight_scope ids]] eq $::pf51_ids}
+
+# the completed primitive: a mixed overlay incl. a TEXT redraws cleanly
+xschem set modified 0
+xschem clear force schematic
+xschem instance res.sym 0 0 0 0 {name=R1 value=1k}
+xschem wire 0 0 100 0
+xschem text 0 50 0 0 hello {} 0.4 0
+set ::pf51_iid [xschem instance_id R1]
+set ::pf51_wid [xschem wire_id 0]
+set ::pf51_tid [xschem text_id 0]
+check {PF51c instance+wire+text overlay renders without error (count 3)} \
+  {[catch {xschem highlight_objects instance $::pf51_iid wire $::pf51_wid text $::pf51_tid} r] == 0 &&
+   [catch {xschem redraw} e] == 0 && [xschem highlight_scope] == 3}
+catch {xschem highlight_scope clear}
+
 xschem set modified 0

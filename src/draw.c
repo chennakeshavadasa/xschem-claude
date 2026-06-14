@@ -5414,7 +5414,32 @@ void draw_scope_highlight(void)
           drawtemparc(g, ADD, xctx->arc[layer][idx].x, xctx->arc[layer][idx].y,
                       xctx->arc[layer][idx].r, xctx->arc[layer][idx].a, xctx->arc[layer][idx].b);
         break;
-      default: break; /* xTEXT deferred (H3) */
+      case xTEXT:
+        idx = text_index_from_id(id);
+        if(idx >= 0) {
+          double tx1, ty1, tx2, ty2, longest;
+          int nlines;
+          char *estr;
+          #if HAS_CAIRO==1
+          int customfont = set_text_custom_font(&xctx->text[idx]);
+          #endif
+          estr = my_expand(get_text_floater(idx), tclgetintvar("tabstop"));
+          /* outline the text's bounding box (mirrors the selection bbox math) */
+          if(text_bbox(estr, xctx->text[idx].xscale, xctx->text[idx].yscale,
+                       xctx->text[idx].rot, xctx->text[idx].flip,
+                       xctx->text[idx].hcenter, xctx->text[idx].vcenter,
+                       xctx->text[idx].x0, xctx->text[idx].y0,
+                       &tx1, &ty1, &tx2, &ty2, &nlines, &longest)) {
+            RECTORDER(tx1, ty1, tx2, ty2);
+            drawtemprect(g, ADD, tx1, ty1, tx2, ty2);
+          }
+          my_free(_ALLOC_ID_, &estr);
+          #if HAS_CAIRO==1
+          if(customfont) cairo_restore(xctx->cairo_ctx);
+          #endif
+        }
+        break;
+      default: break;
     }
   }
   /* flush the batched primitives (polygons draw immediately, no END) */

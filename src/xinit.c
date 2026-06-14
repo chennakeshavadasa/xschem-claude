@@ -1083,13 +1083,17 @@ int build_colors(double dim, double dim_bg)
     }
     /* apply-scope highlight color (decision doc D1): theme-aware default — white
      * on the dark scheme, a near-black high-contrast stroke on the light scheme —
-     * overridable by the Tcl var ::slickprop_highlight_color. Fixed ~2px screen
-     * width (D4) so the outline reads as a halo and is zoom-independent. */
+     * overridable by the Tcl var ::slickprop_highlight_color. Width (D4) is a
+     * fixed screen-pixel halo (so it reads as a halo and is zoom-independent),
+     * tunable via ::slickprop_highlight_width (default 2). */
     if(has_x) {
       const char *hc = tclgetvar("slickprop_highlight_color");
+      const char *hw = tclgetvar("slickprop_highlight_width");
+      int width = (hw && hw[0]) ? atoi(hw) : 2;
+      if(width < 0) width = 0; /* 0 = thin (server-fast) line; negative is invalid */
       if(!hc || !hc[0]) hc = tclgetboolvar("dark_colorscheme") ? "#ffffff" : "#101010";
       XSetForeground(display, xctx->gc_scope, find_best_color((char *)hc));
-      XSetLineAttributes(display, xctx->gc_scope, 2, LineSolid, LINECAP, LINEJOIN);
+      XSetLineAttributes(display, xctx->gc_scope, width, LineSolid, LINECAP, LINEJOIN);
     }
     if(has_x) for(i=0;i<cadlayers; ++i) {
 #ifdef __unix__
