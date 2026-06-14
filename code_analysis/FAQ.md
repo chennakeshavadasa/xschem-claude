@@ -72,25 +72,54 @@ effects are finite and replayable.
 > point, while logging at the gesture would need three (and would record the two
 > interactive ones unreplayably).
 
-**3 — So where's the bug? Not in `q` — in coverage.** The honest gap is that
-`apply_properties` *itself* is **also not yet logged** (it was added for the
-multi-instance work on this branch without a `log_action`). So property edits are
-absent from the replay log in *any* form. The one-line fix lands in the **funnel**
-that every Apply/OK already passes through — `apply_instance_properties()`
-(`editprop.c`) — not scattered across the key handler, the menu, and the form:
+**3 — So where's the bug? Not in `q` — in coverage.** The honest gap was that
+`apply_properties` *itself* was **also not logged** (added for the multi-instance
+work without a `log_action`). So property edits were absent from the replay log in
+*any* form. **(Now fixed — see the placement subtlety below, which is the real
+lesson.)**
 
-```c
-/* in apply_instance_properties(), after the mutation succeeds */
-log_action("xschem apply_properties %s %u {%s} {%s}",
-           scope, displayed_id, new_prop, old_prop);
+**3a — The instinct is right, the placement is a trap.** The obvious fix is "one
+`log_action` in the **funnel** every Apply/OK passes through —
+`apply_instance_properties()` (`editprop.c`)." That is where you'd put *identity*
+or *undo* (Q7): one chokepoint, every route covered. **But for a replay log it is
+wrong**, and seeing why is the payoff of this question. Look at *who* calls that
+funnel:
+
+| caller | reaches `apply_instance_properties()` via |
+| --- | --- |
+| the form's OK / Apply | `do_apply` → `xschem apply_properties` |
+| a CIW-typed command | the CIW → `xschem apply_properties` |
+| **replay** (sourcing the log) | `source` → `xschem apply_properties` |
+| a script / keybinding | → `xschem apply_properties` |
+
+A `log_action` in the funnel fires for **all four**. Two of them must *not* be
+logged from there: the **CIW already logs typed commands itself** (you'd write the
+line twice), and **replay must re-execute without re-recording** (logging in the
+funnel makes replaying a log *grow a fresh copy of every edit*). This is the exact
+trap the engine already documents at `callback.c`: *"hooking move.c instead would
+double-log every replay"* — move/zoom log at the **interactive gesture layer**
+(`callback.c`), never in the engine (`move.c`) that the `xschem move_objects`
+command reuses.
+
+So the correct site is the **interactive layer** — the form's `do_apply`, which
+replay/CIW/scripts never call:
+
+```tcl
+# slickprop::do_apply, after a successful apply ($did): log the REPLAYABLE
+# command itself (built with [list ...] so it re-parses when the log is sourced).
+if {$did} {
+  slickprop::log_apply [list xschem apply_properties \
+    $::slickprop_apply_scope $nav(disp_id) $::tctx::retval $cur(orig)]
+}
 ```
 
-That this is *one* line, in *one* place, is the payoff of the chokepoint
-architecture this codebase keeps reaching for (Q7): when every route to an effect
-is funnelled through a single function, every cross-cutting concern bolted to it —
-logging, undo, change events — attaches once. The reason `q`, the menu, and a
-script don't each need their own `log_action` is precisely that they converge on
-`apply_instance_properties` first.
+> **The distinction worth internalizing:** *state-mutation* concerns (identity,
+> undo, cache invalidation) belong at the **engine funnel** — the one place every
+> route mutates. A *replay log* belongs one layer **up**, at the **interactive
+> trigger** — because the log's own replay vehicle is the engine command, and a
+> recorder that sits on its own playback head records itself. Same codebase, two
+> different "right chokepoints," chosen by whether the concern must *not* re-fire
+> during replay.
 
 **One caveat the student should not miss: a replay log is only as good as its
 *referents*.** `displayed_id` is a **session-stable** id (Q7/Q8) — unique and
@@ -107,8 +136,9 @@ arguments mean the same thing tomorrow is the other half.
 - A good event/audit/undo log records **state transitions (effects)**, not
   **UI events (intentions)** — effects are deterministic and replayable;
   intentions are interactive and infinite.
-- Prefer **instrumenting the funnel** (the one function every route converges on)
-  over instrumenting each entry point — one concern, one site.
+- Pick the chokepoint by the **concern**: *state-mutation* concerns (identity,
+  undo) go at the **engine funnel**; a **replay log** goes one layer up at the
+  **interactive trigger**, or it records its own playback and double-logs.
 - **Opt-in beats blanket** for replay logs: most calls are queries; recording
   everything destroys the signal and still botches the interactive cases.
 - A log is only replayable if its **referents are stable** across the replay

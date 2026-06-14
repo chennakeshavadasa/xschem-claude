@@ -1,6 +1,10 @@
 # Decision doc — action-logging the property apply
 
-*Status:* **DESIGN — ready to implement (RED-first). No build code changed yet.**
+*Status:* **IMPLEMENTED 2026-06-14** (RED `…` / GREEN). Logged in
+`slickprop::do_apply` via the `slickprop::log_apply` seam → `xschem log_action`;
+gated on `$did`. Tests PF47a–e (suite 124). FAQ Q13 corrected to match the
+form-layer placement. Out of scope: the legacy vim path; cross-session referents
+(issue 0005).
 Closes the coverage gap raised in [[FAQ]] Q13: property edits never reach the
 action log. Builds on the action-logging work
 ([[action-logging]]) and the multi-instance apply
