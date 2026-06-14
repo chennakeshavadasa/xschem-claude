@@ -988,4 +988,32 @@ if {[gui2_ok]} {
   foreach t {PF47a PF47b PF47c PF47d PF47e} { check "$t (skipped: no main window)" {1} }
 }
 
+# ===========================================================================
+# PF48 — log the form LAUNCH as a NON-REPLAYABLE marker. Opening the form should
+# record that the editor was launched — but as a `#` comment, NOT a replayable
+# `xschem edit_prop` line: edit_prop opens a modal, so a replayable line would
+# re-open/hang the dialog on replay (and the launch is an intention, not an
+# effect — only the apply is replayable). Emitted via slickprop::log_event at
+# slickprop::edit_form (the one point every launch route converges on); the test
+# spies on that seam. Read AFTER the run (the marker is emitted synchronously in
+# edit_form, before tkwait — so this is robust to the modal-build flake).
+# Decision doc §6: code_analysis/apply_properties_logging_decision.md.
+# ===========================================================================
+
+if {[gui2_ok]} {
+  proc slickprop::log_event {line} { lappend ::pf48_log $line }
+  catch {xschem highlight_scope clear}
+  pf_setup_insts
+  xschem select instance R1
+  set ::pf48_log {}
+  pf_form_run current { slickprop::cancel }
+  check {PF48a opening the form logs exactly one launch marker} {[llength $::pf48_log] == 1}
+  check {PF48b the marker is a NON-replayable comment (begins with #)} \
+    {[string index [lindex $::pf48_log 0] 0] eq "#"}
+  check {PF48c the marker names edit_prop and the scope} \
+    {[string match "#*edit_prop*current*" [lindex $::pf48_log 0]]}
+} else {
+  foreach t {PF48a PF48b PF48c} { check "$t (skipped: no main window)" {1} }
+}
+
 xschem set modified 0

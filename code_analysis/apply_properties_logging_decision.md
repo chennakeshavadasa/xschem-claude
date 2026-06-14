@@ -1,6 +1,6 @@
 # Decision doc — action-logging the property apply
 
-*Status:* **IMPLEMENTED 2026-06-14** (RED `…` / GREEN). Logged in
+*Status:* **IMPLEMENTED 2026-06-14** (apply: RED/GREEN; launch marker: §6, RED-first). Logged in
 `slickprop::do_apply` via the `slickprop::log_apply` seam → `xschem log_action`;
 gated on `$did`. Tests PF47a–e (suite 124). FAQ Q13 corrected to match the
 form-layer placement. Out of scope: the legacy vim path; cross-session referents
@@ -144,3 +144,43 @@ suite assertion (the log path/enable depends on `has_x`/`--logdir`).
 - **C:** none.
 - **Docs:** correct FAQ Q13's "fix" snippet (engine → form); note the change in
   the action-logging spec/checklist if present on this branch.
+
+---
+
+## 6. Follow-on — logging the *launch* (the form opening) — DESIGN
+
+*Want:* also record that the user **opened** the Edit Properties form (not just
+the apply). *Decision (ratified):* log it as a **non-replayable `#` marker**, not
+a replayable command.
+
+**Why a marker, not `xschem edit_prop`.** `edit_prop` opens a **modal**
+(`edit_form` → `toplevel .dialog` + `tkwait`). A replayable `xschem edit_prop`
+line would, on `source`, re-open the dialog and **block** (interactive) or **hang
+on `tkwait`** (headless). And the launch is a pure *intention* with no state
+change — the only effect (the apply) is already logged (§1–§5). So the launch is
+recorded for **audit/readability only**, as a Tcl comment that `source` skips:
+
+```
+# xschem edit_prop current — Edit Properties form opened (non-replayable: modal)
+```
+
+**Where.** At **`slickprop::edit_form`** — the single point every launch route
+converges on (`q` → `edit_property(0)` → `tcleval edit_prop`; the menu → Tcl
+`edit_prop`; `xschem edit_prop [scope]` → `edit_property(0)` → all reach
+`edit_form`). One marker per open, covering every entry. Logged at the
+interactive layer (replay sources `apply_properties`, never `edit_prop`, so
+`edit_form` is not re-entered on replay; and a `#` line is inert anyway).
+
+**Seam + emit.** A generic `slickprop::log_event {line}` (= `catch {xschem
+log_action $line}`, sibling of `log_apply`) emits the already-built marker; the
+test spies on it. Marker built in `edit_form` from `::slickprop_apply_scope`.
+
+**Replay-safety (the whole point).** Sourcing the log runs the `#` line as a
+comment — no dialog, no hang — while the line still documents the exact launch
+(and is one un-comment away from a manual re-launch).
+
+**Test (RED-first).** Spy on `slickprop::log_event`; open the form via
+`pf_form_run` and assert (read *after* the run, so it is robust to the
+modal-build flake — the marker is emitted synchronously inside `edit_form`,
+before `tkwait`): exactly one marker, and it is a `#` comment naming
+`edit_prop` + the scope. Sabotage: drop the marker emit → the test reddens.
