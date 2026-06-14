@@ -149,4 +149,70 @@ set prop [xschem getprop instance 0]
 check {PF10 a code.sym instance's multi-line props survive a no-op apply} \
   {[f_apply $prop {}] eq $prop}
 
+# ===========================================================================
+# PF11-PF15 — the FORM layer (build_fields/placeholder/collect_changes/result),
+# exercised through real Tk widgets (a display is available headless). These
+# prove the widget-level dirty-tracking and placeholder logic feed the proven
+# core correctly. Built in a withdrawn toplevel so nothing pops up.
+# ===========================================================================
+proc gui_ok {} { return [expr {[catch {toplevel .pf; wm withdraw .pf; frame .pf.f; pack .pf.f} ] == 0}] }
+proc gui_done {} { catch {destroy .pf} }
+
+### PF11 — build the form, make NO edits, result() == orig (cardinal invariant
+### carried through the widget layer).
+if {[gui_ok]} {
+  set prop {name=E1 TABLE="1.4 0.0 1.6 4.0"}
+  set tmpl {name=x1 TABLE="0 0 0 0" lab=DEF}
+  slickprop::build_fields .pf.f $prop $tmpl
+  check {PF11a build_fields placed an entry for each declared token} \
+    {[winfo exists $slickprop::cur(entry,name)] && [winfo exists $slickprop::cur(entry,TABLE)]}
+  check {PF11b no edits -> result() is byte-identical to the original} \
+    {[slickprop::result] eq $prop}
+  gui_done
+} else { check {PF11 (skipped: no display)} {1} }
+
+### PF12 — edit ONE entry; result() reflects only that change.
+if {[gui_ok]} {
+  set prop {name=E1 TABLE="1.4 0.0 1.6 4.0"}
+  slickprop::build_fields .pf.f $prop {name=x1 TABLE="0 0 0 0"}
+  $slickprop::cur(entry,TABLE) delete 0 end
+  $slickprop::cur(entry,TABLE) insert 0 {9.9 8.8}
+  check {PF12 editing the TABLE entry updates only TABLE in result()} \
+    {[slickprop::result] eq {name=E1 TABLE="9.9 8.8"}}
+  gui_done
+} else { check {PF12 (skipped)} {1} }
+
+### PF13 — a declared-but-unset attr shows its default as a placeholder; its
+### effective value is empty and, if untouched, it is NOT written.
+if {[gui_ok]} {
+  set prop {name=E1}
+  slickprop::build_fields .pf.f $prop {name=x1 lab=DEFLAB}
+  check {PF13a unset attr lab shows the placeholder (default text, flagged)} \
+    {$slickprop::cur(placeholder,lab) == 1 && [$slickprop::cur(entry,lab) get] eq "DEFLAB"}
+  check {PF13b lab's effective value is empty (placeholder != content)} \
+    {[slickprop::field_value lab] eq ""}
+  check {PF13c untouched placeholder -> lab not written, result()==orig} \
+    {[slickprop::result] eq $prop}
+  gui_done
+} else { check {PF13 (skipped)} {1} }
+
+### PF14 — typing into a placeholder field adds the token.
+if {[gui_ok]} {
+  slickprop::build_fields .pf.f {name=E1} {name=x1 lab=DEFLAB}
+  slickprop::placeholder_in lab   ;# simulate focus-in clearing the placeholder
+  $slickprop::cur(entry,lab) insert 0 MYNET
+  check {PF14 typing a value into an unset attr adds it} \
+    {[xschem get_tok [slickprop::result] lab 2] eq "MYNET"}
+  gui_done
+} else { check {PF14 (skipped)} {1} }
+
+### PF15 — clearing a set field removes its token.
+if {[gui_ok]} {
+  slickprop::build_fields .pf.f {name=E1 lab=PLUS} {name=x1 lab=DEF}
+  $slickprop::cur(entry,lab) delete 0 end
+  check {PF15 clearing a set field removes the token from result()} \
+    {![string match {*lab=*} [slickprop::result]] && [string match {*name=E1*} [slickprop::result]]}
+  gui_done
+} else { check {PF15 (skipped)} {1} }
+
 xschem set modified 0
