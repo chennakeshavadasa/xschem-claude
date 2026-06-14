@@ -598,6 +598,70 @@ the same engine/GUI split as the rest of the feature — the Tcl side decides
 
 ---
 
+## Part 7⅞ — Making the form modeless: read the lock before you pick it
+
+A user noticed the dialog blocked canvas selection (you could pan/zoom but not
+click to select more). The instinct is "it's modal, make it modeless." But the
+first move is always **find the actual mechanism**, and here it was a surprise:
+
+- there was **no Tk `grab`** — that's why pan/zoom still worked;
+- the form just did `xschem set semaphore +1`. XSCHEM's `xctx->semaphore` is a
+  re-entrancy counter: idle is 0, `callback()` raises it to 1 per event, and the
+  form's extra +1 pushed every event to **2**, tripping the `if(semaphore >= 2)`
+  guards that short-circuit *gesture* handlers. Pan/zoom happen to run on code
+  paths **before** that guard; selection runs after it. The asymmetry was never a
+  decision — just where the lock sat relative to each operation.
+
+> **▶ Level up — characterize the mechanism, not the symptom.** "It's modal" was
+> wrong, and building on that wrong model (e.g. fiddling with `grab`) would have
+> wasted the session. Ten minutes reading `callback.c` turned a vague "unblock
+> the form" into a precise, small change: *let the selection-gesture sites run
+> even at `semaphore >= 2` when our form holds the lock; leave every other guard
+> alone.* The right fix was surgical because the diagnosis was exact.
+
+Even better, the engine **already had a branch** for "Button1 clicked while a
+property dialog is open" (`callback.c`, the legacy text dialogs used it). The new
+behavior slotted into that existing seam rather than adding a parallel path —
+extend the place that already exists before inventing a new one.
+
+**The C↔Tcl seam.** Tk can't see a C-side `select_object()`, so C *tells* Tcl the
+selection settled: `tcleval("slickprop::on_selection_changed")`. C owns the
+event and the engine state; Tcl owns the form's reaction (rebuild the nav set,
+re-load the displayed instance, refresh the highlight). One explicit
+notification, gated on a "form open" flag so it costs nothing otherwise — far
+cleaner than the form polling the canvas on a timer.
+
+**One prompt, every exit.** Changing the selection and pressing Next/Prev are the
+*same situation* — "you're leaving an instance that has unapplied edits." So they
+route through **one** helper:
+
+```tcl
+proc slickprop::maybe_apply_then {action cancelaction} {
+  if {![slickprop::is_dirty]} { uplevel #0 $action; return }
+  switch -- [tk_messageBox -type yesnocancel -message "Apply your changes?"] {
+    yes     { slickprop::do_apply; uplevel #0 $action }   ;# Apply, then go
+    no      { uplevel #0 $action }                        ;# Discard, then go
+    default { uplevel #0 $cancelaction }                  ;# Cancel: stay / restore
+  }
+}
+```
+
+Both `nav` and `on_selection_changed` call it with their own *action* (step / adopt
+the new selection) and *cancel-action* (stay put / restore the previous
+selection). This deliberately **superseded** the older "Next/Prev silently
+discards" rule — and the test that encoded the old rule (PF28) was *updated*, not
+worked around, because the behavior genuinely changed.
+
+> **▶ Level up — collapse parallel flows into one decision point.** Two code paths
+> that face the same question should ask it in the same place, or they *will*
+> drift (one grows a confirmation, the other doesn't). Passing the
+> situation-specific bits as `action` / `cancelaction` lets one helper serve both
+> without a flag-laden mega-proc. And when a change supersedes old behavior, edit
+> the test that asserted it — a test you route *around* is a test you've stopped
+> trusting.
+
+---
+
 ## Part 8 — Try it yourself (exercises)
 
 1. **Add a per-field "varies" marker.** P3 implements the required red footer

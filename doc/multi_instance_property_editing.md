@@ -98,10 +98,10 @@ readout between the buttons shows your position, e.g. **"2 of 7"**. **Prev** is
 disabled on the first instance, **Next** on the last.
 
 - Navigating shows the next instance **with its own current values**.
-- **Navigating away discards any edits you haven't applied yet.** The change you
-  type belongs to the instance on screen; commit it with **Apply** or **OK**
-  before stepping on, or it's dropped. (Modified fields are flagged with a dot, so
-  pending edits are visible before you leave.)
+- **If you have unapplied edits, stepping away asks first** — a dialog offering
+  **Apply** (commit them, then move), **Discard** (drop them, then move), or
+  **Cancel** (stay where you are). Modified fields are flagged with a dot, so
+  pending edits are visible before you leave.
 
 This lets you sweep a selection: land on an instance, tweak it, **Apply**, step to
 the next, and so on — all without closing the dialog.
@@ -169,6 +169,26 @@ the set OK writes — there is no daylight between what you see and what changes
 
 > On the light colour scheme the outline is drawn near-black instead of white so
 > it stays visible; set `slickprop_highlight_color` to force a fixed colour.
+
+---
+
+## The editor is modeless — keep selecting
+
+You don't have to close the dialog to change what you're editing. With it open you
+can keep working on the canvas:
+
+- **Click** an instance → the dialog switches to editing it.
+- **Shift-click** (or sweep) → add instances to the set; under **All Selected**
+  the scope, the **Next/Prev** range, and the white highlight all update live.
+- Pan and zoom work as usual.
+
+If you have **unapplied edits** when you change the selection, the dialog asks
+first — **Apply** (commit, then switch), **Discard** (drop, then switch), or
+**Cancel** (stay on the current instance, keeping your edits and selection). A
+selection change with nothing pending switches silently.
+
+> Only *selection* is live while the dialog is open; moving, drawing wires, or
+> placing objects stay disabled until you close it.
 
 ---
 
