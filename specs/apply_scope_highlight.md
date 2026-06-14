@@ -10,8 +10,11 @@ commands, and the form wiring (`slickprop::update_highlight`). Tests PF36–PF39
 H1's shared `scope_targets` (the resolver + the scope write-trace wiring cover all
 scopes); landed as characterization PF49 (per-scope target set incl. the
 mixed-master D7 case) + PF50 (the previously-untested mixed-master *selected
-apply*), sabotage-verified. Suite 133. **H3** (theme/halo polish, pan/zoom redraw
-pass, text bbox) remains.
+apply*), sabotage-verified. Suite 133. **H3 DONE 2026-06-14** — text-bbox completes the
+7-type primitive; halo width tunable via `::slickprop_highlight_width`; overlay
+redraw-survival (D2) locked by PF51 (suite 136). The only remaining item is the
+**manual eyeball checklist** (`code_analysis/apply_scope_highlight_decision.md`
+§8) — pixel/visual verification the headless suite cannot assert.
 This is the on-canvas highlight that was deferred to backlog throughout the
 multi-instance property-editing work
 ([[multi_instance_property_editing]] §3 "deferred", §4 "highlight", §6.E). It
@@ -204,8 +207,10 @@ writing code, exactly as the earlier phases did.
    the apply so "outlined == applied" holds by construction. (Already functional
    from H1's shared `scope_targets` + scope write-trace wiring; H2 added the
    characterization + mixed-master D7 tests, PF49–PF50, sabotage-verified.)
-3. **H3 — polish.** Theme-aware/tunable color (D1), thickness/halo (D4), and a
-   pass on redraw/erase correctness (D2/D5) across pan/zoom with the dialog open.
+3. **H3 — polish. ✅ DONE 2026-06-14.** Theme-aware/tunable color (D1, H1) +
+   tunable halo width (D4, `::slickprop_highlight_width`); text-bbox completes the
+   7-type primitive; redraw-survival (D2/D5) locked by PF51. Pixel/visual items →
+   §8 manual eyeball checklist in the decision doc.
 
 ---
 

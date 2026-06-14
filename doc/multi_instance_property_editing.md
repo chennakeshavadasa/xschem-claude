@@ -202,6 +202,7 @@ command window) tune the form:
 | `slickprop_apply_scope` | The current scope: `current`, `selected`, or `all`. | `current` |
 | `slickprop_warn` | Colour of the "values differ" warning. | `#d02020` (red) |
 | `slickprop_highlight_color` | Colour of the scope-highlight outline. | white (dark theme) / near-black (light theme) |
+| `slickprop_highlight_width` | Width (screen px) of the scope-highlight halo. | 2 |
 | `slickprop_fontsize` | Base font size of the whole form. | system size + 1 |
 | `slickprop_entry_width` | Width of value entries, in characters. | 36 |
 | `slickprop_accent` | Colour of the "modified field" dot. | `#d08000` (amber) |

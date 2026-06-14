@@ -1,8 +1,11 @@
 # Decision doc — apply-scope highlight (white outline on edit targets)
 
-*Status:* **DESIGN — decisions RATIFIED 2026-06-14 (see §6). No build code
-changed (planning session). Ready for RED-first implementation next session.**
-Spec: `specs/apply_scope_highlight.md`. Brief:
+*Status:* **IMPLEMENTED 2026-06-14 — H1 + H2 + H3 done (suite 136).** Decisions
+D1–D7 ratified (§6). H1 = primitive + Only Current; H2 = All Selected + All
+(already powered by the shared `scope_targets`); H3 = text bbox + tunable halo
+(`::slickprop_highlight_width`). Remaining = the **§8 manual eyeball checklist**
+(pixel/visual items the suite cannot assert). Spec:
+`specs/apply_scope_highlight.md`. Brief:
 `claude_suggs/apply_scope_highlight_session_prompt.md`.
 
 This doc does the design-first work the spec §6 / the brief require: **§1**
@@ -359,3 +362,40 @@ update `specs/apply_scope_highlight.md` status,
 `doc/multi_instance_property_editing.md`, and
 `code_analysis/multi_instance_editing_tutorial.md`. Pixel correctness (looks
 white, halo, distinct-from-selection) = manual eyeball, not a suite assert.
+
+---
+
+## 8. H3 manual eyeball checklist (the pixel items the suite can't assert)
+
+H1/H2/H3 made the apply-scope highlight functionally complete and
+state-tested (PF36–PF51, suite 136). What remains is **visual** verification — it
+cannot be asserted headlessly, so confirm these by eye on a real display (open
+**Edit Properties** on an instance; menu or `q`):
+
+- [ ] **Visible & distinct on the DARK scheme** — a clear white outline, readable
+      as a *second* cue next to the selection recolor (both show on a selected,
+      in-scope instance).
+- [ ] **Visible on the LIGHT scheme** — the default flips to near-black
+      (`#101010`); confirm it does not vanish against the light background.
+- [ ] **Halo reads as a halo** — the ~2px stroke sits as an outline, not lost in
+      the symbol; try `set slickprop_highlight_width 3` (then reopen) for a
+      thicker halo, and `set slickprop_highlight_color #00e0ff` for a custom hue.
+- [ ] **Per-type natural shape** — an instance as its bbox, a **wire as its line
+      segment**, rect/line/poly/arc/**text (bbox)** each in shape (drive the
+      general primitive from the CIW: `xschem highlight_objects text <id> wire
+      <id> …` then `xschem redraw`).
+- [ ] **Scope tracks live** — switch "Apply to" current → All Selected → All
+      (same symbol): the outlined set repaints to match each scope, including
+      unselected same-master instances under *All*.
+- [ ] **Next/Prev follows** — under Only Current the single outline moves with the
+      displayed instance.
+- [ ] **Survives pan/zoom** — with the form open, pan and zoom; the outline stays
+      on the right objects at the new viewport.
+- [ ] **Clears on close** — OK / Apply-then-close / Cancel removes the outline;
+      the canvas returns to exactly its prior appearance.
+- [ ] **Mixed selection (D7)** — select instances of two masters (e.g. a res and
+      a capa) plus a wire, edit a res under All Selected: only the **res**
+      instances outline (== what OK writes); the capa and wire do not.
+
+Tunables (set before opening the form): `slickprop_highlight_color`,
+`slickprop_highlight_width`.
