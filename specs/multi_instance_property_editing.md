@@ -163,14 +163,17 @@ Each apply action is independently undoable:
 The engine already pushes exactly one undo per `update_symbol` call (the `pushed`
 guard, `editprop.c:901/911`), so each Apply maps to one undo naturally.
 
-### (Deferred) On-canvas highlighting — BACKLOG, out of scope for now
+### (Deferred) On-canvas highlighting — now spec'd separately
 
-The "cool factor" of distinguishing *selected* vs *being-edited* on the canvas
-(and reflecting the scope live) is **parked on the backlog** at the user's
-request and is **not** part of this round of code changes. Sketch retained for
-later: a transient C "edit-scope" overlay drawn beside `draw_selection`,
-referencing instances **by stable id**, updated as scope/navigation change. See
-§6.E for the styling questions when it is picked up.
+The on-canvas highlight — a **white outline** around the apply-scope set,
+distinct from the selection highlight and updated live as scope/navigation
+change — has been **promoted to its own spec**: see
+[`specs/apply_scope_highlight.md`](apply_scope_highlight.md), with a design-first
+build brief in
+[`claude_suggs/apply_scope_highlight_session_prompt.md`](../claude_suggs/apply_scope_highlight_session_prompt.md).
+It remains the **last unbuilt piece** of this feature. The original sketch: a
+transient C "edit-scope" overlay drawn beside `draw_selection`, referencing
+objects **by stable id**, fed the in-scope set by the form.
 
 ---
 
