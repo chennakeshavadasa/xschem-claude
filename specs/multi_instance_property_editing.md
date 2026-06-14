@@ -1,8 +1,10 @@
 # Spec — multi-instance property editing (Cadence-style)
 
-*Status:* **DRAFT / design.** No implementation yet. Builds on the slick
-per-field property form ([[slick-property-forms]], branch `slick-property-forms`)
-and the stable instance handles ([[stable-object-handles]]).
+*Status:* **DESIGN — key decisions ratified (2026-06-14), ready to implement P1.**
+No code yet. Builds on the slick per-field property form ([[slick-property-forms]],
+branch `slick-property-forms`) and the stable instance handles
+([[stable-object-handles]]). Highlighting (§3 deferred) is explicitly **backlog**,
+out of scope for this round.
 
 *Summary:* when several instances are selected and the user opens the Properties
 form, give Cadence-grade support: a **Next / Prev** walk through the targets, an
@@ -66,31 +68,45 @@ does the work** — not a new editing core.
 
 ## 3. Desired behavior
 
-### 3.1 "Apply to" scope selector
+**Throughout: only the CHANGED fields are ever applied.** None of the scopes make
+the instances' properties identical — they each receive only the tokens the user
+edited (the dirty fields), keeping every other attribute of their own. This is
+already exactly what the engine does (`set_different_token`, §1.1).
 
-A dropdown in the form header with three modes:
+### 3.1 "Apply to" scope selector — and the default-behavior FIX
+
+A dropdown in the form header, three modes:
 
 - **Only Current** — changes apply to the one instance currently shown.
-- **All Selected** — changes apply to every selected instance (today's implicit
-  behavior, now explicit). Default when N > 1.
-- **All** — changes apply to a larger set (see the open question in §6.A about
-  whether "All" means *all instances of the same symbol/master* — recommended —
-  or *all instances in the schematic*).
+- **All Selected** — changed fields apply to every selected instance.
+- **All** — changed fields apply to **all instances of the same cell / symbol /
+  master in the current schematic window** (resolved §6.A). Different masters are
+  never touched.
 
-The scope only governs **which instances receive the change set on OK**; it does
-not change what the form displays (that is Next/Prev, §3.2). Default scope:
-*Only Current* when one instance is selected, *All Selected* when several are.
+**FIX REQUIRED (behavior change):** today xschem *forces* "All Selected" whenever
+more than one object is selected (`editprop.c:1282` sets
+`preserve_unchanged_attrs=1`). That must stop. The **"Apply to" setting is the
+sole authority**, it **retains its state** across form invocations (a sticky
+session variable, e.g. `::slickprop_apply_scope`), and its initial default is
+**Only Current** (the safe choice — opening the form on a multi-selection must not
+silently edit them all). Selecting N instances no longer implies editing N; the
+user opts in via the dropdown, and the choice persists.
+
+Scope governs **which instances an Apply / OK touches**; it does not change what
+the form *displays* (that is Next/Prev, §3.2).
 
 ### 3.2 Next / Prev navigation
 
-Two buttons (and ideally `Alt+Right`/`Alt+Left`) that step the **currently
-displayed** instance through the target set, with a position readout
-("Instance 2 of 7"). Navigation lets the user inspect/seed from each instance
-before applying. The cross-cutting design question — do pending edits persist
-across navigation, and are they applied per-step or only on OK — is §6.B; the
-recommended model is a single **change set** (the dirty fields) applied to the
-scope on OK, with Next/Prev re-seeding the displayed values from each instance
-while the change set rides along.
+Two buttons (and ideally `Alt+Right`/`Alt+Left`) that step the **displayed**
+instance through the **selected** set, with a position readout ("2 of 7"):
+
+- **Prev is greyed/disabled when the current instance is the first** of the
+  selected set; **Next is greyed when it is the last.**
+- Navigating **discards** any unapplied edits on the instance you leave (the
+  change set belongs to the displayed instance; you commit it with Apply/OK — see
+  §3.5). The new instance is shown with its own current values. *(Minor open
+  point §6.B': warn before discarding vs silent — recommend silent for v1, the
+  modified dots make pending edits visible.)*
 
 ### 3.3 Greying attributes that can't apply to many
 
@@ -105,21 +121,48 @@ per-instance are shown **disabled (greyed, read-only)**:
 A greyed field is excluded from the change set, so each instance keeps its own.
 When the scope returns to **Only Current**, the fields re-enable.
 
-### 3.4 On-canvas highlighting (the "cool factor")
+### 3.4 Buttons — OK, Apply, Cancel
 
-Three visual states, distinct from each other:
+- **OK** — apply the current change set to the scope, then **close**.
+- **Apply** — apply the current change set to the scope, **stay open** (NEW). This
+  is what makes stepping through the set useful: with Next/Prev you can land on an
+  instance, edit, **Apply** (or not), move on, all without losing the form.
+- **Cancel / Esc** — close, applying nothing pending.
 
-1. **Selected** — the existing selection look (`draw_selection`, `gc[SELLAYER]`,
-   `move.c:210`).
-2. **Being edited — current** — the single instance whose values are shown now
-   (Next/Prev moves this), drawn with a distinct, stronger accent.
-3. **Being edited — in scope** — every instance the change set *will* touch given
-   the current "Apply to" value, drawn with a second distinct accent.
+After an Apply, the displayed instance's applied values become its new baseline
+(dirty dots clear). Each Apply (and the OK apply) is its **own undo entry** (§3.6).
 
-The highlight updates **live** as the user changes scope or navigates: choosing
-*All Selected* lights all selected; *All* lights the whole set; *Only Current*
-lights just the displayed one; Next/Prev moves the "current" accent. On close,
-the canvas reverts to the plain selection.
+### 3.5 "Values differ" warning in the status line
+
+The footer status line (normally the muted `Enter: OK   Esc: Cancel` hint) turns
+into a **red warning** when, under **All Selected / All**, the focused field's
+value is **not the same across all instances in scope** — telling the user that
+applying it will overwrite those differing values. The warning is contextual to
+the focused field and clears when the field's value is uniform across the set or
+the scope is Only Current. (A per-field marker — e.g. a muted `<*>` hint — may
+also flag varying fields at a glance; the red status text is the required part.)
+
+### 3.6 Undo granularity
+
+Each apply action is independently undoable:
+
+- **One Apply (or OK) with scope = All Selected / All** → a **single** undo entry
+  that reverses the change across *all* affected instances at once.
+- **Stepping through with Next/Prev and applying per instance** → a **separate**
+  undo entry per Apply; undo reverses only the most recent, on the last instance
+  edited.
+
+The engine already pushes exactly one undo per `update_symbol` call (the `pushed`
+guard, `editprop.c:901/911`), so each Apply maps to one undo naturally.
+
+### (Deferred) On-canvas highlighting — BACKLOG, out of scope for now
+
+The "cool factor" of distinguishing *selected* vs *being-edited* on the canvas
+(and reflecting the scope live) is **parked on the backlog** at the user's
+request and is **not** part of this round of code changes. Sketch retained for
+later: a transient C "edit-scope" overlay drawn beside `draw_selection`,
+referencing instances **by stable id**, updated as scope/navigation change. See
+§6.E for the styling questions when it is picked up.
 
 ---
 
@@ -130,65 +173,67 @@ the canvas reverts to the plain selection.
   dirty-field model (the change set) and the field grid. New state: the target
   list (the selected instances, by **stable instance id** so it survives any
   reindexing — leveraging [[stable-object-handles]]), the current index, the scope.
-- **Apply (C, `update_symbol`).** Largely reusable. The form computes `new_prop`
-  from the displayed instance + the change set; the scope decides which instances
-  the C loop visits. Today the loop walks `sel_array`; for *Only Current* it would
-  visit one, for *All* it would walk a wider set. The cleanest seam: the form
-  passes C the **target id list** + the change set; a thin C entry applies
-  `set_different_token` per target. (Alternatively, keep the existing `sel_array`
-  loop and have the form adjust the selection to match the scope before OK — less
-  clean, mutates selection.)
-- **Highlight (C draw).** Needs a new transient "edit-scope" overlay. A new
-  `xschem` subcommand — e.g. `xschem edit_highlight {current <id>} {scope <id> <id> …}`
-  — records the ids and triggers a draw pass that overlays those instances with
-  the two accents (a `draw_temp_symbol`-style overlay in distinct GCs, beside the
-  existing `draw_selection`). The form calls it whenever scope/navigation changes
-  and clears it on close. Referencing instances **by stable id** is exactly what
-  the handles work enables.
+- **Apply (C, `update_symbol`).** The core (`set_different_token` per instance) is
+  reused, but two structural changes are needed:
+  - **The default-behavior fix (§3.1).** Remove the unconditional
+    `preserve_unchanged_attrs=1` for multi-selection (`editprop.c:1282`). The
+    scope now comes from the sticky setting, and `preserve_unchanged` is always
+    effectively on (changed-fields-only is the contract for *every* scope).
+  - **A mid-session apply path for the Apply button.** Today the apply happens
+    only **after** the dialog closes (`edit_symbol_property` reads the result post
+    `edit_prop`, then calls `update_symbol`). The **Apply** button (apply without
+    closing) and the per-instance OK model require applying **while the dialog is
+    open**, possibly several times. So the `update_symbol` logic must be wrapped
+    in a **Tcl-callable command**, e.g.
+    `xschem apply_properties <scope> {<inst-id> …} <new_prop> <old_prop>`, that the
+    form invokes on Apply and on OK. It takes the **target id list** (Only Current
+    = the displayed id; All Selected = the selected ids; All = the same-master ids)
+    + the change (new vs old prop) and applies `set_different_token` to each
+    target, pushing one undo. OK = call it, then close; Cancel = never call it.
+    Targets referenced **by stable instance id** (the [[stable-object-handles]]
+    work) so they survive any reindexing between applies.
+- **Highlight (C draw).** Backlogged (§3 deferred). When picked up: a transient
+  C "edit-scope" overlay drawn beside `draw_selection`, fed the current + in-scope
+  ids by the form.
 
 ---
 
 ## 5. Phasing (incremental, each shippable)
 
-1. **P1 — make the implicit explicit.** Add the "Apply to" dropdown (Only Current
-   / All Selected) wired to the *existing* engine: *Only Current* edits just the
-   shown instance; *All Selected* keeps today's behavior. Grey `name` when scope
-   is multi. No navigation, no new highlight yet. Small, high-value, low-risk.
-2. **P2 — Next/Prev.** Walk the displayed instance through the selected set, with
-   the "k of N" readout; settle the change-set-vs-navigation model (§6.B).
-3. **P3 — the highlight.** The C edit-scope overlay (two accents) updated live
-   from scope/navigation; the marquee "cool factor."
-4. **P4 — "All".** Add the third scope once §6.A is decided; needs care
-   (greying/attribute-set mismatches across different masters).
+1. **P1 — the default-fix + "Apply to" + greying.** Remove the forced
+   all-selected default (§3.1); add the sticky "Apply to" dropdown (Only Current /
+   All Selected / All) governing the target set; grey `name` when scope is multi.
+   Wrap the apply in the mid-session command (§4). Small, high-value, and it fixes
+   a real surprise (silently editing N).
+2. **P2 — Apply button + Next/Prev.** The Apply-without-close button; Next/Prev
+   walking the selected set with the "k of N" readout and first/last greying;
+   the navigation-discards-pending model (§3.2). Per-Apply undo (§3.6).
+3. **P3 — "values differ" warning.** The red status-line warning (and optional
+   per-field marker) when a focused field varies across the in-scope set (§3.5).
+4. **(Backlog) — highlight.** The on-canvas edit-scope overlay — explicitly out of
+   scope for now.
 
-P1 alone closes most of the usability gap, because the apply engine is already
-there.
+## 6. Decisions (ratified 2026-06-14) & remaining minor points
 
-## 6. Open questions / decisions to ratify
-
-- **A. What does "All" mean?** *All instances of the same symbol/master*
-  (recommended — their attribute sets match, so applying a changed token is
-  meaningful) vs *all instances in the schematic* (the user's literal phrasing,
-  but applying e.g. `value` to a resistor and a MOSFET is ill-defined). Could also
-  offer both ("All like this" vs "All").
-- **B. Edits across Next/Prev.** One change set applied to the scope on OK
-  (recommended, simplest, matches the engine) vs per-instance pending edits
-  (closer to editing each instance individually, but much more state). Also: is
-  there an **Apply** button (apply without closing, then keep navigating) like
-  Cadence?
-- **C. Display when values differ.** With *All Selected*, instances may hold
-  different values for the same attribute. Show the current instance's value
-  (recommended) — and should a field whose value varies across the set be marked
-  (e.g. "<*>" or a muted hint) so the user knows applying it will overwrite
-  differing values? (A nice Cadence-like touch for P2/P3.)
-- **D. Greying source.** Hardcode `name` for v1 vs a symbol-template hint
-  (`unique=...`) so symbols can declare additional per-instance attributes.
-- **E. Highlight styling.** Exact colors/relief for *being-edited-current* vs
-  *being-edited-scope*, and theme (light/dark) behavior; reuse SELLAYER-style GCs
-  or add dedicated ones.
-- **F. Undo granularity.** One undo entry for the whole multi-apply (the engine
-  already pushes a single undo via the `pushed` guard, `editprop.c:901/911`) —
-  confirm that remains true for the new scopes.
+- **A. RESOLVED — "All" = all instances of the *same cell/symbol/master* in the
+  current schematic window.** Different masters are never touched.
+- **B. RESOLVED — change set belongs to the displayed instance; committed by
+  Apply/OK to the scope.** Navigating away without Apply discards pending edits.
+  If the user steps to another instance (no Apply), edits it, and presses OK, only
+  that instance is updated — and an **Apply button** exists so you can apply while
+  stepping without closing. (Undo follows from this — §3.6 / D below.)
+- **C. RESOLVED — yes, warn on varying values.** Red text in the status line when
+  the focused field differs across the in-scope set (§3.5).
+- **D. RESOLVED — undo is per apply action.** One All-Selected/All Apply = one
+  undo across all affected; per-instance stepping = one undo each, reversing the
+  most recent. (Engine's `pushed` guard already gives one undo per
+  `update_symbol`.)
+- **E. (Open, but backlogged with the highlight)** highlight styling/colors.
+- **F. Greying source.** Hardcode `name` for v1 vs a symbol-template `unique=…`
+  hint for symbols to declare extra per-instance attributes — *minor, decide at
+  build.*
+- **B'. (Minor)** warn-before-discard vs silent on navigation with unapplied edits
+  — recommend silent for v1 (the modified dots already flag pending edits).
 
 ## 7. Grounding (code references)
 
@@ -206,6 +251,9 @@ there.
 
 ---
 
-*This is a design spec, not a plan. Recommended next step: ratify §6.A and §6.B,
-then implement P1 (the "Apply to" dropdown + name-greying over the existing
-engine) on the `slick-property-forms` branch.*
+*Decisions are ratified (§6). Recommended next step: implement **P1** on the
+`slick-property-forms` branch — the default-behavior fix (stop forcing
+all-selected), the sticky "Apply to" dropdown (Only Current / All Selected /
+All-same-master), `name`-greying when scope is multi, and the mid-session
+`apply_properties` command — then P2 (Apply button + Next/Prev) and P3 (varying-
+value warning). Highlighting stays on the backlog.*
