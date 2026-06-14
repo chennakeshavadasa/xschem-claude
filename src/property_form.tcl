@@ -26,6 +26,11 @@
 
 namespace eval slickprop {}
 
+# 1 while the modeless form is open: the C event handler reads this to allow
+# canvas SELECTION at semaphore>=2 and to fire slickprop::on_selection_changed
+# (modeless editing, M1). Defined at source so the C tclgetboolvar never misses.
+set ::slickprop_form_open 0
+
 # Escape any embedded " and \ in <v> and wrap the whole thing in double quotes,
 # producing a value safe to hand to `subst_tok` (which inserts it verbatim). This
 # is the same recipe the legacy "Edit Attr" combobox used.
@@ -330,6 +335,7 @@ proc slickprop::apply_now {} {
 proc slickprop::ok {} {
   slickprop::do_apply
   set ::tctx::rcode {ok}
+  set ::slickprop_form_open 0
   catch {set ::slickprop_geometry [wm geometry .dialog]} ;# remember size+pos
   catch {xschem highlight_scope clear}                   ;# remove the scope outline
   destroy .dialog
@@ -338,6 +344,7 @@ proc slickprop::ok {} {
 proc slickprop::cancel {} {
   global edit_symbol_prop_new_sel
   set ::tctx::rcode {}
+  set ::slickprop_form_open 0
   set edit_symbol_prop_new_sel {}
   catch {set ::slickprop_geometry [wm geometry .dialog]} ;# remember size+pos
   catch {xschem highlight_scope clear}                   ;# remove the scope outline
@@ -363,6 +370,105 @@ proc slickprop::update_highlight {} {
   } else {
     catch {xschem highlight_scope clear}
   }
+}
+
+# ===========================================================================
+# Modeless, selection-reactive editing (M1). While the form is open the user can
+# keep selecting on the canvas; the C side unlocks SELECTION gestures at
+# semaphore>=2 (move/wire/place stay locked) and fires on_selection_changed,
+# which adopts the new selection into the nav set and refreshes the form (scope,
+# warning, highlight). A selection change with unapplied edits asks first,
+# Cadence-style: Apply / Discard / Cancel (Cancel restores the prior selection).
+# Decision doc: code_analysis/modeless_property_form_decision.md.
+# ===========================================================================
+
+# True iff any field's value differs from what it loaded with (gates the prompt).
+proc slickprop::is_dirty {} {
+  variable cur
+  if {![info exists cur(tokens)]} { return 0 }
+  return [expr {[llength [slickprop::collect_changes]] > 0}]
+}
+
+# The selected instances' stable ids — the source of the nav set.
+proc slickprop::selected_inst_ids {} {
+  set ids {}
+  foreach o [xschem objects -type instance -selected] { lappend ids [dict get $o id] }
+  return $ids
+}
+
+# A human label for the displayed instance (used in the prompt message).
+proc slickprop::disp_name {} {
+  variable nav
+  if {[info exists nav(disp_id)] && $nav(disp_id) ne {}} {
+    set ix [xschem instance_index $nav(disp_id)]
+    if {$ix >= 0} {
+      set nm [xschem get_tok [xschem getprop instance $ix] name 2]
+      if {$nm ne {}} { return $nm }
+    }
+  }
+  return "this instance"
+}
+
+# If the form is dirty, ask whether to apply pending edits before leaving the
+# current instance, then run <action> (Apply: do_apply first; Discard: just
+# <action>) or <cancelaction> (Cancel: stay put / restore). Not dirty -> just
+# <action>. Next/Prev and selection changes both route through here.
+proc slickprop::maybe_apply_then {action cancelaction} {
+  if {![slickprop::is_dirty]} { uplevel #0 $action; return }
+  set ans [tk_messageBox -parent .dialog -icon question -type yesnocancel \
+    -title "Edit Properties" \
+    -message "Apply your changes to [slickprop::disp_name] before switching?"]
+  switch -- $ans {
+    yes     { slickprop::do_apply; uplevel #0 $action }
+    no      { uplevel #0 $action }
+    default { uplevel #0 $cancelaction }
+  }
+}
+
+# Make <newids> the nav set and display the right instance (D4): keep the shown
+# one if it is still selected, else the first. An empty selection keeps the form
+# on the last instance (D5) — clearing the canvas must not yank the editor away.
+proc slickprop::adopt_selection {newids} {
+  variable nav
+  if {[llength $newids] == 0} {
+    set nav(ids) {}
+    slickprop::update_nav_ui
+    slickprop::update_highlight
+    return
+  }
+  set nav(ids) $newids
+  set pos 0
+  if {[info exists nav(disp_id)] && $nav(disp_id) ne {}} {
+    set ix [lsearch -exact $newids $nav(disp_id)]
+    if {$ix >= 0} { set pos $ix }
+  }
+  slickprop::load_pos $pos
+}
+
+# Cancel path: re-select the previous set in the engine (by stable id) so canvas,
+# form and highlight agree again, and stay on the current instance (no rebuild).
+proc slickprop::restore_selection {oldids} {
+  xschem unselect_all
+  foreach id $oldids {
+    set ix [xschem instance_index $id]
+    if {$ix >= 0} { xschem select instance $ix }
+  }
+  slickprop::update_highlight
+}
+
+# Canvas-selection-changed hook (called from C on a Button1 selection while the
+# form is open). Adopt the new selection into the nav set + refresh, asking about
+# unapplied edits first. No-op if the selection set did not actually change.
+proc slickprop::on_selection_changed {} {
+  variable nav
+  if {![winfo exists .dialog]} return
+  set newids [slickprop::selected_inst_ids]
+  set oldids {}
+  if {[info exists nav(ids)]} { set oldids $nav(ids) }
+  if {[lsort $newids] eq [lsort $oldids]} return   ;# unchanged -> no prompt/reload
+  slickprop::maybe_apply_then \
+    [list slickprop::adopt_selection $newids] \
+    [list slickprop::restore_selection $oldids]
 }
 
 # ===========================================================================
@@ -542,13 +648,15 @@ proc slickprop::load_pos {pos} {
 }
 
 # Step the displayed instance by <dir> (+1 Next / -1 Prev) within the selected
-# set; a no-op past the ends. Navigating discards unapplied edits (§3.2).
+# set; a no-op past the ends. If the current instance has unapplied edits, ask
+# first (Apply / Discard / Cancel) — the same prompt as a selection change, so
+# moving away from a dirty instance is consistent everywhere (M1). Cancel stays.
 proc slickprop::nav {dir} {
   variable nav
   if {![info exists nav(ids)] || [llength $nav(ids)] == 0} return
   set newpos [expr {$nav(pos) + $dir}]
   if {$newpos < 0 || $newpos >= [llength $nav(ids)]} return
-  slickprop::load_pos $newpos
+  slickprop::maybe_apply_then [list slickprop::load_pos $newpos] {}
 }
 
 # Refresh the "k of N" readout and grey Prev at the first / Next at the last.
@@ -580,6 +688,7 @@ proc slickprop::edit_form {txtlabel} {
   if {![info exists ::slickprop_apply_scope]} { set ::slickprop_apply_scope current }
   slickprop::init_fonts
   xschem set semaphore [expr {[xschem get semaphore] + 1}]
+  set ::slickprop_form_open 1   ;# modeless: let the canvas keep selecting (M1)
   toplevel .dialog -class Dialog
   wm title .dialog {Edit Properties}
   wm transient .dialog [xschem get topwindow]
@@ -746,6 +855,7 @@ proc slickprop::edit_form {txtlabel} {
   }
 
   tkwait window .dialog
+  set ::slickprop_form_open 0   ;# form gone: re-lock canvas selection
   catch {trace remove variable ::slickprop_apply_scope write slickprop::apply_scope_greying}
   xschem set semaphore [expr {[xschem get semaphore] - 1}]
   return $::tctx::rcode

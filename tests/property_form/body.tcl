@@ -509,19 +509,37 @@ if {[gui2_ok]} {
   check {PF27d the position advances by one} {$::pf27_pos1 == $::pf27_pos0 + 1}
   check {PF27e Next is disabled at the last instance} {$::pf27_next2 eq "disabled"}
 
-  ### PF28 — navigating away DISCARDS unapplied edits (the change set belongs to
-  ### the displayed instance; stepping shows the next with its own values).
+  ### PF28 — navigating away from a DIRTY instance now ASKS (M1): the prompt's
+  ### Discard drops the edit and steps; stepping shows the next with its own
+  ### values. (Was a silent discard; M1 folds Next/Prev into the apply prompt.)
   pf_setup_insts
   xschem select instance R1; xschem select instance R2; xschem select instance R3
   pf_form_run current {
+    proc ::tk_messageBox {args} {return no}   ;# Discard
     pf_setfield value 9k
     slickprop::nav 1
     slickprop::nav -1
     set ::pf28_back [slickprop::field_value value]
     set ::pf28_n9k  [pf_count_value 9k]
   }
-  check {PF28a stepping back shows the original value (edit discarded)} {$::pf28_back eq "1k"}
+  proc ::tk_messageBox {args} {return ok}
+  check {PF28a Discard on nav: stepping back shows the original value} {$::pf28_back eq "1k"}
   check {PF28b no instance was modified by the discarded edit} {$::pf28_n9k == 0}
+
+  ### PF28c — Cancel on a dirty nav stays put (does not step, keeps the edit).
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_form_run current {
+    set ::pf28c_pos0 $slickprop::nav(pos)
+    proc ::tk_messageBox {args} {return cancel}
+    pf_setfield value 8k
+    slickprop::nav 1
+    set ::pf28c_pos1 $slickprop::nav(pos)
+    set ::pf28c_val  [slickprop::field_value value]
+  }
+  proc ::tk_messageBox {args} {return ok}
+  check {PF28c-pos Cancel on nav does not change position} {$::pf28c_pos1 == $::pf28c_pos0}
+  check {PF28c-val Cancel on nav keeps the pending edit} {$::pf28c_val eq "8k"}
 
   ### PF29 — OK after stepping applies to the CURRENTLY displayed instance only
   ### (scope=current), not the originally-displayed one.
@@ -561,6 +579,7 @@ if {[gui2_ok]} {
   check {PF30c a second undo reverses the earlier apply} {[pf_value_of_name $::pf30_nm0] eq "1k"}
 } else {
   foreach t {PF26a PF26b PF26c PF26d PF27a PF27b PF27c PF27d PF27e PF28a PF28b
+             PF28c-pos PF28c-val
              PF29a PF29b PF29c PF30a PF30b PF30c} { check "$t (skipped: no main window)" {1} }
 }
 

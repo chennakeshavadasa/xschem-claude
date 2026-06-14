@@ -5005,6 +5005,19 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        xctx->mx_double_save=xctx->mousex;
        xctx->my_double_save=xctx->mousey;
      }
+     /* Modeless slick property form (M1): selection stays live while it is open.
+      * Do a normal click/shift-click selection (move/wire/place remain locked by
+      * their own semaphore guards), then let the form react (rebuild its nav set,
+      * scope, warning and white highlight). See
+      * code_analysis/modeless_property_form_decision.md. */
+     if(tclgetboolvar("slickprop_form_open")) {
+       if(!(state & (ShiftMask | ControlMask))) unselect_all(0);
+       select_object(xctx->mousex, xctx->mousey, SELECTED, 0, NULL);
+       rebuild_selected_array();
+       draw();
+       tcleval("slickprop::on_selection_changed");
+       return;
+     }
      if(tcleval("winfo exists .dialog.f2.txt")[0] == '1') { /* proc enter_text */
        tcleval(".dialog.buttons.ok invoke");
        return;
