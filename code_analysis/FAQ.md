@@ -14,6 +14,108 @@ Newest entries on top.
 
 ---
 
+## Q13. Why doesn't pressing `q` to open the Edit Properties form write `xschem edit_prop` to the action log?
+
+- **Asked:** 2026-06-14
+- **Project state:** branch `slick-property-forms` @ `098f4ea1` (the slick
+  property form + multi-instance editing + the scope highlight + the modeless
+  selection M1 have all landed; the action-logging machinery from
+  `feature/action-logging` is present in this lineage).
+
+**Because the action log records *committed effects*, not *user intentions* —
+and "open a dialog" is an intention, not an effect.** Pressing `q` is genuinely
+unlogged, but the fix is not "log `q`"; understanding *why* teaches three
+architecture ideas that outlast this one key.
+
+**1 — The log is opt-in at chokepoints, not an automatic command tap.** It is
+tempting to assume the log wraps the one `xschem` dispatcher (`scheduler.c`) and
+records every subcommand for free — the way the binding table funnel made key
+remapping free (Q7). It doesn't. Logging is a **curated set of hand-placed
+`log_action("xschem …")` calls** at specific sites: gesture completions
+(wire/line/rect/arc/move/copy in `actions.c`), pan/zoom and placements
+(`callback.c`), file open/save (resolved paths). A path with no `log_action()`
+writes nothing. The `q` key calls the C function `edit_property(0)` **directly**
+(`callback.c:4130`) — it never even goes through the `xschem edit_prop` Tcl
+command — and neither it nor `edit_property()` carries a `log_action`. So:
+silence, by omission.
+
+> Why opt-in rather than a blanket tap on the dispatcher? Because most `xschem`
+> subcommands are **queries** (`get`, `wire_coord`, `objects`, `instance_id`, …)
+> — read-only, fired constantly, and meaningless in a replay. A blanket tap would
+> drown the signal (the few state-changing commands) in noise (the thousands of
+> reads), and would still mis-handle the interactive ones (next point). Curation
+> is the cost of a log that is actually *replayable*.
+
+**2 — Log the effect, not the gesture. `edit_prop` is the wrong thing to log
+even in principle.** `xschem edit_prop` just **opens a modal dialog**. A log is
+only useful if it can be *replayed*, and replaying "open a dialog" would pop a
+window and block, waiting for a human — there is nothing deterministic to re-run.
+This is the same reason file open/save log the **resolved path**
+(`xschem load {…/foo.sch}`) rather than "the open-file dialog appeared." The
+replayable thing a property edit produces is the mutation the form issues on
+OK/Apply:
+
+```
+xschem apply_properties <scope> <displayed_id> <new_prop> <old_prop>
+```
+
+That command is deterministic and idempotent-on-replay; `edit_prop` is neither.
+So the right design is: **don't log the dialog-open at all; log the apply.** The
+general principle — worth carrying to any undo/redo, audit-trail, or
+event-sourcing system — is *record the committed transition (old→new state), not
+the UI event that led a human to it.* Intentions are infinite and interactive;
+effects are finite and replayable.
+
+> This is exactly the **command/query and intent/effect split**. A keystroke, a
+> menu pick, and a scripted call can all reach the same effect by different
+> routes; logging at the effect captures all three with one instrumentation
+> point, while logging at the gesture would need three (and would record the two
+> interactive ones unreplayably).
+
+**3 — So where's the bug? Not in `q` — in coverage.** The honest gap is that
+`apply_properties` *itself* is **also not yet logged** (it was added for the
+multi-instance work on this branch without a `log_action`). So property edits are
+absent from the replay log in *any* form. The one-line fix lands in the **funnel**
+that every Apply/OK already passes through — `apply_instance_properties()`
+(`editprop.c`) — not scattered across the key handler, the menu, and the form:
+
+```c
+/* in apply_instance_properties(), after the mutation succeeds */
+log_action("xschem apply_properties %s %u {%s} {%s}",
+           scope, displayed_id, new_prop, old_prop);
+```
+
+That this is *one* line, in *one* place, is the payoff of the chokepoint
+architecture this codebase keeps reaching for (Q7): when every route to an effect
+is funnelled through a single function, every cross-cutting concern bolted to it —
+logging, undo, change events — attaches once. The reason `q`, the menu, and a
+script don't each need their own `log_action` is precisely that they converge on
+`apply_instance_properties` first.
+
+**One caveat the student should not miss: a replay log is only as good as its
+*referents*.** `displayed_id` is a **session-stable** id (Q7/Q8) — unique and
+durable *within* a run, but minted fresh each session and not written to the
+`.sch` file. So a logged `apply_properties … 42 …` replays perfectly in the same
+session, but feeding last week's log to a fresh process may have id 42 refer to a
+different object (or nothing). This is the known "stable referents" problem
+(deferred *issue 0005* in the action-logging spec): a faithful command log still
+needs **stable names** for the things its commands point at, or replay across
+sessions silently drifts. Logging the command is half the job; making its
+arguments mean the same thing tomorrow is the other half.
+
+**Takeaways for an aspiring engineer:**
+- A good event/audit/undo log records **state transitions (effects)**, not
+  **UI events (intentions)** — effects are deterministic and replayable;
+  intentions are interactive and infinite.
+- Prefer **instrumenting the funnel** (the one function every route converges on)
+  over instrumenting each entry point — one concern, one site.
+- **Opt-in beats blanket** for replay logs: most calls are queries; recording
+  everything destroys the signal and still botches the interactive cases.
+- A log is only replayable if its **referents are stable** across the replay
+  horizon you care about (same session vs. across sessions).
+
+---
+
 ## Q12. With several schematic windows open, how do you get the wire list of *one specific* schematic?
 
 - **Asked:** 2026-06-13
