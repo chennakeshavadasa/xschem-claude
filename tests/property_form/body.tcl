@@ -249,4 +249,16 @@ if {[gui2_ok]} {
   check {PF16c (skipped)} {1}
 }
 
+### PF17 — user-tunable font size (the Cadence-style preference variable). Setting
+### ::slickprop_fontsize drives the rendered named fonts on the next init.
+set ::slickprop_fontsize 16
+slickprop::init_fonts
+check {PF17a slickprop_fontsize drives the value font size} \
+  {[font configure slickPropValue -size] == 16}
+check {PF17b the value font is the monospace TkFixedFont family} \
+  {[font configure slickPropValue -family] eq [font actual TkFixedFont -family]}
+check {PF17c the label font tracks the same size} \
+  {[font configure slickPropLabel -size] == 16}
+unset ::slickprop_fontsize  ;# back to auto-default for any later use
+
 xschem set modified 0

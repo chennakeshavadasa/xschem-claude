@@ -95,18 +95,38 @@ proc slickprop::apply {orig changes} {
 # wrapper so they can be driven headlessly by tests.
 # ===========================================================================
 
-# Look-and-feel (Batch 1). Named Tk fonts, never a hardcoded family, so they
-# track the platform + the user's `tk scaling` and match xschem's own dialogs:
-#   - labels / chrome: TkDefaultFont (xschem's convention)
-#   - editable VALUES:  TkFixedFont (monospace) — values here are numbers,
-#     expressions and code (1.4 0.0 1.6 4.0, @value, m=@m); monospace aligns them
-#     and disambiguates l/1/I, O/0, the way an EDA property grid should.
-# Colors are intentionally NOT hardcoded (except grey60 header bars, which xschem
-# itself uses unconditionally) so the form inherits the dark/light option-db theme.
-set slickprop::font_label  TkDefaultFont
-set slickprop::font_value  TkFixedFont
-set slickprop::font_header {TkDefaultFont 10 bold}
-set slickprop::font_hint   {TkDefaultFont 8}
+# --- Look-and-feel, USER-TUNABLE (Cadence-style: set these in a script or the
+# CIW and they take effect the next time the form opens) -------------------
+#   set slickprop_fontsize 13       ;# base font size for the whole form
+#   set slickprop_entry_width 30    ;# value-entry width in characters
+# Defaults: font size = the system TkDefaultFont size + 1 (a touch larger);
+# entry width = 36. The form derives named fonts from these so labels/chrome use
+# the platform UI font (TkDefaultFont) and editable VALUES use a monospace font
+# (TkFixedFont) — values here are numbers/exprs/code (1.4 0.0 1.6 4.0, @value,
+# m=@m), which monospace aligns and disambiguates (l/1/I, O/0), like an EDA grid.
+# Colors are NOT hardcoded (except grey60 header bars, an xschem convention) so
+# the form inherits the dark/light option-db theme.
+
+# (re)create the four named fonts from the current slickprop_fontsize.
+proc slickprop::init_fonts {} {
+  if {![info exists ::slickprop_fontsize]} { set ::slickprop_fontsize 0 }
+  if {$::slickprop_fontsize <= 0} {
+    set nat [font actual TkDefaultFont -size]
+    set ::slickprop_fontsize [expr {$nat > 0 ? $nat + 1 : 11}]
+  }
+  if {![info exists ::slickprop_entry_width] || $::slickprop_entry_width <= 0} {
+    set ::slickprop_entry_width 36
+  }
+  set sz $::slickprop_fontsize
+  slickprop::_mkfont slickPropLabel  TkDefaultFont $sz             normal
+  slickprop::_mkfont slickPropValue  TkFixedFont   $sz             normal
+  slickprop::_mkfont slickPropHeader TkDefaultFont [expr {$sz + 1}] bold
+  slickprop::_mkfont slickPropHint   TkDefaultFont [expr {$sz - 2}] normal
+}
+proc slickprop::_mkfont {name base size weight} {
+  if {[lsearch -exact [font names] $name] < 0} { font create $name }
+  font configure $name {*}[font actual $base] -size $size -weight $weight
+}
 
 # Get the symbol's template (declared attributes), or "" if unavailable.
 proc slickprop::template_of {symbol} {
@@ -120,8 +140,8 @@ proc slickprop::template_of {symbol} {
 # (not part of the value). Returns the list of token names placed.
 proc slickprop::build_fields {parent prop template} {
   variable cur
-  variable font_label
-  variable font_value
+  slickprop::init_fonts
+  set ew $::slickprop_entry_width
   array unset cur
   set cur(orig) $prop
   set cur(tokens) {}
@@ -137,17 +157,18 @@ proc slickprop::build_fields {parent prop template} {
     if {!$declared && !$extras_started} {
       set extras_started 1
       frame  $parent.xs$r -height 1 -bd 1 -relief sunken
-      label  $parent.x$r  -text "Extra (undeclared)" -anchor w -font $font_label
-      grid $parent.xs$r -row $r -column 0 -columnspan 2 -sticky we -pady {8 0} -padx 2
+      label  $parent.x$r  -text "Extra (undeclared)" -anchor w -font slickPropLabel
+      grid $parent.xs$r -row $r -column 0 -columnspan 2 -sticky we -pady {10 0} -padx 3
       incr r
-      grid $parent.x$r  -row $r -column 0 -columnspan 2 -sticky w -pady {1 2} -padx 2
+      grid $parent.x$r  -row $r -column 0 -columnspan 2 -sticky w -pady {2 3} -padx 3
       incr r
     }
-    # right-aligned label in a fixed column, sunken monospace value entry filling the rest
-    label $parent.l$r -text $tok -anchor e -font $font_label
-    entry $parent.e$r -font $font_value -relief sunken -borderwidth 1
-    grid $parent.l$r -row $r -column 0 -sticky e  -padx {4 8} -pady 2
-    grid $parent.e$r -row $r -column 1 -sticky we -padx {0 4} -pady 2
+    # right-aligned label in a fixed column; sunken monospace value entry of a
+    # fixed (not stretched) width, with internal vertical padding for breathing room
+    label $parent.l$r -text $tok -anchor e -font slickPropLabel
+    entry $parent.e$r -font slickPropValue -relief sunken -borderwidth 1 -width $ew
+    grid $parent.l$r -row $r -column 0 -sticky e -padx {6 8} -pady 4
+    grid $parent.e$r -row $r -column 1 -sticky w -padx {0 8} -pady 4 -ipady 3 -ipadx 2
     set cur(entry,$tok)       $parent.e$r
     set cur(loaded,$tok)      $val
     set cur(placeholder,$tok) 0
@@ -161,7 +182,6 @@ proc slickprop::build_fields {parent prop template} {
     incr r
   }
   grid columnconfigure $parent 0 -minsize 90   ;# fixed label column so labels align
-  grid columnconfigure $parent 1 -weight 1
   return $cur(tokens)
 }
 
@@ -267,6 +287,7 @@ proc slickprop::edit_form {txtlabel} {
   set ::tctx::rcode {}
   set ::tctx::retval_orig $::tctx::retval
   if { [winfo exists .dialog] } return
+  slickprop::init_fonts
   xschem set semaphore [expr {[xschem get semaphore] + 1}]
   toplevel .dialog -class Dialog
   wm title .dialog {Edit Properties}
@@ -281,15 +302,15 @@ proc slickprop::edit_form {txtlabel} {
   set inst_name [xschem get_tok $::tctx::retval name 2]
   set hdr $symbol
   if {$inst_name ne {}} { set hdr "$inst_name  —  $symbol" }
-  label .dialog.hdr -text "  $hdr" -bg grey60 -anchor w -font $slickprop::font_header
+  label .dialog.hdr -text "  $hdr" -bg grey60 -anchor w -font slickPropHeader
   pack .dialog.hdr -side top -fill x
 
   # --- top: symbol entry + Browse -----------------------------------------
   frame .dialog.f1
-  label .dialog.f1.l2 -text "Symbol" -font $slickprop::font_label
-  entry .dialog.f1.e2 -width 30 -font $slickprop::font_value -relief sunken -borderwidth 1
+  label .dialog.f1.l2 -text "Symbol" -font slickPropLabel
+  entry .dialog.f1.e2 -width 30 -font slickPropValue -relief sunken -borderwidth 1
   .dialog.f1.e2 insert 0 $symbol
-  button .dialog.f1.b5 -text "Browse" -font $slickprop::font_label -command {
+  button .dialog.f1.b5 -text "Browse" -font slickPropLabel -command {
     set r [tk_getOpenFile -parent .dialog -initialdir $INITIALINSTDIR]
     if {$r ne {}} { .dialog.f1.e2 delete 0 end; .dialog.f1.e2 insert 0 $r }
     raise .dialog .drw
@@ -300,9 +321,9 @@ proc slickprop::edit_form {txtlabel} {
 
   # --- options row (the legacy checkbuttons; their globals are read by C) ---
   frame .dialog.f2
-  checkbutton .dialog.f2.r1 -text "No change properties" -variable no_change_attrs -font $slickprop::font_label
-  checkbutton .dialog.f2.r2 -text "Preserve unchanged props" -variable preserve_unchanged_attrs -font $slickprop::font_label
-  checkbutton .dialog.f2.r3 -text "Copy cell" -variable copy_cell -font $slickprop::font_label
+  checkbutton .dialog.f2.r1 -text "No change properties" -variable no_change_attrs -font slickPropLabel
+  checkbutton .dialog.f2.r2 -text "Preserve unchanged props" -variable preserve_unchanged_attrs -font slickPropLabel
+  checkbutton .dialog.f2.r3 -text "Copy cell" -variable copy_cell -font slickPropLabel
   pack .dialog.f2.r1 .dialog.f2.r2 .dialog.f2.r3 -side left -padx 2
 
   # --- scrollable per-field area ------------------------------------------
@@ -320,9 +341,9 @@ proc slickprop::edit_form {txtlabel} {
 
   # --- bottom: OK / Cancel (OK is the default button) + a keyboard hint -----
   frame .dialog.fb
-  button .dialog.fb.ok     -text "OK"     -command slickprop::ok     -width 8 -default active -font $slickprop::font_label
-  button .dialog.fb.cancel -text "Cancel" -command slickprop::cancel -width 8 -default normal -font $slickprop::font_label
-  label  .dialog.fb.hint   -text "Enter: OK    Esc: Cancel" -fg grey50 -font $slickprop::font_hint
+  button .dialog.fb.ok     -text "OK"     -command slickprop::ok     -width 8 -default active -font slickPropLabel
+  button .dialog.fb.cancel -text "Cancel" -command slickprop::cancel -width 8 -default normal -font slickPropLabel
+  label  .dialog.fb.hint   -text "Enter: OK    Esc: Cancel" -fg grey50 -font slickPropHint
   pack .dialog.fb.cancel -side right -padx {2 6} -pady 4
   pack .dialog.fb.ok     -side right -padx 2 -pady 4
   pack .dialog.fb.hint   -side left  -padx 8
@@ -340,7 +361,7 @@ proc slickprop::edit_form {txtlabel} {
   update idletasks
   set iw [winfo reqwidth  .dialog.fa.c.inner]
   set ih [winfo reqheight .dialog.fa.c.inner]
-  if {$iw < 380} {set iw 380}
+  if {$iw < 300} {set iw 300}
   if {$ih > 460} {set ih 460}
   .dialog.fa.c configure -width $iw -height $ih
 
