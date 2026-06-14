@@ -128,6 +128,26 @@ proc slickprop::_mkfont {name base size weight} {
   font configure $name {*}[font actual $base] -size $size -weight $weight
 }
 
+# accent for the "modified field" dot — a saturated amber, visible on light AND
+# dark themes; overridable via ::slickprop_accent.
+proc slickprop::accent {} {
+  if {[info exists ::slickprop_accent] && $::slickprop_accent ne {}} { return $::slickprop_accent }
+  return "#d08000"
+}
+
+# Refresh a field's modified-cue: show an accent dot in its indicator column when
+# the entry's value differs from what it loaded with, blank when it matches. Bound
+# to the entry's edit events so it tracks live as the user types.
+proc slickprop::update_dirty {tok} {
+  variable cur
+  if {![info exists cur(ind,$tok)] || ![winfo exists $cur(ind,$tok)]} return
+  if {[slickprop::field_value $tok] ne $cur(loaded,$tok)} {
+    $cur(ind,$tok) configure -text "●"
+  } else {
+    $cur(ind,$tok) configure -text " "
+  }
+}
+
 # Get the symbol's template (declared attributes), or "" if unavailable.
 proc slickprop::template_of {symbol} {
   if {[catch {xschem getprop symbol $symbol template} t]} { return "" }
@@ -153,22 +173,26 @@ proc slickprop::build_fields {parent prop template} {
     set val      [dict get $f value]
     set declared [dict get $f declared]
     set default  [dict get $f default]
-    # a theme-neutral divider before the first undeclared "Extra" token
+    # a themed divider before the first undeclared "Extra" token (fixed widget
+    # names — there is only one Extra section; tying them to $r broke because the
+    # widgets are created before the row counter is advanced)
     if {!$declared && !$extras_started} {
       set extras_started 1
-      frame  $parent.xs$r -height 1 -bd 1 -relief sunken
-      label  $parent.x$r  -text "Extra (undeclared)" -anchor w -font slickPropLabel
-      grid $parent.xs$r -row $r -column 0 -columnspan 2 -sticky we -pady {10 0} -padx 3
+      ttk::separator $parent.xsep -orient horizontal
+      label $parent.xlbl -text "Extra (undeclared)" -anchor w -font slickPropLabel
+      grid $parent.xsep -row $r -column 0 -columnspan 3 -sticky we -pady {10 0} -padx 3
       incr r
-      grid $parent.x$r  -row $r -column 0 -columnspan 2 -sticky w -pady {2 3} -padx 3
+      grid $parent.xlbl -row $r -column 1 -columnspan 2 -sticky w -pady {2 3} -padx 3
       incr r
     }
-    # right-aligned label in a fixed column; sunken monospace value entry of a
-    # fixed (not stretched) width, with internal vertical padding for breathing room
+    # col 0: modified-cue dot | col 1: right-aligned label | col 2: monospace entry
+    label $parent.i$r -text " " -width 2 -anchor center -font slickPropLabel -fg [slickprop::accent]
     label $parent.l$r -text $tok -anchor e -font slickPropLabel
     entry $parent.e$r -font slickPropValue -relief sunken -borderwidth 1 -width $ew
-    grid $parent.l$r -row $r -column 0 -sticky e -padx {6 8} -pady 4
-    grid $parent.e$r -row $r -column 1 -sticky w -padx {0 8} -pady 4 -ipady 3 -ipadx 2
+    grid $parent.i$r -row $r -column 0 -padx {2 0} -pady 4
+    grid $parent.l$r -row $r -column 1 -sticky e -padx {2 8} -pady 4
+    grid $parent.e$r -row $r -column 2 -sticky w -padx {0 8} -pady 4 -ipady 3 -ipadx 2
+    set cur(ind,$tok)         $parent.i$r
     set cur(entry,$tok)       $parent.e$r
     set cur(loaded,$tok)      $val
     set cur(placeholder,$tok) 0
@@ -179,9 +203,13 @@ proc slickprop::build_fields {parent prop template} {
     } elseif {$default ne {}} {
       slickprop::set_placeholder $tok $default
     }
+    # live modified-cue as the user edits
+    bind $parent.e$r <KeyRelease> [list slickprop::update_dirty $tok]
+    bind $parent.e$r <<Paste>>    [list after idle [list slickprop::update_dirty $tok]]
+    bind $parent.e$r <<Cut>>      [list after idle [list slickprop::update_dirty $tok]]
     incr r
   }
-  grid columnconfigure $parent 0 -minsize 90   ;# fixed label column so labels align
+  grid columnconfigure $parent 1 -minsize 90   ;# fixed label column so labels align
   return $cur(tokens)
 }
 
@@ -205,11 +233,13 @@ proc slickprop::placeholder_in {tok} {
     $e configure -foreground $cur(normalfg,$tok) ;# restore the theme's normal fg
     set cur(placeholder,$tok) 0
   }
+  slickprop::update_dirty $tok
 }
 proc slickprop::placeholder_out {tok default} {
   variable cur
   set e $cur(entry,$tok)
   if {[$e get] eq {}} { slickprop::set_placeholder $tok $default }
+  slickprop::update_dirty $tok
 }
 
 # The effective current value of a field's entry (a showing placeholder is empty).
@@ -265,6 +295,7 @@ proc slickprop::ok {} {
     }
   }
   set copy_cell 0
+  catch {set ::slickprop_geometry [wm geometry .dialog]} ;# remember size+pos
   destroy .dialog
 }
 
@@ -272,6 +303,7 @@ proc slickprop::cancel {} {
   global edit_symbol_prop_new_sel
   set ::tctx::rcode {}
   set edit_symbol_prop_new_sel {}
+  catch {set ::slickprop_geometry [wm geometry .dialog]} ;# remember size+pos
   destroy .dialog
 }
 
@@ -364,6 +396,12 @@ proc slickprop::edit_form {txtlabel} {
   if {$iw < 300} {set iw 300}
   if {$ih > 460} {set ih 460}
   .dialog.fa.c configure -width $iw -height $ih
+
+  # remembered size+position: if the user resized/moved a previous dialog, reuse
+  # that geometry instead of the content-derived natural size.
+  if {[info exists ::slickprop_geometry] && $::slickprop_geometry ne {}} {
+    catch {wm geometry .dialog $::slickprop_geometry}
+  }
 
   # mouse-wheel scrolling over the field area (X11 buttons 4/5 + Win/Mac wheel)
   bind .dialog <Button-4>   {.dialog.fa.c yview scroll -1 units}

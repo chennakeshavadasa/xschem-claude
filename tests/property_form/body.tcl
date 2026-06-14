@@ -243,10 +243,13 @@ if {[gui2_ok]} {
   check {PF16b edit_form returned rcode ok after OK} {$pf16_ret eq "ok"}
   check {PF16c OK wrote the edited value into tctx::retval (subst-into-original)} \
     {[xschem get_tok $::tctx::retval value 2] eq "2k" && [string match {name=RTEST*} $::tctx::retval]}
+  check {PF16d the dialog geometry was remembered on close (WxH+X+Y)} \
+    {[info exists ::slickprop_geometry] && [regexp {^[0-9]+x[0-9]+} $::slickprop_geometry]}
 } else {
   check {PF16a (skipped: no main window)} {1}
   check {PF16b (skipped)} {1}
   check {PF16c (skipped)} {1}
+  check {PF16d (skipped)} {1}
 }
 
 ### PF17 — user-tunable font size (the Cadence-style preference variable). Setting
@@ -260,5 +263,32 @@ check {PF17b the value font is the monospace TkFixedFont family} \
 check {PF17c the label font tracks the same size} \
   {[font configure slickPropLabel -size] == 16}
 unset ::slickprop_fontsize  ;# back to auto-default for any later use
+
+### PF18 — the modified-field cue (Batch 2): the dot appears on a field whose
+### value changed and stays blank on untouched fields, tracking live.
+if {[gui_ok]} {
+  slickprop::build_fields .pf.f {name=E1 value=1k} {name=x1 value=0}
+  set clean0 [$slickprop::cur(ind,value) cget -text]
+  $slickprop::cur(entry,value) delete 0 end
+  $slickprop::cur(entry,value) insert 0 2k
+  slickprop::update_dirty value
+  set dirty1 [$slickprop::cur(ind,value) cget -text]
+  slickprop::update_dirty name
+  set namemark [$slickprop::cur(ind,name) cget -text]
+  check {PF18a field is clean (no dot) before editing} {[string trim $clean0] eq ""}
+  check {PF18b an edited field shows the modified dot} {$dirty1 eq "●"}
+  check {PF18c an untouched field shows no dot} {[string trim $namemark] eq ""}
+  gui_done
+} else { check {PF18a (skip)} {1}; check {PF18b (skip)} {1}; check {PF18c (skip)} {1} }
+
+### PF19 — the "Extra (undeclared)" path builds via ttk::separator without error.
+if {[gui_ok]} {
+  set toks [slickprop::build_fields .pf.f {name=E1 foobar=9} {name=x1}]
+  check {PF19a build with an undeclared token succeeds (ttk::separator path)} \
+    {[lsearch -exact $toks foobar] >= 0}
+  check {PF19b the undeclared token's entry exists (Extra section)} \
+    {[winfo exists $slickprop::cur(entry,foobar)]}
+  gui_done
+} else { check {PF19a (skip)} {1}; check {PF19b (skip)} {1} }
 
 xschem set modified 0
