@@ -8,6 +8,18 @@ OK** (from any field) and **Escape = Cancel** (any time, discard changes).
 Status: **PLAN ONLY — no code yet.** Branch `slick-property-forms`. Analysis
 below is run-verified against the build on this branch.
 
+> **Decisions ratified by the user (2026-06-13):**
+> 1. **Cadence-style** — the form shows *all declared* symbol attributes (from the
+>    template), not just ones already set on the instance.
+> 2. **Strict** — the user may not add undeclared properties through the form; the
+>    declared template set is the field list (with one safeguard for pre-existing
+>    undeclared tokens, §4.5).
+> 3. **Structured form is the ONLY path** — no "Raw view" text-box fallback. This
+>    raises the stakes on lossless round-trip (§6): the form must faithfully
+>    represent and preserve *every* property string it can be opened on.
+> 4. **Multi-line supported where needed** — fields that hold multi-line values get
+>    a multi-line widget; see the expanded §4.4.
+
 ---
 
 ## 1. What the dialog is today (the screenshot)
@@ -62,6 +74,20 @@ Everything a field-based form needs already exists and is reachable from Tcl:
 | write one token back (lossless quoting) | `xschem subst_tok <prop> <tok> <val>` | used today by the "Edit Attr" combobox |
 | the full current prop string | `xschem getprop instance <name>` | → `name=p0 lab=PLUS` |
 
+**Multi-line values are first-class in the data model** (verified): an attribute
+value may contain literal newlines, stored inside the quotes. From
+`xschem_library/devices/code.sym`:
+
+```
+format="
+@value
+"
+```
+
+i.e. the `format` token's value is `\n@value\n`. The form must round-trip such
+values losslessly (§4.4, §6); `get_tok`/`subst_tok` already carry the newlines
+and quoting, so the work is on the widget side, not the data side.
+
 The existing "Edit Attr" combobox (`xschem.tcl:7524-7567`) is a **working
 reference implementation of the per-token read/write round-trip**, including the
 fiddly quote-escaping dance (`regsub` escape `"`/`\`, wrap in `"`, `subst_tok`).
@@ -80,23 +106,32 @@ affordance (§4.5), not free text.
 ```
  name   [ E1                    ]
  TABLE  [ 1.4 0.0 1.6 4.0       ]   ← quotes handled by the round-trip, hidden from the user
- lab    [ xxx                   ]   ← from the template, shown even though unset on this instance
+ lab    [ xxx (default)         ]   ← declared in template, unset → greyed default placeholder
+ value  +-------------------------+ ⤢ ← known multi-line attr → text widget
+        | .model mymod ...        |    (Enter = newline, Ctrl+Enter = OK)
+        +-------------------------+
  ...
- [+ add property]   [Raw view]            [ OK ]  [ Cancel ]
+                                        [ OK ]  [ Cancel ]
+ (strict: declared fields only; no free-form add, no Raw view — decisions 2 & 3)
 ```
 
-### 4.2 Where the field list comes from
+### 4.2 Where the field list comes from (Cadence-style, strict)
 
-Union, in this order, deduped:
-1. **Symbol template tokens** (`list_tokens [xschem getprop instance <n>
-   cell::template]`) — the *declared* attributes, so the form shows every field
-   the symbol defines even if the instance hasn't set it (Cadence behavior). The
-   template value is the **default/hint**.
-2. **Instance prop tokens** (`list_tokens $tctx::retval`) — any extra attributes
-   actually set on this instance beyond the template.
+The field list is driven by the **symbol template** — the declared attributes —
+so the form shows every field the symbol defines, set or not (decision 1):
 
-Decision to ratify (§7.B): for a declared-but-unset attr, show the template
-default, or show empty with the default as a greyed placeholder?
+1. **Declared fields** = `list_tokens [xschem getprop instance <n>
+   cell::template]`. Each declared token is a row. Its value is the **instance's**
+   value if set, else the **template default** (shown as a greyed placeholder so
+   the user sees the default but it isn't written unless edited — §7.B answer).
+2. **Pre-existing undeclared tokens** = instance tokens not in the template. Under
+   **strict** mode the form does **not** let the user *add* new undeclared tokens
+   (§4.5), but it must not silently drop ones that already exist (there is no Raw
+   fallback to recover them — decision 3). So show them in a clearly-labelled
+   **"Extra (undeclared)"** section: editable and deletable, but no "add" there.
+
+This keeps the form Cadence-strict for new input while guaranteeing **no existing
+data is hidden or lost** — essential given the form is the only path.
 
 ### 4.3 Reassembly on OK (the correctness core)
 
@@ -113,26 +148,53 @@ guaranteed no-op, which is the cardinal invariant (§6). Track a **dirty flag pe
 field** so only edited tokens are substituted (this also pre-wires the
 later multi-object "apply only changed fields" feature, §8).
 
-### 4.4 Long / multi-line values (the main UX wrinkle)
+### 4.4 Long / multi-line values
 
-Some values are long or multi-line (`value`, `spice`, `verilog`, `model`,
-`TABLE`, spice device cards). A single-line `entry` is wrong for those. Plan:
+Multi-line is fully supported (decision 4); it is a widget concern, not a data
+concern (the value already round-trips, §3). Four parts:
 
-- **Heuristic:** if a value contains a newline or exceeds N chars, render a small
-  multi-line `text` widget (or an `entry` plus a `…` button that opens a focused
-  sub-editor for that one field).
-- **Keep a "Raw view" toggle** that swaps the whole form back to today's single
-  text box. This is the escape hatch for unknown/edge structures and a de-risking
-  fallback — ship it from day one.
+**a. Widget choice.** Tk `entry` is single-line only, so a multi-line field uses a
+small `text` widget (a few rows, own scrollbar, resizable); short fields stay
+`entry`.
 
-### 4.5 Adding / deleting a property
+**b. Deciding a field is multi-line** — combine three signals:
+- **Known multi-line attributes** — `value`, `format`, `*_format`
+  (spice/spectre/verilog/vhdl/tedax), `template`, `model`, `descr`, etc. These get
+  a multi-line widget *even when currently empty/short* (a fresh `code` instance's
+  `value` still wants a big box). This is the declarative, Cadence-aligned signal.
+- **Heuristic** — current value contains `\n` or exceeds N chars → multi-line.
+- **Manual expand** — a per-field ⤢ toggle to grow any field, covering misses.
 
-- **[+ add property]** opens a row with an editable name + value; the name is
-  **validated** (non-empty, no whitespace, matches `^[A-Za-z_][A-Za-z0-9_]*$`)
-  before it is accepted — this is the *only* place a new token name is typed, and
-  it is guarded, so the junk-input problem stays solved.
-- Per-row **delete** (×) removes a token (reuses the empty-value / token-removal
-  path).
+**c. The Enter-key consequence (the one unavoidable trade-off with "Enter = OK").**
+In a `text` widget Enter *must* insert a newline. So:
+- single-line `entry` field: **Enter → OK**;
+- multi-line `text` field: **Enter → newline**, **Ctrl+Enter (or Shift+Enter) →
+  OK**, plus the always-available OK button.
+This is the standard editor convention; show a one-line hint by multi-line fields.
+**Tab** has the same issue (a `text` widget eats Tab) — rebind Tab to focus-next
+so it still walks fields.
+
+**d. Lossless round-trip of newlines + quoting** (§6) — the value `\n@value\n` must
+survive open→OK byte-for-byte. Reuse `get_tok`/`subst_tok` (which already carry
+newlines) and the subst-into-original strategy (§4.3); the round-trip test corpus
+must include multi-line symbols (`code.sym`, `launcher.sym`, the `ngspice_*`
+family). With no Raw fallback (decision 3), this is non-negotiable.
+
+### 4.5 Adding / deleting a property (strict)
+
+Under **strict** mode (decision 2) there is **no general "add arbitrary property"**
+affordance — the declared template set *is* the editable field list, which is the
+Cadence-for-fixed-cells behavior and keeps junk input impossible by construction
+(the user never types a token name for a declared field; they fill values).
+
+- **Declared fields:** value-only editing; the token name is a fixed label.
+- **Pre-existing undeclared tokens** (the "Extra" section, §4.2): editable and
+  **deletable** (per-row ×, reusing the token-removal path), so the user can clean
+  them up — but none can be *added*.
+- **Future / non-strict symbols:** if some symbols later want user-extensible
+  attributes, a guarded **[+ add property]** (name validated
+  `^[A-Za-z_][A-Za-z0-9_]*$`, non-empty, no whitespace) is the controlled opening
+  — kept out of v1 per the strict decision.
 
 ### 4.6 Validation (phased)
 
@@ -146,11 +208,11 @@ Some values are long or multi-line (`value`, `spice`, `verilog`, `model`,
 
 ### 4.7 Keyboard contract (explicitly requested)
 
-- **Enter** in any field → invoke OK. Now safe because fields are single-line
-  entries (Enter is no longer needed to insert a newline, unlike the current text
-  box which binds **Shift**-Enter to OK at `xschem.tcl:7516`). Multi-line value
-  widgets are the exception — there, Enter inserts a newline and Ctrl-Enter / the
-  OK button commits (document this).
+- **Enter** in a single-line field → invoke OK (safe: an `entry` never needs Enter
+  for a newline, unlike the current text box which binds **Shift**-Enter to OK at
+  `xschem.tcl:7516`). **Multi-line fields are the documented exception** (§4.4c):
+  Enter inserts a newline, **Ctrl/Shift-Enter** commits, the OK button always
+  commits.
 - **Escape** any time → Cancel and discard. Drop the current conditional guard
   (`xschem.tcl:7517-7522`) that only cancels when nothing changed; make it
   unconditional, matching the request.
@@ -186,7 +248,12 @@ thin.
 **Invariant: opening the form on any object and clicking OK with no edits must
 leave the property string byte-identical.** Quoting, escaping, ordering, empty
 values, multi-line values, embedded `"`/`\`, and `TABLE="…"`-style space-bearing
-values must all round-trip losslessly. This is the #1 risk and the #1 test.
+values must all round-trip losslessly. This is the #1 risk and the #1 test —
+**and decision 3 (no Raw fallback) makes it a hard release gate**: since the form
+is the only path, a value it can't faithfully represent is a value the user can no
+longer edit safely. **Gate: the round-trip suite must be green across the *entire*
+shipped symbol library** (`xschem_library/devices/*.sym` templates + a sweep of
+example schematics) before the structured form replaces the text box.
 
 Testing approach (Tk dialogs are awkward headless, so split the work):
 
@@ -202,21 +269,21 @@ Testing approach (Tk dialogs are awkward headless, so split the work):
 - **GUI smoke (manual / `verify` skill).** Enter→OK, Escape→Cancel, add/delete
   property, Raw toggle, long-value widget, on a couple of real symbols.
 
-## 7. Decisions to ratify (present, don't pick)
+## 7. Decisions
 
-- **A. C changes: zero or some?** Pure-Tcl reskin (keep the `tctx::retval`/`rcode`
-  contract — recommended, lowest risk) vs. a richer C-side field API
-  (`xschem object_fields <handle>` returning name/value/type/default as a list of
-  dicts — cleaner, composes with the stable-handles `object` API, but more work).
-  Recommend Tcl-only for v1, note the C field-API as the v2 upgrade.
-- **B. Unset declared attrs:** show the template default, or empty with a greyed
-  default placeholder?
-- **C. Reassembly strategy:** subst-into-original (recommended, lossless) vs.
-  assemble-fresh.
-- **D. Raw toggle:** ship the legacy text box as a switchable "Raw view"
-  (recommended) or drop it entirely?
-- **E. Add-property:** allow arbitrary new tokens (validated), or restrict to the
-  template's declared set (stricter, more Cadence-like for fixed cells)?
+- **A. C changes: zero or some?** *Open (recommend Tcl-only for v1).* Pure-Tcl
+  reskin keeps the `tctx::retval`/`rcode` contract (lowest risk). A richer C-side
+  field API (`xschem object_fields <handle>` → name/value/type/default dicts,
+  composing with the stable-handles `object` API) is the v2 upgrade.
+- **B. Unset declared attrs:** **RATIFIED (decision 1)** — shown, with the template
+  default as a greyed placeholder that is *not written* unless the user edits it.
+- **C. Reassembly strategy:** *recommend subst-into-original* (lossless; the §6
+  gate + decision 3 make fresh-assembly too risky). Confirm.
+- **D. Raw toggle:** **RATIFIED (decision 3)** — no Raw fallback; structured form is
+  the only path. (Raises §6 to a release gate.)
+- **E. Add-property:** **RATIFIED (decision 2)** — strict; no arbitrary new tokens
+  in v1. Pre-existing undeclared tokens are shown/editable/deletable but not
+  addable (§4.5).
 
 ## 8. Forward hook — multi-object / all-objects (the user's "later")
 
@@ -242,14 +309,18 @@ it in front of the user, then generalize.
 
 ## 10. Open questions for the user
 
-1. Should declared-but-unset symbol attributes appear in the form by default
-   (Cadence does), or only attributes already set on the instance?
-2. For fixed library cells, do you want to *forbid* adding undeclared properties
-   (strict template), or keep the freedom to add any (validated) token?
-3. Is a "Raw view" toggle (the old text box) acceptable as a permanent escape
-   hatch, or do you want the structured form to be the only path?
-4. How important is multi-line value editing in v1 (e.g. for `value`/spice cards),
-   vs. deferring rich multi-line to v2?
+*(The four scoping questions are now resolved — see the ratified-decisions box at
+the top. Remaining smaller calls:)*
+
+1. **C7.A** — v1 pure-Tcl reskin (recommended) vs. building the C `object_fields`
+   API now? (Recommend Tcl-only first; it fully meets the goal.)
+2. **C7.C** — confirm subst-into-original reassembly (recommended for losslessness).
+3. **Multi-line widget feel** — fixed N-row boxes with scrollbars, or auto-growing
+   up to a cap? And is Ctrl+Enter the preferred "commit from a multi-line field"
+   chord (vs. Shift+Enter)?
+4. **"Extra (undeclared)" section** — for the rare instance that already carries a
+   non-template token, is show-and-allow-delete the behavior you want (recommended,
+   prevents silent data loss), or should the form refuse such objects?
 
 ---
 
