@@ -6603,9 +6603,22 @@ proc set_netlist_dir { what {dir {} }} {
 # remembered-too-short (or WM-placed-short) geometry can never clip the
 # packed-at-bottom action button row (OK/Cancel/Load/Del). See issues/0006.
 # Call AFTER all widgets are packed and BEFORE the modal tkwait.
+#
+# Gridded caveat: dialogs whose text widget uses -setgrid 1 (text_line,
+# edit_prop_legacy) make the toplevel GRIDDED, so `wm minsize` is interpreted in
+# GRID units (characters), not pixels. Feeding it pixel reqwidth/reqheight there
+# sets a catastrophically huge minimum (a 739x717-cell window) that the WM can't
+# honor — the dialog balloons and jumps around. For a gridded window the natural
+# requested size is exactly the grid base (baseWidth x baseHeight from `wm grid`),
+# so use that; for a plain window use pixels.
 proc dialog_minsize_floor {w} {
   update idletasks
-  wm minsize $w [winfo reqwidth $w] [winfo reqheight $w]
+  set grid [wm grid $w]
+  if {[llength $grid] == 4} {
+    wm minsize $w [lindex $grid 0] [lindex $grid 1]
+  } else {
+    wm minsize $w [winfo reqwidth $w] [winfo reqheight $w]
+  }
 }
 
 proc enter_text {textlabel {preserve_disabled disabled}} {

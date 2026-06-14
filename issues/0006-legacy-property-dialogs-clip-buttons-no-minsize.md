@@ -4,10 +4,9 @@
 **Status:** RESOLVED (2026-06-14) — minsize floor implemented on the three
 affected legacy dialogs (`enter_text`, `text_line`, `edit_prop_legacy`) via a
 shared `dialog_minsize_floor` helper; the stretch dialogs were inspected and
-found unaffected (position-only geometry, naturally sized). The §5 eyeball pass
-on a real display was completed and confirmed the action-button row is visible
-at default and remembered sizes and the WM refuses to shrink past it. See §8 for
-the resolution record. Fix committed in `87791b4b` on `slick-property-forms`.
+found unaffected (position-only geometry, naturally sized). Fix committed in
+`87791b4b`; **follow-up `dialog_minsize_floor` gridded-window fix** for
+`text_line`/`edit_prop_legacy` — see §8.1. See §8 for the resolution record.
 **Affects:** the legacy Tk property/edit dialogs (`enter_text`, `text_line`,
 `edit_prop_legacy`, …) — usability when the window opens (or is remembered) too
 short. NOT the slick property form (`slickprop::edit_form`), which sizes to
@@ -214,7 +213,57 @@ would be inert; left untouched to keep the change minimal.
 change is Tcl-only (no C touched); the slick form (`slickprop::edit_form`) is
 untouched.
 
-**Eyeball gate — PASSED (2026-06-14):** verified on a real display that each of the
-three dialogs shows the OK/Cancel/Load/Del row at the default and at remembered
-sizes, and that the WM refuses to shrink the window past the buttons. Issue
-RESOLVED.
+**Eyeball gate (2026-06-14):** verified `enter_text` (non-gridded) shows the
+OK/Cancel/Load/Del row and won't shrink past it. The gridded dialogs were *not*
+fully exercised at the time — see §8.1.
+
+---
+
+## 8.1 Follow-up — gridded-window regression in `dialog_minsize_floor` (2026-06-14)
+
+**Reported:** selecting the big dashed rectangle in
+`xschem_library/examples/mos_power_ampli.sch` and pressing `q` opens the
+**Text input** dialog (`text_line`) which jumps around and clips its buttons —
+worse than before the fix.
+
+**Cause:** `text_line` and `edit_prop_legacy` build their text widget with
+`-setgrid 1` (`:7766`, `:7424`), which makes the **toplevel gridded**. For a
+gridded window `wm minsize` is specified in **grid units (characters), not
+pixels**. The original `dialog_minsize_floor` fed it `winfo reqwidth/reqheight`
+(pixels — e.g. 739×717), so the WM read it as a **739×717-character** minimum
+≈ thousands of pixels in each dimension. The toplevel ballooned far past the
+screen and the WM repositioned it on every open → the "random position + buttons
+off-screen unless maximized" symptom. `enter_text` was unaffected because it is
+**not** gridded (no `-setgrid`).
+
+**Fix:** make `dialog_minsize_floor` grid-aware. `wm grid $w` returns
+`{baseWidth baseHeight widthInc heightInc}` for a gridded toplevel (`{}` when not
+gridded); the natural requested size **is** the grid base, so use `baseWidth
+baseHeight` as the minsize for gridded windows and pixel `reqwidth/reqheight`
+otherwise.
+
+```tcl
+proc dialog_minsize_floor {w} {
+  update idletasks
+  set grid [wm grid $w]
+  if {[llength $grid] == 4} {
+    wm minsize $w [lindex $grid 0] [lindex $grid 1]
+  } else {
+    wm minsize $w [winfo reqwidth $w] [winfo reqheight $w]
+  }
+}
+```
+
+**Verified (standalone Tk repro of `text_line`'s exact widget tree + packing):**
+with a deliberately catastrophic stale geometry (`90x2`, 2 rows forced at open)
+the grid-aware floor restores the window to its natural `90x40` grid = 741×755 px
+(screen is 1440 tall) and the OK button row lands inside the window
+(bottom-edge 181 ≪ window bottom 882). The previous code set `wm minsize 739 717`
+*grid cells* (~12 000 px tall) — the smoking gun. `enter_text`'s non-gridded path
+is unchanged (`wm grid` → `{}` → pixel branch).
+
+**Remaining gate:** eyeball in the real app — open `text_line` (select a
+rect/wire/line/poly/arc, `q`) and `edit_prop_legacy`: the dialog opens at a sane
+size at the pointer, buttons visible, no ballooning/jumping, and won't shrink
+past the buttons. (The dialog still opens at the mouse pointer each time — that's
+existing intended behavior, not the regression.)
