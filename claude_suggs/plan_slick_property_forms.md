@@ -17,8 +17,14 @@ below is run-verified against the build on this branch.
 > 3. **Structured form is the ONLY path** — no "Raw view" text-box fallback. This
 >    raises the stakes on lossless round-trip (§6): the form must faithfully
 >    represent and preserve *every* property string it can be opened on.
-> 4. **Multi-line supported where needed** — fields that hold multi-line values get
->    a multi-line widget; see the expanded §4.4.
+> 4. **Multi-line supported where needed — but DEFERRED to v2.** v1 uses a
+>    **single-line entry for every value field** (keep it simple). Multi-line
+>    values still round-trip safely (preserved byte-for-byte if untouched, via
+>    subst-into-original §4.3); editing them in a one-line box is awkward, which is
+>    why the multi-line widget is a v2 item (§4.4).
+>
+> **v1 build choices (confirmed):** pure-Tcl reskin, no C changes (§7.A); single-
+> line entries only (§4.4); subst-into-original reassembly (§4.3, §7.C).
 
 ---
 
@@ -104,15 +110,13 @@ impossible. Adding a genuinely new property is a separate, explicit, *validated*
 affordance (§4.5), not free text.
 
 ```
- name   [ E1                    ]
+ name   [ E1                    ]   ← single-line entry (v1: all fields are single-line)
  TABLE  [ 1.4 0.0 1.6 4.0       ]   ← quotes handled by the round-trip, hidden from the user
  lab    [ xxx (default)         ]   ← declared in template, unset → greyed default placeholder
- value  +-------------------------+ ⤢ ← known multi-line attr → text widget
-        | .model mymod ...        |    (Enter = newline, Ctrl+Enter = OK)
-        +-------------------------+
- ...
+ ── Extra (undeclared) ──────────    ← only if this instance carries non-template tokens
+ foobar [ 123                   ] ×  ← editable + deletable; but no "+ add" (strict)
                                         [ OK ]  [ Cancel ]
- (strict: declared fields only; no free-form add, no Raw view — decisions 2 & 3)
+ Enter = OK (from any field) · Escape = Cancel · strict, no Raw view (decisions 2 & 3)
 ```
 
 ### 4.2 Where the field list comes from (Cadence-style, strict)
@@ -133,52 +137,59 @@ so the form shows every field the symbol defines, set or not (decision 1):
 This keeps the form Cadence-strict for new input while guaranteeing **no existing
 data is hidden or lost** — essential given the form is the only path.
 
-### 4.3 Reassembly on OK (the correctness core)
+### 4.3 Reassembly on OK — subst-into-original (the correctness core)
 
-On OK, rebuild the prop string from the fields. Two viable strategies:
+On OK the form must turn the fields back into one property string. **v1 uses
+subst-into-original** (confirmed): keep the object's *original* string as the
+base, and for each field the user **actually edited**, surgically replace just
+that token's value with `xschem subst_tok <string> <token> <newval>`. Tokens the
+user didn't touch are never rewritten.
 
-- **(a) subst into the original** — start from `tctx::retval_orig`, and for each
-  field the user *changed*, `subst_tok` the new value in. Preserves untouched
-  tokens byte-for-byte (incl. ordering/quoting) → safest for round-trip fidelity.
-- **(b) assemble fresh** — build `tok=val tok=val …` from all fields. Cleaner, but
-  risks reordering/reformatting tokens the user didn't touch.
+```
+original:  name=E1 TABLE="1.4 0.0 1.6 4.0"
+user edits name E1 -> E2, touches nothing else
+result:    name=E2 TABLE="1.4 0.0 1.6 4.0"   (subst_tok swapped only E1->E2;
+                                              TABLE's exact quoting/spacing intact)
+```
 
-**Recommend (a)** — it makes "open the form and click OK with no edits" a
-guaranteed no-op, which is the cardinal invariant (§6). Track a **dirty flag per
-field** so only edited tokens are substituted (this also pre-wires the
-later multi-object "apply only changed fields" feature, §8).
+Contrast — *assemble-fresh* (rebuild the whole string from all fields) would risk
+reordering tokens, changing quoting, or adding template attrs the user never set,
+so "open + OK with no edits" could silently mutate the string. Subst-into-original
+guarantees the form changes **only** what the user typed — the cardinal invariant
+(§6), and essential with no Raw fallback (decision 3).
 
-### 4.4 Long / multi-line values
+**Mechanism:** track a **dirty flag per field** (current value != loaded value);
+on OK, `subst_tok` once per dirty field into the running string. Bonus: an unset
+declared field left untouched stays unset (not dirty → never written), which is
+exactly the greyed-default behavior (§4.2). The dirty set also pre-wires the later
+multi-object "apply only changed fields" feature (§8).
 
-Multi-line is fully supported (decision 4); it is a widget concern, not a data
-concern (the value already round-trips, §3). Four parts:
+### 4.4 Long / multi-line values — v1 single-line, widgets deferred to v2
 
-**a. Widget choice.** Tk `entry` is single-line only, so a multi-line field uses a
-small `text` widget (a few rows, own scrollbar, resizable); short fields stay
-`entry`.
+**v1: every value field is a single-line `entry`** (confirmed — keep it simple).
+No `text` widgets, no expand toggles, no per-field multi-line detection. Because
+v1 uses single-line entries throughout, **Enter = OK works from every field with
+no exception** (there is no widget in which Enter needs to mean "newline").
 
-**b. Deciding a field is multi-line** — combine three signals:
-- **Known multi-line attributes** — `value`, `format`, `*_format`
-  (spice/spectre/verilog/vhdl/tedax), `template`, `model`, `descr`, etc. These get
-  a multi-line widget *even when currently empty/short* (a fresh `code` instance's
-  `value` still wants a big box). This is the declarative, Cadence-aligned signal.
-- **Heuristic** — current value contains `\n` or exceeds N chars → multi-line.
-- **Manual expand** — a per-field ⤢ toggle to grow any field, covering misses.
+**What about genuinely multi-line values?** A few attributes hold embedded
+newlines (`code.sym`'s `value`/`format`, `ngspice_*`, etc.). In v1 they:
+- **round-trip safely** — subst-into-original (§4.3) preserves any field the user
+  doesn't edit byte-for-byte, newlines and all. Opening the form on a `code`
+  instance and clicking OK does not harm its `format`/`value`.
+- **display awkwardly if the user tries to edit them** — a one-line `entry` is a
+  poor place to edit a newline-bearing value. That awkward case is precisely what
+  the **v2 multi-line widget** addresses.
 
-**c. The Enter-key consequence (the one unavoidable trade-off with "Enter = OK").**
-In a `text` widget Enter *must* insert a newline. So:
-- single-line `entry` field: **Enter → OK**;
-- multi-line `text` field: **Enter → newline**, **Ctrl+Enter (or Shift+Enter) →
-  OK**, plus the always-available OK button.
-This is the standard editor convention; show a one-line hint by multi-line fields.
-**Tab** has the same issue (a `text` widget eats Tab) — rebind Tab to focus-next
-so it still walks fields.
+**v2 (deferred):** for the known multi-line attributes (`value`, `format`,
+`*_format`, `template`, `model`, `descr`, …) render a `text` widget instead of an
+`entry`; there Enter inserts a newline and **Ctrl/Shift+Enter** commits (the OK
+button always commits), and **Tab** is rebound to focus-next (a `text` widget eats
+Tab). This is the only place "Enter = OK everywhere" needs an exception, which is
+why it is isolated into v2.
 
-**d. Lossless round-trip of newlines + quoting** (§6) — the value `\n@value\n` must
-survive open→OK byte-for-byte. Reuse `get_tok`/`subst_tok` (which already carry
-newlines) and the subst-into-original strategy (§4.3); the round-trip test corpus
-must include multi-line symbols (`code.sym`, `launcher.sym`, the `ngspice_*`
-family). With no Raw fallback (decision 3), this is non-negotiable.
+Either way the round-trip test corpus (§6) **must include the multi-line symbols**
+(`code.sym`, `launcher.sym`, the `ngspice_*` family) from v1 onward — preservation
+of those values is required even though editing them is a v2 nicety.
 
 ### 4.5 Adding / deleting a property (strict)
 
@@ -208,11 +219,11 @@ Cadence-for-fixed-cells behavior and keeps junk input impossible by construction
 
 ### 4.7 Keyboard contract (explicitly requested)
 
-- **Enter** in a single-line field → invoke OK (safe: an `entry` never needs Enter
-  for a newline, unlike the current text box which binds **Shift**-Enter to OK at
-  `xschem.tcl:7516`). **Multi-line fields are the documented exception** (§4.4c):
-  Enter inserts a newline, **Ctrl/Shift-Enter** commits, the OK button always
-  commits.
+- **Enter → OK from any field** in v1, with no exception, because every field is a
+  single-line `entry` (an `entry` never needs Enter for a newline — unlike the
+  current text box, which is why it binds **Shift**-Enter to OK at
+  `xschem.tcl:7516`). The lone exception arrives only with the v2 multi-line
+  widgets (§4.4), which is why they are deferred.
 - **Escape** any time → Cancel and discard. Drop the current conditional guard
   (`xschem.tcl:7517-7522`) that only cancels when nothing changed; make it
   unconditional, matching the request.
@@ -271,14 +282,14 @@ Testing approach (Tk dialogs are awkward headless, so split the work):
 
 ## 7. Decisions
 
-- **A. C changes: zero or some?** *Open (recommend Tcl-only for v1).* Pure-Tcl
-  reskin keeps the `tctx::retval`/`rcode` contract (lowest risk). A richer C-side
+- **A. C changes: zero or some?** **RATIFIED — pure-Tcl reskin, no C changes for
+  v1** (keeps the `tctx::retval`/`rcode` contract, lowest risk). A richer C-side
   field API (`xschem object_fields <handle>` → name/value/type/default dicts,
-  composing with the stable-handles `object` API) is the v2 upgrade.
+  composing with the stable-handles `object` API) is a possible v2 upgrade.
 - **B. Unset declared attrs:** **RATIFIED (decision 1)** — shown, with the template
   default as a greyed placeholder that is *not written* unless the user edits it.
-- **C. Reassembly strategy:** *recommend subst-into-original* (lossless; the §6
-  gate + decision 3 make fresh-assembly too risky). Confirm.
+- **C. Reassembly strategy:** **RATIFIED — subst-into-original** (§4.3; lossless,
+  required by the §6 gate + no-Raw-fallback).
 - **D. Raw toggle:** **RATIFIED (decision 3)** — no Raw fallback; structured form is
   the only path. (Raises §6 to a release gate.)
 - **E. Add-property:** **RATIFIED (decision 2)** — strict; no arbitrary new tokens
@@ -298,9 +309,10 @@ should expose "the set of changed (token,value) pairs," and the apply loop
 
 ## 9. Effort
 
-- **v1 (`edit_prop` reskin, Tcl-only, Raw fallback, Enter/Escape, headless
-  round-trip suite):** ~2–3 days, dominated by the quoting round-trip and the
-  long-value UX.
+- **v1 (`edit_prop` reskin, pure-Tcl, single-line fields, strict + Extra section,
+  subst-into-original, Enter/Escape, headless round-trip suite):** ~1.5–2 days now
+  that multi-line widgets and the Raw fallback are out of v1. Dominated by the
+  quoting round-trip correctness (the §6 gate), not UI.
 - **v2 (shared proc + `text_line`/`enter_text`, per-attr validators):** ~2 days.
 - **multi-object apply (§8):** ~1–2 days once the dirty-field model exists.
 
@@ -309,18 +321,15 @@ it in front of the user, then generalize.
 
 ## 10. Open questions for the user
 
-*(The four scoping questions are now resolved — see the ratified-decisions box at
-the top. Remaining smaller calls:)*
+*(All scoping + the build-strategy questions are resolved — see the ratified box up
+top. One behavioral call remains for v1:)*
 
-1. **C7.A** — v1 pure-Tcl reskin (recommended) vs. building the C `object_fields`
-   API now? (Recommend Tcl-only first; it fully meets the goal.)
-2. **C7.C** — confirm subst-into-original reassembly (recommended for losslessness).
-3. **Multi-line widget feel** — fixed N-row boxes with scrollbars, or auto-growing
-   up to a cap? And is Ctrl+Enter the preferred "commit from a multi-line field"
-   chord (vs. Shift+Enter)?
-4. **"Extra (undeclared)" section** — for the rare instance that already carries a
-   non-template token, is show-and-allow-delete the behavior you want (recommended,
-   prevents silent data loss), or should the form refuse such objects?
+1. **"Extra (undeclared)" section** — for an instance that already carries a
+   non-template token (e.g. `foobar=123`, or stray junk), should the strict form
+   **show it, editable + deletable** (recommended — visible, removable, no silent
+   loss, and it can't be *added*), or instead **refuse to open** on such an object?
+   This is the only v1 behavior still to confirm. (Multi-line *widget* feel —
+   N-row boxes vs. auto-grow, Ctrl+Enter vs. Shift+Enter — is a v2 question.)
 
 ---
 
