@@ -50,6 +50,30 @@ The setting is **sticky**: it stays where you left it the next time you open the
 dialog, so a workflow like "select a few, set them all" doesn't need re-choosing
 each time. If you want the safe default back, set it to **Only Current**.
 
+### Launching straight into a scope (keyboard shortcuts)
+
+`xschem edit_prop` accepts an optional scope argument so you can bind keys that
+open the dialog *already set* to a given scope:
+
+```tcl
+xschem edit_prop current     ;# open in Only Current
+xschem edit_prop selected    ;# open in All Selected
+xschem edit_prop all         ;# open in All (same symbol)
+```
+
+This is handy for two dedicated shortcuts — e.g. one key for the safe
+single-instance edit and another for editing the whole selection. Bind them in
+your `xschemrc` (or wherever you keep custom bindings), for example:
+
+```tcl
+bind .drw <Key-q>       {xschem edit_prop current}   ;# plain q = Only Current
+bind .drw <Shift-Key-Q> {xschem edit_prop selected}  ;# Shift-Q = All Selected
+```
+
+The argument updates the same sticky setting, so it also becomes the new default
+for a later plain open. An unknown scope is rejected (it must be `current`,
+`selected`, or `all`).
+
 > **Example.** Three resistors selected, each a different value. Set **Apply to →
 > All Selected**, change `value` to `2k`, click OK. All three become `2k`. Their
 > *names* (R1, R2, R3) are untouched — see "Name is protected" below.
@@ -183,6 +207,7 @@ xschem apply_properties all $id $new $old
 | Action | How |
 | --- | --- |
 | Open Edit Properties | select instance(s), press **`q`** |
+| Open straight into a scope | `xschem edit_prop current\|selected\|all` (bindable) |
 | Choose how far edits reach | **Apply to** dropdown (sticky) |
 | Step through the selection | **◀ Prev / Next ▶** or **Alt+Left / Alt+Right** |
 | Apply and keep editing | **Apply** |
