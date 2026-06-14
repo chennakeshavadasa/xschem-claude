@@ -147,11 +147,13 @@ suite assertion (the log path/enable depends on `has_x`/`--logdir`).
 
 ---
 
-## 6. Follow-on — logging the *launch* (the form opening) — DESIGN
+## 6. Follow-on — logging the *launch* (the form opening) — IMPLEMENTED 2026-06-14
 
 *Want:* also record that the user **opened** the Edit Properties form (not just
-the apply). *Decision (ratified):* log it as a **non-replayable `#` marker**, not
-a replayable command.
+the apply). *Decision (ratified, now implemented):* log it as a **non-replayable
+`#` marker**, not a replayable command. Shipped: `slickprop::log_event` seam +
+the marker emit in `slickprop::edit_form`; tests PF48a–c (suite 127); FAQ Q13
+updated. Sabotage-verified (drop the emit → PF48 reddens).
 
 **Why a marker, not `xschem edit_prop`.** `edit_prop` opens a **modal**
 (`edit_form` → `toplevel .dialog` + `tkwait`). A replayable `xschem edit_prop`

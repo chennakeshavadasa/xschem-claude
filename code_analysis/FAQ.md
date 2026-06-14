@@ -60,11 +60,23 @@ xschem apply_properties <scope> <displayed_id> <new_prop> <old_prop>
 ```
 
 That command is deterministic and idempotent-on-replay; `edit_prop` is neither.
-So the right design is: **don't log the dialog-open at all; log the apply.** The
-general principle — worth carrying to any undo/redo, audit-trail, or
-event-sourcing system — is *record the committed transition (old→new state), not
-the UI event that led a human to it.* Intentions are infinite and interactive;
+So the right design is: **don't log the dialog-open as a *replayable command*; log
+the apply.** The general principle — worth carrying to any undo/redo, audit-trail,
+or event-sourcing system — is *record the committed transition (old→new state),
+not the UI event that led a human to it.* Intentions are infinite and interactive;
 effects are finite and replayable.
+
+> **Update (2026-06-14): the launch *is* now recorded — as a non-replayable
+> marker, not a command.** Opening the form writes a Tcl-comment line,
+> `# xschem edit_prop <scope> — Edit Properties form opened (non-replayable:
+> modal)`, emitted at `slickprop::edit_form` (the one point `q`/menu/`xschem
+> edit_prop` converge). Because it begins with `#`, `source`-ing the log **skips
+> it** — so the audit record of "the user opened the editor" coexists with a
+> replayable log, and the modal never re-opens on replay. This is the key
+> distinction: *a replay log can carry two kinds of line* — replayable commands
+> (the apply) and inert `#` markers for intentions worth recording but not
+> re-executing. Don't force an interactive event into a replayable command;
+> demote it to a comment.
 
 > This is exactly the **command/query and intent/effect split**. A keystroke, a
 > menu pick, and a scripted call can all reach the same effect by different
