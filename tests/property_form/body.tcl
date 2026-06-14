@@ -415,4 +415,143 @@ if {[gui2_ok]} {
     {$::slickprop_apply_scope eq "all"}
 } else { check {PF24b (skipped: no main window)} {1} }
 
+# ===========================================================================
+# PF26-PF30 — P2: the Apply button (apply + stay open) and Next/Prev navigation
+# through the selected set, with per-Apply undo and navigation-discards-pending.
+# These step the displayed instance and apply mid-session via the new
+# `xschem apply_properties` command, all inside a single after-callback (every
+# step — edit, Apply, Next/Prev — is synchronous; only the modal wait blocks).
+# ===========================================================================
+
+# the value token of the (first) instance whose name == <nm>
+proc pf_value_of_name {nm} {
+  set n [xschem get instances]
+  for {set i 0} {$i < $n} {incr i} {
+    if {[xschem get_tok [xschem getprop instance $i] name 2] eq $nm} {
+      return [xschem get_tok [xschem getprop instance $i] value 2]
+    }
+  }
+  return {}
+}
+# set a field's entry value (clearing a placeholder first)
+proc pf_setfield {tok v} {
+  slickprop::placeholder_in $tok
+  $slickprop::cur(entry,$tok) delete 0 end
+  $slickprop::cur(entry,$tok) insert 0 $v
+}
+# open the real modal form under <scope> and run <body> once the fields are
+# built; <body> may close the dialog itself (ok/cancel) or leave it for the
+# fallback cancel. State is recorded in ::globals for post-return assertions.
+proc pf_form_run {scope body} {
+  set ::slickprop_apply_scope $scope
+  set ::edit_symbol_prop_new_sel {}
+  set ::pf_body $body
+  set ::pf_ran 0
+  set ::pf_err {}
+  after 400 [list apply {{} {
+    if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
+      set ::pf_ran 1
+      if {[catch {uplevel #0 $::pf_body} m]} { set ::pf_err $m }
+    }
+    catch {if {[winfo exists .dialog]} {slickprop::cancel}}
+  }}]
+  after 6000 {catch {slickprop::cancel}}  ;# safety: never hang the suite
+  catch {xschem edit_prop}
+}
+
+if {[gui2_ok]} {
+  ### PF26 — the Apply button applies the change set to the scope and KEEPS the
+  ### dialog open (scope=current touches only the displayed instance).
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_form_run current {
+    pf_setfield value 2k
+    slickprop::apply_now
+    set ::pf26_open  [winfo exists .dialog]
+    set ::pf26_n2k   [pf_count_value 2k]
+    set ::pf26_dispv [slickprop::field_value value]
+  }
+  check {PF26a the form ran} {$::pf_ran == 1}
+  check {PF26b Apply leaves the dialog OPEN (apply + stay)} {$::pf26_open == 1}
+  check {PF26c Apply applied to exactly one instance (scope=current)} {$::pf26_n2k == 1}
+  check {PF26d after Apply the displayed value is the applied value (new baseline)} \
+    {$::pf26_dispv eq "2k"}
+
+  ### PF27 — Next/Prev walk the selected set: the displayed instance changes,
+  ### the position readout tracks, Prev is disabled at first / Next at last.
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_form_run current {
+    set ::pf27_n     [llength $slickprop::nav(ids)]
+    set ::pf27_pos0  $slickprop::nav(pos)
+    set ::pf27_name0 [slickprop::field_value name]
+    set ::pf27_prev0 [.dialog.fnav.prev cget -state]
+    slickprop::nav 1
+    set ::pf27_name1 [slickprop::field_value name]
+    set ::pf27_pos1  $slickprop::nav(pos)
+    slickprop::nav 1
+    set ::pf27_next2 [.dialog.fnav.next cget -state]
+  }
+  check {PF27a all three selected are the nav set} {$::pf27_n == 3}
+  check {PF27b Prev is disabled at the first instance} {$::pf27_prev0 eq "disabled"}
+  check {PF27c Next advances the displayed instance (name changes)} \
+    {$::pf27_name0 ne $::pf27_name1 && $::pf27_name0 ne "" && $::pf27_name1 ne ""}
+  check {PF27d the position advances by one} {$::pf27_pos1 == $::pf27_pos0 + 1}
+  check {PF27e Next is disabled at the last instance} {$::pf27_next2 eq "disabled"}
+
+  ### PF28 — navigating away DISCARDS unapplied edits (the change set belongs to
+  ### the displayed instance; stepping shows the next with its own values).
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_form_run current {
+    pf_setfield value 9k
+    slickprop::nav 1
+    slickprop::nav -1
+    set ::pf28_back [slickprop::field_value value]
+    set ::pf28_n9k  [pf_count_value 9k]
+  }
+  check {PF28a stepping back shows the original value (edit discarded)} {$::pf28_back eq "1k"}
+  check {PF28b no instance was modified by the discarded edit} {$::pf28_n9k == 0}
+
+  ### PF29 — OK after stepping applies to the CURRENTLY displayed instance only
+  ### (scope=current), not the originally-displayed one.
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_form_run current {
+    set ::pf29_name0 [slickprop::field_value name]
+    slickprop::nav 1
+    set ::pf29_name1 [slickprop::field_value name]
+    pf_setfield value 5k
+    slickprop::ok
+  }
+  check {PF29a OK applied to the stepped-to instance} {[pf_value_of_name $::pf29_name1] eq "5k"}
+  check {PF29b the originally-displayed instance is untouched} {[pf_value_of_name $::pf29_name0] eq "1k"}
+  check {PF29c exactly one instance changed (not the whole selection)} {[pf_count_value 5k] == 1}
+
+  ### PF30 — per-Apply undo: two Applies on two instances are two separate undo
+  ### entries; one undo reverses only the most recent.
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_form_run current {
+    set ::pf30_nm0 [slickprop::field_value name]
+    pf_setfield value 2k
+    slickprop::apply_now
+    slickprop::nav 1
+    set ::pf30_nm1 [slickprop::field_value name]
+    pf_setfield value 3k
+    slickprop::apply_now
+    slickprop::cancel
+  }
+  check {PF30a both per-instance applies took} \
+    {[pf_value_of_name $::pf30_nm0] eq "2k" && [pf_value_of_name $::pf30_nm1] eq "3k"}
+  xschem undo
+  check {PF30b one undo reverses only the most recent apply} \
+    {[pf_value_of_name $::pf30_nm1] eq "1k" && [pf_value_of_name $::pf30_nm0] eq "2k"}
+  xschem undo
+  check {PF30c a second undo reverses the earlier apply} {[pf_value_of_name $::pf30_nm0] eq "1k"}
+} else {
+  foreach t {PF26a PF26b PF26c PF26d PF27a PF27b PF27c PF27d PF27e PF28a PF28b
+             PF29a PF29b PF29c PF30a PF30b PF30c} { check "$t (skipped: no main window)" {1} }
+}
+
 xschem set modified 0
