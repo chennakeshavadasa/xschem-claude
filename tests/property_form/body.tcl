@@ -291,4 +291,128 @@ if {[gui_ok]} {
   gui_done
 } else { check {PF19a (skip)} {1}; check {PF19b (skip)} {1} }
 
+# ===========================================================================
+# PF20-PF25 — P1 multi-instance "Apply to" scope (the default-behavior FIX +
+# the sticky scope selector + name-greying + per-Apply undo). The apply runs
+# through the REAL C path (xschem edit_prop -> edit_property(0) -> update_symbol),
+# driven modally with an after-callback that edits the `value` field and clicks
+# OK (mirroring PF16). A safety timer guarantees the suite can never hang.
+# Throughout, ONLY changed fields are applied — instances keep their own names.
+# ===========================================================================
+
+# place 3 res.sym (R1..R3, value=1k) + one capa.sym (different master, value=1p)
+proc pf_setup_insts {} {
+  xschem set modified 0
+  xschem clear force schematic
+  xschem instance res.sym    0 0 0 0 {name=R1 value=1k}
+  xschem instance res.sym  100 0 0 0 {name=R2 value=1k}
+  xschem instance res.sym  200 0 0 0 {name=R3 value=1k}
+  xschem instance capa.sym 300 0 0 0 {name=C1 value=1p}
+}
+# count instances whose `value` token == <v>
+proc pf_count_value {v} {
+  set n [xschem get instances]; set c 0
+  for {set i 0} {$i < $n} {incr i} {
+    if {[xschem get_tok [xschem getprop instance $i] value 2] eq $v} { incr c }
+  }
+  return $c
+}
+# run one modal property edit through the C path under scope <scope>, editing
+# the value field to <editval> and pressing OK.
+proc pf_edit_value {scope editval} {
+  set ::slickprop_apply_scope $scope
+  set ::pf_editval $editval
+  set ::pf_built 0
+  set ::edit_symbol_prop_new_sel {}
+  after 400 {
+    if {[info exists slickprop::cur(entry,value)]} {
+      set ::pf_built 1
+      slickprop::placeholder_in value
+      $slickprop::cur(entry,value) delete 0 end
+      $slickprop::cur(entry,value) insert 0 $::pf_editval
+      slickprop::ok
+    } else { catch {slickprop::cancel} }
+  }
+  after 4000 {catch {slickprop::cancel}}  ;# safety: never hang the suite
+  catch {xschem edit_prop}
+}
+
+if {[gui2_ok]} {
+  ### PF20 — THE FIX: default scope = Only Current. Selecting 3 instances and
+  ### editing `value` touches ONLY the displayed (first-selected) one — multi-
+  ### select no longer silently edits them all.
+  catch {unset ::slickprop_apply_scope}
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_edit_value current 2k
+  check {PF20a the modal form built (value field present)} {$::pf_built == 1}
+  check {PF20b scope=current edits exactly ONE instance} {[pf_count_value 2k] == 1}
+  check {PF20c the other two are NOT silently edited (still 1k)} {[pf_count_value 1k] == 2}
+
+  ### PF21 — scope = All Selected: all three selected get value=2k, each keeps
+  ### its OWN name (changed-fields-only — name is never fanned out).
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_edit_value selected 2k
+  check {PF21a scope=selected applies to all three selected} {[pf_count_value 2k] == 3}
+  check {PF21b each instance kept its own name (changed-only)} \
+    {[xschem get_tok [xschem getprop instance 0] name 2] eq "R1" &&
+     [xschem get_tok [xschem getprop instance 1] name 2] eq "R2" &&
+     [xschem get_tok [xschem getprop instance 2] name 2] eq "R3"}
+
+  ### PF22 — scope = All (same master): selecting ONE res fans the change to
+  ### ALL res instances by master; the capa (different master) is untouched.
+  pf_setup_insts
+  xschem select instance R1
+  pf_edit_value all 2k
+  check {PF22a scope=all fans to every same-master instance} {[pf_count_value 2k] == 3}
+  check {PF22b a different-master instance is NEVER touched} \
+    {[xschem get_tok [xschem getprop instance 3] value 2] eq "1p"}
+
+  ### PF25 — one Apply = one undo: a single undo reverses the whole All-Selected
+  ### change across every affected instance.
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_edit_value selected 2k
+  set ::pf_n2k [pf_count_value 2k]
+  xschem undo
+  check {PF25 one undo reverses the entire All-Selected apply} \
+    {$::pf_n2k == 3 && [pf_count_value 2k] == 0 && [pf_count_value 1k] == 3}
+} else {
+  foreach t {PF20a PF20b PF20c PF21a PF21b PF22a PF22b PF25} { check "$t (skipped: no main window)" {1} }
+}
+
+### PF23 — name greying: under scope selected/all the name entry is disabled;
+### under current it is enabled. Live-toggled by slickprop::apply_scope_greying.
+if {[gui_ok]} {
+  slickprop::build_fields .pf.f {name=R1 value=1k} {name=R1 value=1k}
+  set ::slickprop_apply_scope current; slickprop::apply_scope_greying
+  set s_cur [$slickprop::cur(entry,name) cget -state]
+  set ::slickprop_apply_scope selected; slickprop::apply_scope_greying
+  set s_sel [$slickprop::cur(entry,name) cget -state]
+  set ::slickprop_apply_scope all; slickprop::apply_scope_greying
+  set s_all [$slickprop::cur(entry,name) cget -state]
+  check {PF23a name entry ENABLED under scope=current}  {$s_cur eq "normal"}
+  check {PF23b name entry DISABLED under scope=selected} {$s_sel eq "disabled"}
+  check {PF23c name entry DISABLED under scope=all}      {$s_all eq "disabled"}
+  set ::slickprop_apply_scope current
+  gui_done
+} else { foreach t {PF23a PF23b PF23c} { check "$t (skip)" {1} } }
+
+### PF24 — the scope label<->value mapping round-trips, and the scope var is
+### STICKY (edit_form must not reset an already-set ::slickprop_apply_scope).
+check {PF24a scope_value inverts scope_label for every canonical value} \
+  {[slickprop::scope_value [slickprop::scope_label current]]  eq "current" &&
+   [slickprop::scope_value [slickprop::scope_label selected]] eq "selected" &&
+   [slickprop::scope_value [slickprop::scope_label all]]      eq "all"}
+if {[gui2_ok]} {
+  pf_setup_insts
+  xschem select instance R1
+  set ::slickprop_apply_scope all
+  after 300 {catch {slickprop::cancel}}
+  catch {xschem edit_prop}
+  check {PF24b scope persists across a form open (sticky, not reset)} \
+    {$::slickprop_apply_scope eq "all"}
+} else { check {PF24b (skipped: no main window)} {1} }
+
 xschem set modified 0
