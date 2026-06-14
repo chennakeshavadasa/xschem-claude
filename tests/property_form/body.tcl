@@ -690,4 +690,97 @@ if {[gui2_ok]} {
   foreach t {PF35a PF35b PF35c PF35d PF35e PF35f} { check "$t (skipped: no main window)" {1} }
 }
 
+# ===========================================================================
+# PF36-PF39 — H1 of the apply-scope highlight: the white-outline overlay
+# primitive + the Only Current scope, driven by a stable id. The overlay marks
+# exactly the OK/Apply target set; C resolves it the same way apply_symbol_prop
+# does (shared scope_targets()), so "outlined set == applied set" by
+# construction. Commands (decision doc D3):
+#   xschem highlight_scope <scope> <displayed_id> -> set+redraw, returns the
+#       resolved stable-id list (so a test can assert it == the apply set);
+#   xschem highlight_scope            -> the current overlay count;
+#   xschem highlight_scope ids        -> the stored stable-id list;
+#   xschem highlight_scope clear      -> empty the overlay + redraw;
+#   xschem highlight_objects {type id ...} -> general primitive (any drawable
+#       type in its natural shape; the dialog only ever feeds instances, but
+#       this proves a WIRE is accepted/outlined as its line).
+# These assertions are pixel-FREE (state, not colour); the look (white, halo,
+# distinct from selection) is a manual eyeball item, noted in the spec.
+# Every new-command call is guarded (catch / inside a check) so the RED phase
+# fails cleanly instead of aborting the suite.
+# ===========================================================================
+
+### PF36 — Only Current: highlight_scope resolves to exactly the displayed
+### instance (the applied set for scope=current), the count is 1, and clear
+### empties it. Pixel-free, display-independent (the set is computed regardless
+### of has_x), so this runs unconditionally.
+catch {xschem highlight_scope clear}
+pf_setup_insts
+set ::pf36_rid [xschem instance_id R1]
+check {PF36a current scope resolves to exactly the displayed instance id} \
+  {[catch {xschem highlight_scope current $::pf36_rid} r] == 0 && $r eq $::pf36_rid}
+check {PF36b the overlay holds exactly one object} \
+  {[catch {xschem highlight_scope} c] == 0 && $c == 1}
+check {PF36c the stored id list is the displayed instance} \
+  {[catch {xschem highlight_scope ids} ids] == 0 && $ids eq $::pf36_rid}
+catch {xschem highlight_scope clear}
+check {PF36d clear empties the overlay} \
+  {[catch {xschem highlight_scope} c] == 0 && $c == 0}
+
+### PF37 — the form drives the overlay: active (count 1 under Only Current) while
+### the modal is open, cleared to 0 on every close path. Needs the GUI + the
+### property_form wiring (update_highlight on open, clear in ok/cancel).
+if {[gui2_ok]} {
+  catch {xschem highlight_scope clear}
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  set ::pf37_open -1
+  pf_form_run current {
+    catch {xschem highlight_scope} ::pf37_open
+  }
+  if {[catch {xschem highlight_scope} ::pf37_closed]} { set ::pf37_closed -1 }
+  check {PF37a overlay is active while the form is open (current = 1)} {$::pf37_open == 1}
+  check {PF37b overlay is cleared after the form closes} {$::pf37_closed == 0}
+} else {
+  foreach t {PF37a PF37b} { check "$t (skipped: no main window)" {1} }
+}
+
+### PF38 — live update on Next/Prev: under Only Current the single outline
+### follows the displayed instance as the user steps through the selected set.
+if {[gui2_ok]} {
+  catch {xschem highlight_scope clear}
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  pf_form_run current {
+    set ::pf38_disp0 $slickprop::nav(disp_id)
+    set ::pf38_hi0   [xschem highlight_scope ids]
+    slickprop::nav 1
+    set ::pf38_disp1 $slickprop::nav(disp_id)
+    set ::pf38_hi1   [xschem highlight_scope ids]
+  }
+  check {PF38a the displayed instance actually changed on Next} \
+    {$::pf38_disp0 ne $::pf38_disp1}
+  check {PF38b the overlay initially marks the displayed instance} \
+    {$::pf38_hi0 eq $::pf38_disp0}
+  check {PF38c after Next the overlay follows to the new displayed instance} \
+    {$::pf38_hi1 eq $::pf38_disp1}
+} else {
+  foreach t {PF38a PF38b PF38c} { check "$t (skipped: no main window)" {1} }
+}
+
+### PF39 — the primitive is GENERAL: highlight_objects accepts a WIRE and holds
+### it in the overlay (rendered as its line segment, not a box). Proves the
+### per-type dispatch exists even though the dialog only feeds instances.
+catch {xschem highlight_scope clear}
+xschem set modified 0
+xschem clear force schematic
+xschem wire 0 0 100 0
+set ::pf39_wid [xschem wire_id 0]
+check {PF39a highlight_objects accepts a wire (general primitive, wire-as-line)} \
+  {[catch {xschem highlight_objects [list wire $::pf39_wid]} r] == 0 &&
+   [catch {xschem highlight_scope} c] == 0 && $c == 1}
+catch {xschem highlight_scope clear}
+check {PF39b clear empties the general overlay too} \
+  {[catch {xschem highlight_scope} c] == 0 && $c == 0}
+
 xschem set modified 0
