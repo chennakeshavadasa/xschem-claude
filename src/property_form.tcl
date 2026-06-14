@@ -95,6 +95,19 @@ proc slickprop::apply {orig changes} {
 # wrapper so they can be driven headlessly by tests.
 # ===========================================================================
 
+# Look-and-feel (Batch 1). Named Tk fonts, never a hardcoded family, so they
+# track the platform + the user's `tk scaling` and match xschem's own dialogs:
+#   - labels / chrome: TkDefaultFont (xschem's convention)
+#   - editable VALUES:  TkFixedFont (monospace) — values here are numbers,
+#     expressions and code (1.4 0.0 1.6 4.0, @value, m=@m); monospace aligns them
+#     and disambiguates l/1/I, O/0, the way an EDA property grid should.
+# Colors are intentionally NOT hardcoded (except grey60 header bars, which xschem
+# itself uses unconditionally) so the form inherits the dark/light option-db theme.
+set slickprop::font_label  TkDefaultFont
+set slickprop::font_value  TkFixedFont
+set slickprop::font_header {TkDefaultFont 10 bold}
+set slickprop::font_hint   {TkDefaultFont 8}
+
 # Get the symbol's template (declared attributes), or "" if unavailable.
 proc slickprop::template_of {symbol} {
   if {[catch {xschem getprop symbol $symbol template} t]} { return "" }
@@ -107,6 +120,8 @@ proc slickprop::template_of {symbol} {
 # (not part of the value). Returns the list of token names placed.
 proc slickprop::build_fields {parent prop template} {
   variable cur
+  variable font_label
+  variable font_value
   array unset cur
   set cur(orig) $prop
   set cur(tokens) {}
@@ -118,20 +133,25 @@ proc slickprop::build_fields {parent prop template} {
     set val      [dict get $f value]
     set declared [dict get $f declared]
     set default  [dict get $f default]
-    # a visual divider before the first undeclared "Extra" token
+    # a theme-neutral divider before the first undeclared "Extra" token
     if {!$declared && !$extras_started} {
       set extras_started 1
-      label $parent.x$r -text "Extra (undeclared)" -fg gray40 -anchor w
-      grid $parent.x$r -row $r -column 0 -columnspan 2 -sticky w -pady {6 1}
+      frame  $parent.xs$r -height 1 -bd 1 -relief sunken
+      label  $parent.x$r  -text "Extra (undeclared)" -anchor w -font $font_label
+      grid $parent.xs$r -row $r -column 0 -columnspan 2 -sticky we -pady {8 0} -padx 2
+      incr r
+      grid $parent.x$r  -row $r -column 0 -columnspan 2 -sticky w -pady {1 2} -padx 2
       incr r
     }
-    label $parent.l$r -text $tok -anchor w
-    entry $parent.e$r -width 48
-    grid $parent.l$r -row $r -column 0 -sticky w  -padx {2 6}
-    grid $parent.e$r -row $r -column 1 -sticky we -padx {0 2}
+    # right-aligned label in a fixed column, sunken monospace value entry filling the rest
+    label $parent.l$r -text $tok -anchor e -font $font_label
+    entry $parent.e$r -font $font_value -relief sunken -borderwidth 1
+    grid $parent.l$r -row $r -column 0 -sticky e  -padx {4 8} -pady 2
+    grid $parent.e$r -row $r -column 1 -sticky we -padx {0 4} -pady 2
     set cur(entry,$tok)       $parent.e$r
     set cur(loaded,$tok)      $val
     set cur(placeholder,$tok) 0
+    set cur(normalfg,$tok)    [$parent.e$r cget -foreground] ;# theme default, for placeholder restore
     lappend cur(tokens) $tok
     if {$val ne {}} {
       $parent.e$r insert 0 $val
@@ -140,6 +160,7 @@ proc slickprop::build_fields {parent prop template} {
     }
     incr r
   }
+  grid columnconfigure $parent 0 -minsize 90   ;# fixed label column so labels align
   grid columnconfigure $parent 1 -weight 1
   return $cur(tokens)
 }
@@ -151,7 +172,7 @@ proc slickprop::set_placeholder {tok default} {
   set e $cur(entry,$tok)
   $e delete 0 end
   $e insert 0 $default
-  $e configure -fg gray60
+  $e configure -foreground grey50 ;# muted, readable on both light and dark themes
   set cur(placeholder,$tok) 1
   bind $e <FocusIn>  [list slickprop::placeholder_in $tok]
   bind $e <FocusOut> [list slickprop::placeholder_out $tok $default]
@@ -161,7 +182,7 @@ proc slickprop::placeholder_in {tok} {
   if {$cur(placeholder,$tok)} {
     set e $cur(entry,$tok)
     $e delete 0 end
-    $e configure -fg black
+    $e configure -foreground $cur(normalfg,$tok) ;# restore the theme's normal fg
     set cur(placeholder,$tok) 0
   }
 }
@@ -256,26 +277,33 @@ proc slickprop::edit_form {txtlabel} {
 
   set prev_symbol $symbol
 
+  # --- header bar: what is being edited (xschem grey60 bold convention) -----
+  set inst_name [xschem get_tok $::tctx::retval name 2]
+  set hdr $symbol
+  if {$inst_name ne {}} { set hdr "$inst_name  —  $symbol" }
+  label .dialog.hdr -text "  $hdr" -bg grey60 -anchor w -font $slickprop::font_header
+  pack .dialog.hdr -side top -fill x
+
   # --- top: symbol entry + Browse -----------------------------------------
   frame .dialog.f1
-  label .dialog.f1.l2 -text "Symbol"
-  entry .dialog.f1.e2 -width 30
+  label .dialog.f1.l2 -text "Symbol" -font $slickprop::font_label
+  entry .dialog.f1.e2 -width 30 -font $slickprop::font_value -relief sunken -borderwidth 1
   .dialog.f1.e2 insert 0 $symbol
-  button .dialog.f1.b5 -text "Browse" -command {
+  button .dialog.f1.b5 -text "Browse" -font $slickprop::font_label -command {
     set r [tk_getOpenFile -parent .dialog -initialdir $INITIALINSTDIR]
     if {$r ne {}} { .dialog.f1.e2 delete 0 end; .dialog.f1.e2 insert 0 $r }
     raise .dialog .drw
   }
-  pack .dialog.f1.l2 -side left
+  pack .dialog.f1.l2 -side left -padx {4 6}
   pack .dialog.f1.e2 -side left -fill x -expand yes
-  pack .dialog.f1.b5 -side left
+  pack .dialog.f1.b5 -side left -padx {6 4}
 
   # --- options row (the legacy checkbuttons; their globals are read by C) ---
   frame .dialog.f2
-  checkbutton .dialog.f2.r1 -text "No change properties" -variable no_change_attrs
-  checkbutton .dialog.f2.r2 -text "Preserve unchanged props" -variable preserve_unchanged_attrs
-  checkbutton .dialog.f2.r3 -text "Copy cell" -variable copy_cell
-  pack .dialog.f2.r1 .dialog.f2.r2 .dialog.f2.r3 -side left
+  checkbutton .dialog.f2.r1 -text "No change properties" -variable no_change_attrs -font $slickprop::font_label
+  checkbutton .dialog.f2.r2 -text "Preserve unchanged props" -variable preserve_unchanged_attrs -font $slickprop::font_label
+  checkbutton .dialog.f2.r3 -text "Copy cell" -variable copy_cell -font $slickprop::font_label
+  pack .dialog.f2.r1 .dialog.f2.r2 .dialog.f2.r3 -side left -padx 2
 
   # --- scrollable per-field area ------------------------------------------
   frame .dialog.fa
@@ -290,19 +318,36 @@ proc slickprop::edit_form {txtlabel} {
   pack .dialog.fa.sb -side right -fill y
   pack .dialog.fa.c -side left -fill both -expand yes
 
-  # --- bottom: OK / Cancel -------------------------------------------------
+  # --- bottom: OK / Cancel (OK is the default button) + a keyboard hint -----
   frame .dialog.fb
-  button .dialog.fb.ok     -text "OK"     -command slickprop::ok -width 8
-  button .dialog.fb.cancel -text "Cancel" -command slickprop::cancel -width 8
-  pack .dialog.fb.ok .dialog.fb.cancel -side left -padx 4 -pady 2
+  button .dialog.fb.ok     -text "OK"     -command slickprop::ok     -width 8 -default active -font $slickprop::font_label
+  button .dialog.fb.cancel -text "Cancel" -command slickprop::cancel -width 8 -default normal -font $slickprop::font_label
+  label  .dialog.fb.hint   -text "Enter: OK    Esc: Cancel" -fg grey50 -font $slickprop::font_hint
+  pack .dialog.fb.cancel -side right -padx {2 6} -pady 4
+  pack .dialog.fb.ok     -side right -padx 2 -pady 4
+  pack .dialog.fb.hint   -side left  -padx 8
 
-  pack .dialog.f1 -side top -fill x
+  pack .dialog.f1 -side top -fill x -pady {4 0}
   pack .dialog.f2 -side top -fill x
   pack .dialog.fb -side bottom -fill x
-  pack .dialog.fa -side top -fill both -expand yes
+  pack .dialog.fa -side top -fill both -expand yes -pady 2
 
   # populate the fields from the property string + symbol template
   slickprop::build_fields .dialog.fa.c.inner $::tctx::retval [slickprop::template_of $symbol]
+
+  # size the scroll area to the content, capped (so tall forms scroll, short
+  # ones are compact) — a light size-to-content.
+  update idletasks
+  set iw [winfo reqwidth  .dialog.fa.c.inner]
+  set ih [winfo reqheight .dialog.fa.c.inner]
+  if {$iw < 380} {set iw 380}
+  if {$ih > 460} {set ih 460}
+  .dialog.fa.c configure -width $iw -height $ih
+
+  # mouse-wheel scrolling over the field area (X11 buttons 4/5 + Win/Mac wheel)
+  bind .dialog <Button-4>   {.dialog.fa.c yview scroll -1 units}
+  bind .dialog <Button-5>   {.dialog.fa.c yview scroll  1 units}
+  bind .dialog <MouseWheel> {.dialog.fa.c yview scroll [expr {%D > 0 ? -1 : 1}] units}
 
   # --- keyboard contract: Enter = OK, Escape = Cancel ----------------------
   bind .dialog <Return>     {slickprop::ok}
