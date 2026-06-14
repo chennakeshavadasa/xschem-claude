@@ -7369,7 +7369,14 @@ proc change_color {} {
   xschem set semaphore [expr {[xschem get semaphore] -1}]
 }
 
+# The "Edit Properties" dialog. v1 (slick-property-forms) delegates to the
+# structured per-field form (src/property_form.tcl); the legacy raw-text-box
+# implementation is preserved below as edit_prop_legacy for rollback/reference.
 proc edit_prop {txtlabel} {
+  return [slickprop::edit_form $txtlabel]
+}
+
+proc edit_prop_legacy {txtlabel} {
   global edit_prop_size infowindow_text edit_symbol_prop_new_sel edit_prop_pos
   global prev_symbol symbol no_change_attrs preserve_unchanged_attrs copy_cell debug_var
   global user_wants_copy_cell editprop_sympath text_tabs_setting
@@ -10333,6 +10340,8 @@ proc load_raw {{type {}}} {
 # the command palette. Loaded once at startup; build_widgets consumes it per window.
 source $XSCHEM_SHAREDIR/action_registry.tcl
 load_action_table
+# Slick per-field "Edit Properties" form (replaces the legacy raw-text dialog)
+source $XSCHEM_SHAREDIR/property_form.tcl
 # Replay keybindings.csv / mousebindings.csv (share-dir defaults, then the user's
 # USER_CONF_DIR copies) through `xschem bind` -- file-editable input remapping.
 # The shipped defaults mirror the built-in C table, so this is a no-op until a

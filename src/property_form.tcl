@@ -195,3 +195,138 @@ proc slickprop::result {} {
   variable cur
   return [slickprop::apply $cur(orig) [slickprop::collect_changes]]
 }
+
+# The OK action: compute the new property string from the field edits into
+# tctx::retval, replicate edit_prop's symbol-change / copy-cell handling, set
+# rcode, and tear the dialog down. (Mirrors the legacy edit_prop OK handler so
+# the C side update_symbol() sees the same contract.)
+proc slickprop::ok {} {
+  global symbol prev_symbol copy_cell user_wants_copy_cell
+  set ::tctx::retval [slickprop::result]
+  set symbol [.dialog.f1.e2 get]
+  set abssymbol [abs_sym_path $symbol]
+  set ::tctx::rcode {ok}
+  set user_wants_copy_cell $copy_cell
+  set prev_symbol [abs_sym_path $prev_symbol]
+  if { ($abssymbol ne $prev_symbol) && $copy_cell } {
+    if { ![regexp {^/} $symbol] && ![regexp {^[a-zA-Z]:} $symbol] } {
+      set symlist [file split $symbol]
+      set symlen [llength $symlist]
+      set abssymbol "[path_head $prev_symbol $symlen]/$symbol"
+    }
+    if { [file exists "[file rootname $prev_symbol].sch"] } {
+      if { ! [file exists "[file rootname ${abssymbol}].sch"] } {
+        file copy "[file rootname $prev_symbol].sch" "[file rootname $abssymbol].sch"
+      }
+    }
+    if { [file exists "$prev_symbol"] } {
+      if { ! [file exists "$abssymbol"] } { file copy "$prev_symbol" "$abssymbol" }
+    }
+  }
+  set copy_cell 0
+  destroy .dialog
+}
+
+proc slickprop::cancel {} {
+  global edit_symbol_prop_new_sel
+  set ::tctx::rcode {}
+  set edit_symbol_prop_new_sel {}
+  destroy .dialog
+}
+
+# The slick replacement for the legacy edit_prop dialog: one single-line entry
+# per declared symbol attribute (Cadence-style, strict), Enter=OK / Escape=Cancel.
+# Same C contract as the old edit_prop: reads tctx::retval (current property
+# string) and the `symbol` global on entry; sets tctx::retval (new string) +
+# tctx::rcode ({ok}|{}) and returns rcode. Modal.
+proc slickprop::edit_form {txtlabel} {
+  global symbol prev_symbol no_change_attrs preserve_unchanged_attrs copy_cell
+  global user_wants_copy_cell edit_prop_size edit_prop_pos edit_symbol_prop_new_sel
+  set user_wants_copy_cell 0
+  set ::tctx::rcode {}
+  set ::tctx::retval_orig $::tctx::retval
+  if { [winfo exists .dialog] } return
+  xschem set semaphore [expr {[xschem get semaphore] + 1}]
+  toplevel .dialog -class Dialog
+  wm title .dialog {Edit Properties}
+  wm transient .dialog [xschem get topwindow]
+  set X [expr {[winfo pointerx .dialog] - 60}]
+  set Y [expr {[winfo pointery .dialog] - 35}]
+  wm geometry .dialog "+$X+$Y"
+
+  set prev_symbol $symbol
+
+  # --- top: symbol entry + Browse -----------------------------------------
+  frame .dialog.f1
+  label .dialog.f1.l2 -text "Symbol"
+  entry .dialog.f1.e2 -width 30
+  .dialog.f1.e2 insert 0 $symbol
+  button .dialog.f1.b5 -text "Browse" -command {
+    set r [tk_getOpenFile -parent .dialog -initialdir $INITIALINSTDIR]
+    if {$r ne {}} { .dialog.f1.e2 delete 0 end; .dialog.f1.e2 insert 0 $r }
+    raise .dialog .drw
+  }
+  pack .dialog.f1.l2 -side left
+  pack .dialog.f1.e2 -side left -fill x -expand yes
+  pack .dialog.f1.b5 -side left
+
+  # --- options row (the legacy checkbuttons; their globals are read by C) ---
+  frame .dialog.f2
+  checkbutton .dialog.f2.r1 -text "No change properties" -variable no_change_attrs
+  checkbutton .dialog.f2.r2 -text "Preserve unchanged props" -variable preserve_unchanged_attrs
+  checkbutton .dialog.f2.r3 -text "Copy cell" -variable copy_cell
+  pack .dialog.f2.r1 .dialog.f2.r2 .dialog.f2.r3 -side left
+
+  # --- scrollable per-field area ------------------------------------------
+  frame .dialog.fa
+  canvas .dialog.fa.c -yscrollcommand ".dialog.fa.sb set" -highlightthickness 0
+  scrollbar .dialog.fa.sb -command ".dialog.fa.c yview" -orient vertical
+  frame .dialog.fa.c.inner
+  .dialog.fa.c create window 0 0 -anchor nw -window .dialog.fa.c.inner -tags inner
+  bind .dialog.fa.c.inner <Configure> {
+    .dialog.fa.c configure -scrollregion [.dialog.fa.c bbox all]
+    .dialog.fa.c itemconfigure inner -width [winfo width .dialog.fa.c]
+  }
+  pack .dialog.fa.sb -side right -fill y
+  pack .dialog.fa.c -side left -fill both -expand yes
+
+  # --- bottom: OK / Cancel -------------------------------------------------
+  frame .dialog.fb
+  button .dialog.fb.ok     -text "OK"     -command slickprop::ok -width 8
+  button .dialog.fb.cancel -text "Cancel" -command slickprop::cancel -width 8
+  pack .dialog.fb.ok .dialog.fb.cancel -side left -padx 4 -pady 2
+
+  pack .dialog.f1 -side top -fill x
+  pack .dialog.f2 -side top -fill x
+  pack .dialog.fb -side bottom -fill x
+  pack .dialog.fa -side top -fill both -expand yes
+
+  # populate the fields from the property string + symbol template
+  slickprop::build_fields .dialog.fa.c.inner $::tctx::retval [slickprop::template_of $symbol]
+
+  # --- keyboard contract: Enter = OK, Escape = Cancel ----------------------
+  bind .dialog <Return>     {slickprop::ok}
+  bind .dialog <KP_Enter>   {slickprop::ok}
+  bind .dialog <Escape>     {slickprop::cancel}
+  wm protocol .dialog WM_DELETE_WINDOW {slickprop::cancel}
+
+  # focus + select the most-likely-to-edit field (the symbol's `select` attr,
+  # else value/lab/name), mirroring the legacy dialog's cursor placement.
+  set sel_attr [xschem get_tok $::tctx::retval select]
+  if {$sel_attr eq {}} { catch {set sel_attr [xschem getprop symbol $symbol select]} }
+  set focused 0
+  foreach a [list $sel_attr value lab name] {
+    if {$a ne {} && [info exists slickprop::cur(entry,$a)]} {
+      set e $slickprop::cur(entry,$a)
+      focus $e; $e selection range 0 end; $e icursor end
+      set focused 1; break
+    }
+  }
+  if {!$focused && [llength $slickprop::cur(tokens)]} {
+    focus $slickprop::cur(entry,[lindex $slickprop::cur(tokens) 0])
+  }
+
+  tkwait window .dialog
+  xschem set semaphore [expr {[xschem get semaphore] - 1}]
+  return $::tctx::rcode
+}

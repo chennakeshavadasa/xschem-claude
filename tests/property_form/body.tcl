@@ -215,4 +215,38 @@ if {[gui_ok]} {
   gui_done
 } else { check {PF15 (skipped)} {1} }
 
+### PF16 — the FULL modal edit_form: build the real dialog, edit a field via a
+### scheduled callback, click OK, and assert the C contract (rcode + tctx::retval).
+### A safety timer cancels the modal if the field isn't found, so the suite can
+### never hang. Guarded so an environment without a usable main window just skips.
+proc gui2_ok {} { return [expr {[catch {winfo exists .drw} x]==0 && $x}] }
+if {[gui2_ok]} {
+  xschem set modified 0
+  xschem clear force schematic
+  xschem instance res.sym 0 0 0 0 {name=RTEST}
+  set ::symbol res.sym
+  set ::tctx::retval {name=RTEST value=1k}
+  set ::no_change_attrs 0; set ::preserve_unchanged_attrs 0; set ::copy_cell 0
+  set ::pf16_built 0
+  after 500 {
+    if {[info exists slickprop::cur(entry,value)]} {
+      set ::pf16_built 1
+      slickprop::placeholder_in value
+      $slickprop::cur(entry,value) delete 0 end
+      $slickprop::cur(entry,value) insert 0 2k
+      slickprop::ok
+    }
+  }
+  after 4000 {catch {slickprop::cancel}}  ;# safety: never hang the suite
+  set pf16_rc [catch {slickprop::edit_form {Input property:}} pf16_ret]
+  check {PF16a edit_form built per-field entries from the live template} {$::pf16_built == 1}
+  check {PF16b edit_form returned rcode ok after OK} {$pf16_ret eq "ok"}
+  check {PF16c OK wrote the edited value into tctx::retval (subst-into-original)} \
+    {[xschem get_tok $::tctx::retval value 2] eq "2k" && [string match {name=RTEST*} $::tctx::retval]}
+} else {
+  check {PF16a (skipped: no main window)} {1}
+  check {PF16b (skipped)} {1}
+  check {PF16c (skipped)} {1}
+}
+
 xschem set modified 0
