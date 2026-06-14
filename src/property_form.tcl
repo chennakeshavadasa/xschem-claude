@@ -94,6 +94,67 @@ proc slickprop::apply {orig changes} {
 }
 
 # ===========================================================================
+# Slick enter_text core — discoverable text-appearance attributes.
+# Spec: specs/slick_text_dialog.md. A text object's visual attributes all live as
+# tokens in its property string (read by C's set_text_flags() into cached fields,
+# then drawn). So the panel is pure Tcl: parse the owned tokens out of the prop
+# string into per-field widgets, and on OK substitute the edited ones back via
+# the subst-into-original slickprop::apply above (no C change). Unlike the
+# instance form, there is no symbol template to derive fields from — the field
+# set is a fixed, hand-authored per-type schema.
+#
+# Owned tokens (form order). Each descriptor:
+#   tok     the property token the widget reads/writes
+#   label   the field label shown in the panel
+#   widget  bool  -> checkbox: checked writes <on>, unchecked removes the token
+#           combo -> a value chosen from a dropdown (font name)
+#           layer -> a layer-index colour-swatch dropdown
+#   on      (bool only) the token value written when the box is checked
+# Size (hsize/vsize) is intentionally absent: it is the object's xscale/yscale,
+# already carried by the dialog as tctx::hsize / tctx::vsize, not a prop token.
+proc slickprop::text_schema {} {
+  return [list \
+    [dict create tok font    label {Font}     widget combo] \
+    [dict create tok weight  label {Bold}     widget bool  on bold] \
+    [dict create tok slant   label {Italic}   widget bool  on italic] \
+    [dict create tok hcenter label {Center H} widget bool  on true] \
+    [dict create tok vcenter label {Center V} widget bool  on true] \
+    [dict create tok layer   label {Color}    widget layer] \
+    [dict create tok hide    label {Hidden}   widget bool  on true] \
+    [dict create tok floater label {Floater}  widget bool  on true]]
+}
+
+# The schema, with each field's CURRENT value parsed out of <prop>. Each row is
+# the schema descriptor plus:
+#   value    the token's current value in <prop> (clean; empty if absent)
+#   present  1 if the token is actually present in <prop>, else 0
+# An absent token keeps value "" / present 0 so the form does not write it back
+# unless the user toggles it on.
+proc slickprop::text_fields {prop} {
+  set have [xschem list_tokens $prop 0]
+  set rows {}
+  foreach row [slickprop::text_schema] {
+    set tok [dict get $row tok]
+    set present [expr {[lsearch -exact $have $tok] >= 0}]
+    dict set row present $present
+    dict set row value [expr {$present ? [xschem get_tok $prop $tok 2] : {}}]
+    lappend rows $row
+  }
+  return $rows
+}
+
+# The leftover "Other properties" string: <prop> with every owned token removed,
+# all other tokens (declared-elsewhere or unknown) preserved. Round-trips
+# verbatim through the panel so nothing the schema does not cover is ever lost.
+proc slickprop::text_extra {prop} {
+  set out $prop
+  foreach row [slickprop::text_schema] {
+    set out [xschem subst_tok $out [dict get $row tok] <NULL>]
+  }
+  return $out
+}
+
+# ===========================================================================
 # THE FORM (Tk). Built on the core above. State for the single open dialog
 # lives in slickprop::cur(...) (only one Edit Properties dialog exists at a
 # time). Field-building and change-collection are factored out of the modal
