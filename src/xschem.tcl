@@ -6679,7 +6679,7 @@ proc slicktext::collect {} {
 }
 
 proc enter_text {textlabel {preserve_disabled disabled}} {
-  global has_cairo preserve_unchanged_attrs wm_fix props enter_text_default_geometry
+  global has_cairo preserve_unchanged_attrs wm_fix props
   global text_tabs_setting tabstop cadlayers
   set tctx::rcode {}
   slicktext::init $props
@@ -6689,12 +6689,11 @@ proc enter_text {textlabel {preserve_disabled disabled}} {
 
   set X [expr {[winfo pointerx .dialog] - 30}]
   set Y [expr {[winfo pointery .dialog] - 25}]
-  bind .dialog <Configure> {
-    set enter_text_default_geometry [wm geometry .dialog]
-    regsub {\+.*} $enter_text_default_geometry {} enter_text_default_geometry
-  }
   if { $wm_fix } { tkwait visibility .dialog }
-  wm geometry .dialog "${enter_text_default_geometry}+$X+$Y"
+  # Position only — size to content every open (the slick edit_form convention).
+  # The legacy remembered-size mechanism mis-sized the second open and pushed the
+  # Appearance widgets out of reach; sizing to content keeps them visible.
+  wm geometry .dialog "+$X+$Y"
 
   # --- text label + preserve checkbox ---
   frame .dialog.f1
@@ -6819,6 +6818,12 @@ proc enter_text {textlabel {preserve_disabled disabled}} {
     }
   }
   bind .dialog.f2.txt <Shift-KeyRelease-Return> {return_release %W; .dialog.buttons.ok invoke}
+  # Tab leaves the multi-line text field for the next form field (size, Font, …)
+  # instead of inserting a tab; Shift-Tab steps back. Without this the text widget
+  # traps keyboard focus and the Appearance widgets are unreachable by keyboard.
+  bind .dialog.f2.txt <Tab>          {focus [tk_focusNext %W]; break}
+  bind .dialog.f2.txt <Shift-Tab>    {focus [tk_focusPrev %W]; break}
+  bind .dialog.f2.txt <ISO_Left_Tab> {focus [tk_focusPrev %W]; break}
   .dialog.f2.txt tag add sel 1.0 {end - 1 chars}
   .dialog.f2.txt mark set insert 1.0
   focus .dialog.f2.txt
