@@ -37,23 +37,23 @@ proc f_row {fields tok} {
 set prop {name=E1 TABLE="1.4 0.0 1.6 4.0"}
 set tmpl {name=x1 TABLE="0 0 0 0"}
 set F [f_fields $prop $tmpl]
-xcheck {PF1a to_fields returns 2 rows for a 2-token template} {[llength $F] == 2}
-xcheck {PF1b row order follows the template (name then TABLE)} \
+check {PF1a to_fields returns 2 rows for a 2-token template} {[llength $F] == 2}
+check {PF1b row order follows the template (name then TABLE)} \
   {[f_dg [lindex $F 0] name] eq "name" && [f_dg [lindex $F 1] name] eq "TABLE"}
-xcheck {PF1c the instance value is extracted clean (no surrounding quotes)} \
+check {PF1c the instance value is extracted clean (no surrounding quotes)} \
   {[f_dg [f_row $F TABLE] value] eq "1.4 0.0 1.6 4.0"}
-xcheck {PF1d declared tokens are marked declared=1} \
+check {PF1d declared tokens are marked declared=1} \
   {[f_dg [f_row $F name] declared] == 1}
 
 ### PF2 — a declared-but-unset attr: isset=0, value empty, template default carried.
 set prop {name=E1}
 set tmpl {name=x1 lab=DEFLAB}
 set F [f_fields $prop $tmpl]
-xcheck {PF2a unset declared token lab has isset=0} \
+check {PF2a unset declared token lab has isset=0} \
   {[f_row $F lab] ne "" && [f_dg [f_row $F lab] isset] == 0}
-xcheck {PF2b unset declared token lab has empty value (not written unless edited)} \
+check {PF2b unset declared token lab has empty value (not written unless edited)} \
   {[f_row $F lab] ne "" && [f_dg [f_row $F lab] value] eq ""}
-xcheck {PF2c unset declared token carries the template default as a hint} \
+check {PF2c unset declared token carries the template default as a hint} \
   {[f_dg [f_row $F lab] default] eq "DEFLAB"}
 
 ### PF3 — an extra (undeclared) instance token appears AFTER declared ones,
@@ -61,9 +61,9 @@ xcheck {PF2c unset declared token carries the template default as a hint} \
 set prop {name=E1 foobar=123}
 set tmpl {name=x1}
 set F [f_fields $prop $tmpl]
-xcheck {PF3a extra token foobar is present} {[f_row $F foobar] ne ""}
-xcheck {PF3b extra token is declared=0} {[f_dg [f_row $F foobar] declared] == 0}
-xcheck {PF3c declared tokens come before extras} \
+check {PF3a extra token foobar is present} {[f_row $F foobar] ne ""}
+check {PF3b extra token is declared=0} {[f_dg [f_row $F foobar] declared] == 0}
+check {PF3c declared tokens come before extras} \
   {[f_dg [lindex $F 0] name] eq "name" && [f_dg [lindex $F end] name] eq "foobar"}
 
 ### PF4 — THE CARDINAL INVARIANT: apply with NO changes is byte-identical, for a
@@ -75,16 +75,16 @@ foreach {tag p} {
   multilin "format=\"\n@value\n\""
   escaped  {name=x1 descr="say \"hi\" there"}
 } {
-  xcheck "PF4-$tag apply(prop,{}) is byte-identical (no-edit no-op)" \
+  check "PF4-$tag apply(prop,{}) is byte-identical (no-edit no-op)" \
     {[f_apply $p {}] eq $p}
 }
 
 ### PF5 — apply ONE change touches only that token; the rest is byte-identical.
 set p {name=E1 TABLE="1.4 0.0 1.6 4.0"}
 set out [f_apply $p [list TABLE "9.9 8.8"]]
-xcheck {PF5a editing TABLE changes only TABLE's value} \
+check {PF5a editing TABLE changes only TABLE's value} \
   {$out eq {name=E1 TABLE="9.9 8.8"}}
-xcheck {PF5b name token is untouched (still bare, not requoted)} \
+check {PF5b name token is untouched (still bare, not requoted)} \
   {[xschem get_tok $out name 2] eq "E1" && [string match {name=E1 *} $out]}
 
 ### PF6 — EDIT FIDELITY: re-inserting a value preserves its MEANING (get_tok before
@@ -97,20 +97,20 @@ foreach {tag p tok} {
 } {
   set v [xschem get_tok $p $tok 2]
   set out [f_apply $p [list $tok $v]]
-  xcheck "PF6-$tag re-inserting a value preserves its meaning" \
+  check "PF6-$tag re-inserting a value preserves its meaning" \
     {[xschem get_tok $out $tok 2] eq $v}
 }
 
 ### PF7 — clearing a field (empty new value) removes the token.
 set p {name=E1 lab=PLUS}
 set out [f_apply $p [list lab {}]]
-xcheck {PF7 clearing lab removes the token but keeps the rest} \
+check {PF7 clearing lab removes the token but keeps the rest} \
   {[string match {*name=E1*} $out] && ![string match {*lab=*} $out]}
 
 ### PF8 — requote escapes "/\ and wraps in quotes.
-xcheck {PF8a requote wraps a plain value in quotes} \
+check {PF8a requote wraps a plain value in quotes} \
   {[catch {slickprop::requote abc} r] == 0 && $r eq {"abc"}}
-xcheck {PF8b requote escapes embedded double quotes} \
+check {PF8b requote escapes embedded double quotes} \
   {[catch {slickprop::requote {a"b}} r] == 0 && $r eq {"a\"b"}}
 
 ### PF9 — THE RELEASE GATE: across every instance of a real schematic, apply with
@@ -137,8 +137,8 @@ for {set i 0} {$i < $ninst} {incr i} {
 }
 # corpus-size precondition (not a module test) — a plain check
 check {PF9a tested a meaningful number of real instances (> 50)} {$tested > 50}
-xcheck {PF9b no-op apply is byte-identical across all real instances} {$noop_ok == 1}
-xcheck {PF9c every declared token survives re-insert with meaning intact} {$fidel_ok == 1}
+check {PF9b no-op apply is byte-identical across all real instances} {$noop_ok == 1}
+check {PF9c every declared token survives re-insert with meaning intact} {$fidel_ok == 1}
 
 ### PF10 — the multi-line `code` symbol: a fresh instance round-trips its big
 ### `value`/`format` attributes byte-for-byte under a no-op apply.
@@ -146,7 +146,7 @@ xschem set modified 0
 xschem clear force schematic
 xschem instance code.sym 0 0 0 0 {name=s1}
 set prop [xschem getprop instance 0]
-xcheck {PF10 a code.sym instance's multi-line props survive a no-op apply} \
+check {PF10 a code.sym instance's multi-line props survive a no-op apply} \
   {[f_apply $prop {}] eq $prop}
 
 xschem set modified 0
