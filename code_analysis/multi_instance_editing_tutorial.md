@@ -454,7 +454,9 @@ specs/multi_instance_property_editing.md   the design + ratified decisions
         │      scheduler.c    xschem apply_properties command (xschem_cmds_a)
         │      property_form.tcl  do_apply / apply_now / nav / load_pos
         │
-        └─ P3  property_form.tcl  scope_instances / field_varies / on_focus / update_warning
+        ├─ P3  property_form.tcl  scope_instances / field_varies / on_focus / update_warning
+        │
+        └─ +   scheduler.c    `xschem edit_prop [scope]` optional arg (see Part 7½)
 ```
 
 Notice the gradient: **P1 touched C and Tcl, P2 was mostly C plumbing for a new
@@ -465,10 +467,65 @@ expensive layer. That is what good incremental design feels like — the
 hooks.
 
 > **▶ Level up — Shippable slices beat a big bang.** Each phase was independently
-> releasable and independently tested (60 → 77 → 85 checks). If we'd stopped after
-> P1, the surprising-default bug was already fixed and the product was better. Cut
-> features along seams where each slice stands alone; never along seams where
-> nothing works until the last commit lands.
+> releasable and independently tested (60 → 77 → 85 → 91 checks, the last bump
+> being the Part 7½ coda). If we'd stopped after P1, the surprising-default bug
+> was already fixed and the product was better. Cut features along seams where
+> each slice stands alone; never along seams where nothing works until the last
+> commit lands.
+
+---
+
+## Part 7½ — A coda: extending the command surface
+
+After the three phases shipped, a user asked for a small thing: a way to open the
+dialog *already set* to a scope, so they could bind one key to "edit just this
+one" and another to "edit the whole selection." The entire change was eight lines
+in the `edit_prop` dispatcher (`scheduler.c`):
+
+```c
+/* xschem edit_prop [current|selected|all] */
+else if(!strcmp(argv[1], "edit_prop")) {
+  if(!xctx) { Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR; }
+  if(argc > 2) {
+    if(strcmp(argv[2],"current") && strcmp(argv[2],"selected") && strcmp(argv[2],"all")) {
+      Tcl_SetResult(interp, "xschem edit_prop: scope must be current|selected|all", TCL_STATIC);
+      return TCL_ERROR;                       /* fail fast: reject, don't open */
+    }
+    tclsetvar("slickprop_apply_scope", argv[2]);   /* reuse the sticky var */
+  }
+  edit_property(0);
+  Tcl_ResetResult(interp);
+}
+```
+
+Three things make this small change a good one, and each is a transferable habit:
+
+1. **It reused the existing state, not a new path.** The scope already lived in
+   one sticky variable that the form reads. The arg just *writes* that variable
+   before opening — no new flag, no second way for the form to learn the scope.
+   The form didn't change at all.
+2. **It fails fast and loudly.** An unknown scope returns a Tcl error *before*
+   opening the dialog, rather than silently defaulting. A bad keybinding tells you
+   so immediately instead of quietly doing the wrong thing.
+3. **It's backward compatible.** With no argument the command behaves exactly as
+   before, so every existing caller and the menu are untouched.
+
+> **▶ Level up — A good command is a thin, total function over existing state.**
+> The new arg added *zero* new capability to the engine — the form could already
+> open in any scope. It only gave that capability a convenient *name at the call
+> site* (`edit_prop selected`). The best command-line/API additions are often
+> exactly this: a thin, validated wrapper that makes an already-possible thing
+> ergonomic. Before adding state or a code path, check whether you can instead
+> expose what's already there. And make the function *total*: define what happens
+> for every input, including the bad ones (here, reject them) — a function that's
+> undefined on some inputs is a bug waiting for a user to find it.
+
+> **▶ Level up — Design for the bind point.** The feature was driven by *how it
+> would be invoked* — a keystroke that needs no follow-up interaction. That's why
+> the scope is an argument (one atomic command) rather than, say, a mode you'd
+> have to set and then trigger separately. When you expose an operation, picture
+> the caller: a script, a keybinding, a pipe. The shape that's awkward to call is
+> the wrong shape, however clean it looks from the inside.
 
 ---
 
@@ -487,6 +544,12 @@ hooks.
 4. **Break it on purpose.** Comment out the `after cancel` lines in `pf_form_run`
    and run the suite five times. Watch the failures wander. Now you've felt a race
    condition — fix it again and the lesson sticks.
+5. **Extend the command surface (Part 7½ style).** Add an optional argument to
+   another existing command that today reads a sticky/global setting — make the
+   arg a thin, validated, backward-compatible wrapper that writes that setting,
+   exactly like `edit_prop [scope]`. Reject bad inputs before doing any work.
+   Then ask: did you add any new capability, or just a convenient name for one
+   that already existed? (The best answer is usually the latter.)
 
 ---
 
