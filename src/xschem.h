@@ -1684,6 +1684,8 @@ extern void rebuild_selected_array(void);
 
 extern int get_instance(const char *s);
 extern void edit_property(int x);
+extern int apply_instance_properties(const char *scope, unsigned int displayed_id,
+                              const char *new_prop, const char *old_prop);
 extern int xschem(ClientData clientdata, Tcl_Interp *interp,
            int argc, const char * argv[]);
 extern const char *tcleval(const char str[]);

@@ -172,6 +172,26 @@ static int xschem_cmds_a(Tcl_Interp *interp, int argc, const char *argv[], int *
       abort_operation();
     }
 
+    /* apply_properties scope displayed_id new_prop old_prop
+     *   Mid-session apply for the slick property form (P2 Apply / OK). Fans the
+     *   change set (new_prop vs old_prop, changed-fields-only) to the instances
+     *   named by 'scope' (current|selected|all) relative to the displayed
+     *   instance, given by its session-stable id (see `xschem instance_id`).
+     *   Pushes one undo; returns 1 if anything changed, else 0. */
+    else if(!strcmp(argv[1], "apply_properties"))
+    {
+      int modified;
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc < 6) {
+        Tcl_SetResult(interp,
+          "xschem apply_properties needs: scope displayed_id new_prop old_prop", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      modified = apply_instance_properties(argv[2],
+                   (unsigned int)strtoul(argv[3], NULL, 10), argv[4], argv[5]);
+      Tcl_SetResult(interp, modified ? "1" : "0", TCL_STATIC);
+    }
+
     /* add_symbol_pin [x y name dir [draw]]
      *   place a symbol pin.
      *   x,y : pin coordinates

@@ -163,6 +163,9 @@ proc slickprop::build_fields {parent prop template} {
   slickprop::init_fonts
   set ew $::slickprop_entry_width
   array unset cur
+  # clear any prior field widgets (a rebuild on Next/Prev or Apply reuses the
+  # same parent frame; the row widget names .i0/.l0/.e0/.xsep/... would collide)
+  foreach w [winfo children $parent] { destroy $w }
   set cur(orig) $prop
   set cur(tokens) {}
   set fields [slickprop::to_fields $prop $template]
@@ -267,16 +270,19 @@ proc slickprop::result {} {
   return [slickprop::apply $cur(orig) [slickprop::collect_changes]]
 }
 
-# The OK action: compute the new property string from the field edits into
-# tctx::retval, replicate edit_prop's symbol-change / copy-cell handling, set
-# rcode, and tear the dialog down. (Mirrors the legacy edit_prop OK handler so
-# the C side update_symbol() sees the same contract.)
-proc slickprop::ok {} {
+# Apply the current change set to the "Apply to" scope via the C engine (P2).
+# Sets the symbol global + copy-cell intent (the C side reads them), replicates
+# edit_prop's symbol-change / copy-cell file handling, populates tctx::retval
+# (the legacy contract), then calls the mid-session `xschem apply_properties`
+# command on the DISPLAYED instance (by session-stable id, so it survives any
+# reindexing between applies). One Apply = one undo. Returns 1 if anything
+# changed and flags tctx::applied so the C caller knows the slick path applied.
+proc slickprop::do_apply {} {
+  variable cur
+  variable nav
   global symbol prev_symbol copy_cell user_wants_copy_cell
-  set ::tctx::retval [slickprop::result]
   set symbol [.dialog.f1.e2 get]
   set abssymbol [abs_sym_path $symbol]
-  set ::tctx::rcode {ok}
   set user_wants_copy_cell $copy_cell
   set prev_symbol [abs_sym_path $prev_symbol]
   if { ($abssymbol ne $prev_symbol) && $copy_cell } {
@@ -294,7 +300,33 @@ proc slickprop::ok {} {
       if { ! [file exists "$abssymbol"] } { file copy "$prev_symbol" "$abssymbol" }
     }
   }
+  set ::tctx::retval [slickprop::result]   ;# keep the legacy C contract populated
+  set did 0
+  if {[info exists nav(disp_id)] && $nav(disp_id) ne {} && $nav(disp_id) >= 0} {
+    set did [xschem apply_properties $::slickprop_apply_scope $nav(disp_id) \
+               $::tctx::retval $cur(orig)]
+    if {$did} { set ::tctx::applied 1 }
+  }
   set copy_cell 0
+  set prev_symbol $symbol
+  return $did
+}
+
+# The Apply button (P2): apply the change set to the scope and STAY OPEN,
+# refreshing the displayed instance so its applied values become the new
+# baseline (dirty dots clear, further edits diff against the applied state).
+proc slickprop::apply_now {} {
+  variable nav
+  slickprop::do_apply
+  if {[info exists nav(ids)] && [llength $nav(ids)] > 0} {
+    slickprop::load_pos $nav(pos)
+  }
+}
+
+# The OK action: apply the current change set to the scope, then close.
+proc slickprop::ok {} {
+  slickprop::do_apply
+  set ::tctx::rcode {ok}
   catch {set ::slickprop_geometry [wm geometry .dialog]} ;# remember size+pos
   destroy .dialog
 }
@@ -347,6 +379,69 @@ proc slickprop::apply_scope_greying {args} {
   }
 }
 
+# ===========================================================================
+# Next / Prev navigation through the selected set (P2). The nav state lives in
+# the separate slickprop::nav array (NOT cur, which build_fields wipes on every
+# rebuild): nav(ids) = the selected instances by session-stable id, nav(pos) =
+# the displayed index, nav(disp_id) = the displayed instance's id. Scope governs
+# what an Apply touches; Next/Prev only change WHICH instance is displayed.
+# ===========================================================================
+
+# Load the instance at nav position <pos> into the form: fetch its current props
+# + symbol by stable id, refresh the header / symbol entry, and rebuild the field
+# grid (which discards any pending edits on the instance being left).
+proc slickprop::load_pos {pos} {
+  variable cur
+  variable nav
+  global symbol prev_symbol
+  set n [llength $nav(ids)]
+  if {$n == 0} return
+  if {$pos < 0} { set pos 0 }
+  if {$pos >= $n} { set pos [expr {$n - 1}] }
+  set nav(pos) $pos
+  set id [lindex $nav(ids) $pos]
+  set nav(disp_id) $id
+  set idx [xschem instance_index $id]
+  if {$idx < 0} return   ;# stale id (should not happen during a modal session)
+  set prop [xschem getprop instance $idx]
+  set sym  [xschem getprop instance $idx cell::name]
+  set symbol $sym
+  set prev_symbol $sym
+  if {[winfo exists .dialog.f1.e2]} {
+    .dialog.f1.e2 delete 0 end
+    .dialog.f1.e2 insert 0 $sym
+  }
+  set inst_name [xschem get_tok $prop name 2]
+  set hdr $sym
+  if {$inst_name ne {}} { set hdr "$inst_name  —  $sym" }
+  if {[winfo exists .dialog.hdr]} { .dialog.hdr configure -text "  $hdr" }
+  slickprop::build_fields .dialog.fa.c.inner $prop [slickprop::template_of $sym]
+  slickprop::apply_scope_greying
+  slickprop::update_nav_ui
+}
+
+# Step the displayed instance by <dir> (+1 Next / -1 Prev) within the selected
+# set; a no-op past the ends. Navigating discards unapplied edits (§3.2).
+proc slickprop::nav {dir} {
+  variable nav
+  if {![info exists nav(ids)] || [llength $nav(ids)] == 0} return
+  set newpos [expr {$nav(pos) + $dir}]
+  if {$newpos < 0 || $newpos >= [llength $nav(ids)]} return
+  slickprop::load_pos $newpos
+}
+
+# Refresh the "k of N" readout and grey Prev at the first / Next at the last.
+proc slickprop::update_nav_ui {} {
+  variable nav
+  if {![winfo exists .dialog.fnav]} return
+  set n [llength $nav(ids)]
+  set pos $nav(pos)
+  if {$n < 1} { set n 1 }
+  .dialog.fnav.pos configure -text "[expr {$pos + 1}] of $n"
+  .dialog.fnav.prev configure -state [expr {$pos <= 0     ? "disabled" : "normal"}]
+  .dialog.fnav.next configure -state [expr {$pos >= $n - 1 ? "disabled" : "normal"}]
+}
+
 # The slick replacement for the legacy edit_prop dialog: one single-line entry
 # per declared symbol attribute (Cadence-style, strict), Enter=OK / Escape=Cancel.
 # Same C contract as the old edit_prop: reads tctx::retval (current property
@@ -355,6 +450,7 @@ proc slickprop::apply_scope_greying {args} {
 proc slickprop::edit_form {txtlabel} {
   global symbol prev_symbol no_change_attrs preserve_unchanged_attrs copy_cell
   global user_wants_copy_cell edit_prop_size edit_prop_pos edit_symbol_prop_new_sel
+  variable nav
   set user_wants_copy_cell 0
   set ::tctx::rcode {}
   set ::tctx::retval_orig $::tctx::retval
@@ -430,22 +526,55 @@ proc slickprop::edit_form {txtlabel} {
   pack .dialog.fa.sb -side right -fill y
   pack .dialog.fa.c -side left -fill both -expand yes
 
-  # --- bottom: OK / Cancel (OK is the default button) + a keyboard hint -----
+  # --- Next/Prev navigation through the selected set (P2) -------------------
+  frame .dialog.fnav
+  button .dialog.fnav.prev -text "◀ Prev" -command {slickprop::nav -1} -width 8 -font slickPropLabel
+  label  .dialog.fnav.pos  -text "1 of 1" -width 10 -anchor center -font slickPropLabel
+  button .dialog.fnav.next -text "Next ▶" -command {slickprop::nav 1} -width 8 -font slickPropLabel
+  pack .dialog.fnav.prev .dialog.fnav.pos .dialog.fnav.next -side left -padx 2 -pady {3 0}
+
+  # --- bottom: OK / Apply / Cancel (OK is the default button) + a hint -------
   frame .dialog.fb
-  button .dialog.fb.ok     -text "OK"     -command slickprop::ok     -width 8 -default active -font slickPropLabel
-  button .dialog.fb.cancel -text "Cancel" -command slickprop::cancel -width 8 -default normal -font slickPropLabel
+  button .dialog.fb.ok     -text "OK"     -command slickprop::ok        -width 8 -default active -font slickPropLabel
+  button .dialog.fb.apply  -text "Apply"  -command slickprop::apply_now -width 8 -default normal -font slickPropLabel
+  button .dialog.fb.cancel -text "Cancel" -command slickprop::cancel    -width 8 -default normal -font slickPropLabel
   label  .dialog.fb.hint   -text "Enter: OK    Esc: Cancel" -fg grey50 -font slickPropHint
   pack .dialog.fb.cancel -side right -padx {2 6} -pady 4
+  pack .dialog.fb.apply  -side right -padx 2 -pady 4
   pack .dialog.fb.ok     -side right -padx 2 -pady 4
   pack .dialog.fb.hint   -side left  -padx 8
 
   pack .dialog.f1 -side top -fill x -pady {4 0}
   pack .dialog.f2 -side top -fill x
-  pack .dialog.fb -side bottom -fill x
+  pack .dialog.fb   -side bottom -fill x
+  pack .dialog.fnav -side bottom -fill x
   pack .dialog.fa -side top -fill both -expand yes -pady 2
 
-  # populate the fields from the property string + symbol template
-  slickprop::build_fields .dialog.fa.c.inner $::tctx::retval [slickprop::template_of $symbol]
+  # --- nav set + initial display: the selected instances by stable id (P2) ---
+  # populate from the ids the C side handed over (tctx::edit_sel_ids / inst_id);
+  # fall back to the legacy single-shot path (build from tctx::retval) when no
+  # ids are present (e.g. edit_form driven directly by a test).
+  array unset nav
+  set nav(ids) {}
+  set nav(pos) 0
+  set nav(disp_id) {}
+  if {[info exists ::tctx::edit_sel_ids]} { set nav(ids) $::tctx::edit_sel_ids }
+  if {[info exists ::tctx::edit_inst_id] && $::tctx::edit_inst_id ne {} &&
+      $::tctx::edit_inst_id >= 0} {
+    set ix [lsearch -exact $nav(ids) $::tctx::edit_inst_id]
+    if {$ix >= 0} {
+      set nav(pos) $ix
+    } else {
+      set nav(ids) [list $::tctx::edit_inst_id]
+      set nav(pos) 0
+    }
+  }
+  if {[llength $nav(ids)] > 0} {
+    slickprop::load_pos $nav(pos)
+  } else {
+    slickprop::build_fields .dialog.fa.c.inner $::tctx::retval [slickprop::template_of $symbol]
+    slickprop::update_nav_ui
+  }
 
   # grey the name field live with the scope (and apply the initial state)
   trace add variable ::slickprop_apply_scope write slickprop::apply_scope_greying
@@ -471,10 +600,12 @@ proc slickprop::edit_form {txtlabel} {
   bind .dialog <Button-5>   {.dialog.fa.c yview scroll  1 units}
   bind .dialog <MouseWheel> {.dialog.fa.c yview scroll [expr {%D > 0 ? -1 : 1}] units}
 
-  # --- keyboard contract: Enter = OK, Escape = Cancel ----------------------
+  # --- keyboard contract: Enter = OK, Escape = Cancel, Alt+arrows = Next/Prev
   bind .dialog <Return>     {slickprop::ok}
   bind .dialog <KP_Enter>   {slickprop::ok}
   bind .dialog <Escape>     {slickprop::cancel}
+  bind .dialog <Alt-Right>  {slickprop::nav 1}
+  bind .dialog <Alt-Left>   {slickprop::nav -1}
   wm protocol .dialog WM_DELETE_WINDOW {slickprop::cancel}
 
   # focus + select the most-likely-to-edit field (the symbol's `select` attr,

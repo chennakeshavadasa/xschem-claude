@@ -317,24 +317,53 @@ proc pf_count_value {v} {
   }
   return $c
 }
+
+# --- generic modal driver (shared by P1 + P2 tests) ------------------------
+# Open the real modal form under <scope> and run <body> once the field grid is
+# actually built, by POLLING (not a fixed delay — under WSLg the build time
+# varies and a fixed `after` races it). <body> runs at global scope and may
+# close the dialog itself (ok/cancel); otherwise the poller cancels it. Pending
+# timers are dropped on return so a stale one can't cancel a later test's dialog.
+proc pf_tick {} {
+  if {$::pf_done} return
+  if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
+    set ::pf_ran 1
+    if {[catch {uplevel #0 $::pf_body} m]} { set ::pf_err $m }
+    catch {if {[winfo exists .dialog]} {slickprop::cancel}}
+    return
+  }
+  incr ::pf_ticks
+  if {$::pf_ticks > 150} { catch {if {[winfo exists .dialog]} {slickprop::cancel}}; return }
+  after 40 pf_tick
+}
+proc pf_form_run {scope body} {
+  set ::slickprop_apply_scope $scope
+  set ::edit_symbol_prop_new_sel {}
+  set ::pf_body $body
+  set ::pf_ran 0
+  set ::pf_err {}
+  set ::pf_done 0
+  set ::pf_ticks 0
+  set a2 [after 12000 {catch {slickprop::cancel}}]  ;# hard safety: never hang
+  after 40 pf_tick
+  catch {xschem edit_prop}
+  set ::pf_done 1                                   ;# stop any lingering poll
+  after cancel $a2
+  if {$::pf_err ne {}} { puts $::logfd "PFERR($scope): $::pf_err"; flush $::logfd }
+}
+
 # run one modal property edit through the C path under scope <scope>, editing
 # the value field to <editval> and pressing OK.
 proc pf_edit_value {scope editval} {
-  set ::slickprop_apply_scope $scope
   set ::pf_editval $editval
   set ::pf_built 0
-  set ::edit_symbol_prop_new_sel {}
-  after 400 {
-    if {[info exists slickprop::cur(entry,value)]} {
-      set ::pf_built 1
-      slickprop::placeholder_in value
-      $slickprop::cur(entry,value) delete 0 end
-      $slickprop::cur(entry,value) insert 0 $::pf_editval
-      slickprop::ok
-    } else { catch {slickprop::cancel} }
+  pf_form_run $scope {
+    set ::pf_built 1
+    slickprop::placeholder_in value
+    $slickprop::cur(entry,value) delete 0 end
+    $slickprop::cur(entry,value) insert 0 $::pf_editval
+    slickprop::ok
   }
-  after 4000 {catch {slickprop::cancel}}  ;# safety: never hang the suite
-  catch {xschem edit_prop}
 }
 
 if {[gui2_ok]} {
@@ -438,25 +467,6 @@ proc pf_setfield {tok v} {
   slickprop::placeholder_in $tok
   $slickprop::cur(entry,$tok) delete 0 end
   $slickprop::cur(entry,$tok) insert 0 $v
-}
-# open the real modal form under <scope> and run <body> once the fields are
-# built; <body> may close the dialog itself (ok/cancel) or leave it for the
-# fallback cancel. State is recorded in ::globals for post-return assertions.
-proc pf_form_run {scope body} {
-  set ::slickprop_apply_scope $scope
-  set ::edit_symbol_prop_new_sel {}
-  set ::pf_body $body
-  set ::pf_ran 0
-  set ::pf_err {}
-  after 400 [list apply {{} {
-    if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
-      set ::pf_ran 1
-      if {[catch {uplevel #0 $::pf_body} m]} { set ::pf_err $m }
-    }
-    catch {if {[winfo exists .dialog]} {slickprop::cancel}}
-  }}]
-  after 6000 {catch {slickprop::cancel}}  ;# safety: never hang the suite
-  catch {xschem edit_prop}
 }
 
 if {[gui2_ok]} {

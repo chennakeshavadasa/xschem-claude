@@ -830,51 +830,37 @@ int drc_check(int i)
   return ret;
 }
 
-/* x=0 use text widget   x=1 use vim editor */
-static int update_symbol(const char *result, int x, int selected_inst)
+/* Core apply: fan the change set (new_prop vs old_prop) out to the instances
+ * named by <scope> relative to <displayed_inst>. Reads symbol / no_change_attrs
+ * / user_wants_copy_cell globals. Changed-fields-only is the unconditional
+ * contract; one undo is pushed for the whole call. Returns 1 if modified.
+ * Shared by update_symbol() (the post-close path for the vim/legacy editor) and
+ * apply_instance_properties() (the mid-session `xschem apply_properties`
+ * command driving the slick form's Apply / OK).
+ *   scope: "current"  -> only <displayed_inst>
+ *          "selected" -> every selected ELEMENT (the multi-edit set)
+ *          "all"      -> every instance of <displayed_inst>'s master this sheet */
+static int apply_symbol_prop(const char *new_prop, const char *old_prop,
+                             int displayed_inst, const char *scope)
 {
   int i, k, sym_number;
   int no_change_props=0;
-  int only_different=0;
+  int only_different=1; /* changed-fields-only: the unconditional contract */
   int copy_cell=0;
   int prefix=0, old_prefix = 0;
-  char *name = NULL, *ptr = NULL, *new_prop = NULL;
+  char *name = NULL, *ptr = NULL;
   char symbol[PATH_MAX], *translated_sym = NULL, *old_translated_sym = NULL;
   int changed_symbol = 0;
   int pushed=0;
   int *targets = NULL;       /* the instances this Apply touches (the scope) */
   int ntargets = 0;
   int *ii = &xctx->edit_sym_i; /* static var */
-  int *netl_com = &xctx->netlist_commands; /* static var */
   int modified = 0;
 
-  dbg(1, "update_symbol(): entering, selected_inst = %d\n", selected_inst);
-  *ii = selected_inst;
-  if(!result) {
-   dbg(1, "update_symbol(): edit symbol prop aborted\n");
-   my_free(_ALLOC_ID_, &xctx->old_prop);
-   return 0;
-  }
-  /* create new_prop updated attribute string */
-  if(*netl_com && x==1) {
-    my_strdup(_ALLOC_ID_,  &new_prop,
-      subst_token(xctx->old_prop, "value", (char *) tclgetvar("tctx::retval") )
-    );
-    dbg(1, "update_symbol(): new_prop=%s\n", new_prop);
-    dbg(1, "update_symbol(): tcl tctx::retval==%s\n", tclgetvar("tctx::retval"));
-  }
-  else {
-    my_strdup(_ALLOC_ID_, &new_prop, (char *) tclgetvar("tctx::retval"));
-    dbg(1, "update_symbol(): new_prop=%s\n", new_prop);
-  }
+  dbg(1, "apply_symbol_prop(): displayed_inst=%d scope=%s\n", displayed_inst, scope);
+  *ii = displayed_inst;
   my_strncpy(symbol, (char *) tclgetvar("symbol") , S(symbol));
-  dbg(1, "update_symbol(): symbol=%s\n", symbol);
   no_change_props=tclgetboolvar("no_change_attrs");
-  /* Changed-fields-only is now the unconditional contract for instance edits
-   * (the slick "Apply to" scope governs WHICH instances, not whether unchanged
-   * tokens are preserved). The legacy "Preserve unchanged props" checkbox is
-   * therefore ignored here — every scope keeps each instance's own attributes. */
-  only_different=1;
   copy_cell=tclgetboolvar("user_wants_copy_cell");
   /* 20191227 necessary? --> Yes since a symbol copy has already been done
      in edit_symbol_property() -> tcl edit_prop, this ensures new symbol is loaded from disk.
@@ -889,39 +875,25 @@ static int update_symbol(const char *result, int x, int selected_inst)
     changed_symbol = 1;
   }
 
-  /* Build the target instance list from the sticky "Apply to" scope set by the
-   * slick form (::slickprop_apply_scope, default "current"). The change set
-   * (new_prop vs old_prop) is then fanned out to each target by the loop below.
-   *   current  -> only the displayed (first-selected) instance
-   *   selected -> every selected ELEMENT (the prior multi-edit set)
-   *   all      -> every instance of the SAME master (symbol) in this sheet
-   * For the non-slick paths (vim editor, x!=0) keep the prior "all selected"
-   * semantics, which combined with changed-fields-only matches the old behavior. */
+  /* Build the target instance list from <scope>. The master (for "all") is
+   * captured BEFORE the loop since the loop may reassign inst[].ptr on a
+   * symbol change. */
   targets = my_malloc(_ALLOC_ID_, (xctx->instances + 1) * sizeof(int));
-  {
-    const char *scope;
-    if(x == 0) {
-      scope = tclgetvar("slickprop_apply_scope");
-      if(!scope || !scope[0]) scope = "current";
-    } else {
-      scope = "selected";
+  if(!strcmp(scope, "all")) {
+    int master = xctx->inst[displayed_inst].ptr;
+    for(i = 0; i < xctx->instances; ++i) {
+      if(xctx->inst[i].ptr == master) targets[ntargets++] = i;
     }
-    if(!strcmp(scope, "all")) {
-      int master = xctx->inst[selected_inst].ptr;
-      for(i = 0; i < xctx->instances; ++i) {
-        if(xctx->inst[i].ptr == master) targets[ntargets++] = i;
-      }
-    } else if(!strcmp(scope, "selected")) {
-      for(k = 0; k < xctx->lastsel; ++k) {
-        if(xctx->sel_array[k].type == ELEMENT) targets[ntargets++] = xctx->sel_array[k].n;
-      }
-    } else { /* current */
-      targets[ntargets++] = selected_inst;
+  } else if(!strcmp(scope, "selected")) {
+    for(k = 0; k < xctx->lastsel; ++k) {
+      if(xctx->sel_array[k].type == ELEMENT) targets[ntargets++] = xctx->sel_array[k].n;
     }
+  } else { /* current */
+    targets[ntargets++] = displayed_inst;
   }
 
   for(k=0;k<ntargets; ++k) {
-    dbg(1, "update_symbol(): for k loop: k=%d\n", k);
+    dbg(1, "apply_symbol_prop(): for k loop: k=%d\n", k);
     *ii=targets[k];
     old_prefix=(get_tok_value(xctx->sym[xctx->inst[*ii].ptr].templ, "name",0))[0];
     /* 20171220 calculate bbox before changes to correctly redraw areas */
@@ -934,7 +906,7 @@ static int update_symbol(const char *result, int x, int selected_inst)
       if(only_different) {
         char * ss=NULL;
         my_strdup(_ALLOC_ID_, &ss, xctx->inst[*ii].prop_ptr);
-        if( set_different_token(&ss, new_prop, xctx->old_prop) ) {
+        if( set_different_token(&ss, new_prop, old_prop) ) {
           if(!pushed) { xctx->push_undo(); pushed=1;}
           my_strdup(_ALLOC_ID_, &xctx->inst[*ii].prop_ptr, ss);
         }
@@ -943,10 +915,9 @@ static int update_symbol(const char *result, int x, int selected_inst)
       else {
         if(new_prop) {
           if(!xctx->inst[*ii].prop_ptr || strcmp(xctx->inst[*ii].prop_ptr, new_prop)) {
-            dbg(1, "update_symbol(): changing prop: |%s| -> |%s|\n",
+            dbg(1, "apply_symbol_prop(): changing prop: |%s| -> |%s|\n",
                 xctx->inst[*ii].prop_ptr, new_prop);
             if(!pushed) { xctx->push_undo(); pushed=1;}
-            dbg(1, "update_symbol(): *ii=%d, new_prop=%s\n", *ii, new_prop ? new_prop : "<NULL>");
             my_strdup(_ALLOC_ID_, &xctx->inst[*ii].prop_ptr, new_prop);
           }
         }  else {
@@ -961,7 +932,7 @@ static int update_symbol(const char *result, int x, int selected_inst)
     prefix = 0;
     sym_number = -1;
     my_strdup2(_ALLOC_ID_, &translated_sym, translate(*ii, symbol));
-    dbg(1, "update_symbol: %s -- %s\n", translated_sym, old_translated_sym);
+    dbg(1, "apply_symbol_prop: %s -- %s\n", translated_sym, old_translated_sym);
     if(changed_symbol ||
         ( !strcmp(symbol, xctx->inst[*ii].name) &&  strcmp(translated_sym, old_translated_sym) ) ) {
       sym_number=match_symbol(translated_sym); /* check if exist */
@@ -987,7 +958,7 @@ static int update_symbol(const char *result, int x, int selected_inst)
     my_strdup(_ALLOC_ID_, &name, get_tok_value(xctx->inst[*ii].prop_ptr, "name", 1));
     if(name && name[0] ) {
       char *old_name = NULL;
-      dbg(1, "update_symbol(): prefix!='\\0', name=%s\n", name);
+      dbg(1, "apply_symbol_prop(): prefix!='\\0', name=%s\n", name);
       /* change prefix if changing symbol type; */
       if(prefix && old_prefix && old_prefix != prefix) {
         name[0]=(char)prefix;
@@ -1005,17 +976,17 @@ static int update_symbol(const char *result, int x, int selected_inst)
         if(!pushed) { xctx->push_undo(); pushed=1;}
         if(!k) hash_names(-1, XINSERT);
         hash_names(*ii, XDELETE);
-        dbg(1, "update_symbol(): delete %s\n", xctx->inst[*ii].instname);
+        dbg(1, "apply_symbol_prop(): delete %s\n", xctx->inst[*ii].instname);
         new_prop_string(*ii, ptr,               /* sets also inst[].instname */
            tclgetboolvar("disable_unique_names")); /* set new prop_ptr */
         hash_names(*ii, XINSERT);
         update_attached_floaters(old_name, *ii, 1);
-        dbg(1, "update_symbol(): insert %s\n", xctx->inst[*ii].instname);
+        dbg(1, "apply_symbol_prop(): insert %s\n", xctx->inst[*ii].instname);
       }
       my_free(_ALLOC_ID_, &old_name);
     }
     set_inst_flags(&xctx->inst[*ii]);
-  }  /* end for(k=0;k<xctx->lastsel; ++k) */
+  }  /* end for(k=0;k<ntargets; ++k) */
 
   if(pushed) modified = 1;
   /* new symbol bbox after prop changes (may change due to text length) */
@@ -1035,8 +1006,53 @@ static int update_symbol(const char *result, int x, int selected_inst)
   draw();
   my_free(_ALLOC_ID_, &name);
   my_free(_ALLOC_ID_, &ptr);
-  my_free(_ALLOC_ID_, &new_prop);
   my_free(_ALLOC_ID_, &targets);
+  return modified;
+}
+
+/* Mid-session apply for the slick form's Apply / OK (P2): resolve the displayed
+ * instance by its session-stable id (so it survives any reindexing between
+ * applies) and fan the change set to <scope>. Exposed as the Tcl command
+ * `xschem apply_properties <scope> <displayed_id> <new_prop> <old_prop>`. */
+int apply_instance_properties(const char *scope, unsigned int displayed_id,
+                              const char *new_prop, const char *old_prop)
+{
+  int idx = inst_index_from_id(displayed_id);
+  int modified;
+  if(idx < 0) return 0;
+  modified = apply_symbol_prop(new_prop, old_prop, idx, scope);
+  if(modified) set_modify(1);
+  return modified;
+}
+
+/* The post-close apply path for the vim/legacy editor (x!=0). The slick form
+ * (x==0) applies mid-session via apply_instance_properties instead and does not
+ * route through here. x=0 use text widget   x=1 use vim editor */
+static int update_symbol(const char *result, int x, int selected_inst)
+{
+  char *new_prop = NULL;
+  int *netl_com = &xctx->netlist_commands; /* static var */
+  int modified;
+
+  dbg(1, "update_symbol(): entering, selected_inst = %d\n", selected_inst);
+  if(!result) {
+   dbg(1, "update_symbol(): edit symbol prop aborted\n");
+   my_free(_ALLOC_ID_, &xctx->old_prop);
+   return 0;
+  }
+  /* create new_prop updated attribute string */
+  if(*netl_com && x==1) {
+    my_strdup(_ALLOC_ID_,  &new_prop,
+      subst_token(xctx->old_prop, "value", (char *) tclgetvar("tctx::retval") )
+    );
+  }
+  else {
+    my_strdup(_ALLOC_ID_, &new_prop, (char *) tclgetvar("tctx::retval"));
+  }
+  /* legacy/vim path keeps the prior "all selected" semantics, which combined
+   * with changed-fields-only reproduces the old behavior. */
+  modified = apply_symbol_prop(new_prop, xctx->old_prop, selected_inst, "selected");
+  my_free(_ALLOC_ID_, &new_prop);
   my_free(_ALLOC_ID_, &xctx->old_prop);
   return modified;
 }
@@ -1068,8 +1084,28 @@ static int edit_symbol_property(int x, int first_sel)
    tclsetvar("symbol",xctx->inst[*ii].name);
 
    if(x==0) {
+     /* Hand the slick form the displayed instance + the selected ELEMENT set
+      * by session-stable id (P2 Next/Prev navigation + the mid-session
+      * `xschem apply_properties` command). The form applies WHILE open (Apply
+      * button) and on OK via that command, reporting back through tctx::applied,
+      * so the post-close update_symbol path is NOT used for x==0. */
+     char idbuf[30];
+     char *sel_ids = NULL;
+     int s;
+     my_snprintf(idbuf, S(idbuf), "%u", xctx->inst[*ii].id);
+     tclsetvar("tctx::edit_inst_id", idbuf);
+     for(s=0; s<xctx->lastsel; ++s) {
+       if(xctx->sel_array[s].type != ELEMENT) continue;
+       my_snprintf(idbuf, S(idbuf), "%s%u",
+         sel_ids ? " " : "", xctx->inst[xctx->sel_array[s].n].id);
+       my_strcat(_ALLOC_ID_, &sel_ids, idbuf);
+     }
+     tclsetvar("tctx::edit_sel_ids", sel_ids ? sel_ids : "");
+     my_free(_ALLOC_ID_, &sel_ids);
+     tclsetvar("tctx::applied", "0");
      tcleval("edit_prop {Input property:}");
-     my_strdup(_ALLOC_ID_, &result, tclresult());
+     modified = tclgetboolvar("tctx::applied");
+     my_free(_ALLOC_ID_, &xctx->old_prop);
    }
    else {
      /* edit_vi_netlist_prop will replace \" with " before editing,
@@ -1079,11 +1115,11 @@ static int edit_symbol_property(int x, int first_sel)
      else if(x==1)    tcleval("edit_vi_prop {Input property:}");
      else if(x==2)    tcleval("viewdata $tctx::retval");
      my_strdup(_ALLOC_ID_, &result, tclresult());
+     dbg(1, "edit_symbol_property(): before update_symbol, modified=%d\n", xctx->modified);
+     modified = update_symbol(result, x, *ii);
+     my_free(_ALLOC_ID_, &result);
+     dbg(1, "edit_symbol_property(): done update_symbol, modified=%d\n", modified);
    }
-   dbg(1, "edit_symbol_property(): before update_symbol, modified=%d\n", xctx->modified);
-   modified = update_symbol(result, x, *ii);
-   my_free(_ALLOC_ID_, &result);
-   dbg(1, "edit_symbol_property(): done update_symbol, modified=%d\n", modified);
    *ii=-1;
    return modified;
 }
