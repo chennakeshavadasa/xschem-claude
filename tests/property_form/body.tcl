@@ -642,4 +642,52 @@ if {[gui2_ok]} {
     check "$t (skipped: no main window)" {1} }
 }
 
+# ===========================================================================
+# PF35 — `xschem edit_prop <scope>`: an optional scope arg pins "Apply to" for
+# this open (and persists it, since the scope is sticky), so a keybinding can
+# launch the form straight into Only Current / All Selected / All. A bad scope
+# is rejected without opening the dialog.
+# ===========================================================================
+
+# open via `xschem edit_prop <arg>`, return the scope the built form sees, cancel
+proc pf_edit_prop_arg {arg} {
+  set ::pf_done 0; set ::pf_ticks 0; set ::pf_seen {}
+  proc ::pf_argtick {} {
+    if {$::pf_done} return
+    if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
+      set ::pf_seen $::slickprop_apply_scope
+      catch {slickprop::cancel}
+      return
+    }
+    incr ::pf_ticks
+    if {$::pf_ticks > 150} { catch {if {[winfo exists .dialog]} {slickprop::cancel}}; return }
+    after 40 ::pf_argtick
+  }
+  set safe [after 12000 {catch {slickprop::cancel}}]
+  after 40 ::pf_argtick
+  catch {eval xschem edit_prop $arg}
+  set ::pf_done 1
+  after cancel $safe
+  return $::pf_seen
+}
+
+if {[gui2_ok]} {
+  pf_setup_insts
+  xschem select instance R1; xschem select instance R2; xschem select instance R3
+  set ::slickprop_apply_scope current
+  check {PF35a edit_prop selected launches the form in All Selected scope} \
+    {[pf_edit_prop_arg selected] eq "selected"}
+  check {PF35b the arg persists (scope is sticky)} {$::slickprop_apply_scope eq "selected"}
+  check {PF35c edit_prop current launches in Only Current} \
+    {[pf_edit_prop_arg current] eq "current"}
+  check {PF35d edit_prop all launches in All (same symbol)} \
+    {[pf_edit_prop_arg all] eq "all"}
+  check {PF35e a bad scope is rejected (error, no dialog)} \
+    {[catch {xschem edit_prop bogus}] == 1 && ![winfo exists .dialog]}
+  check {PF35f the rejected arg did NOT change the sticky scope} \
+    {$::slickprop_apply_scope eq "all"}
+} else {
+  foreach t {PF35a PF35b PF35c PF35d PF35e PF35f} { check "$t (skipped: no main window)" {1} }
+}
+
 xschem set modified 0

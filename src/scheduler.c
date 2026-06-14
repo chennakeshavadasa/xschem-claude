@@ -1116,12 +1116,23 @@ static int xschem_cmds_e(Tcl_Interp *interp, int argc, const char *argv[], int *
         tcleval(name);
       }
     }
-    /* edit_prop
+    /* edit_prop [scope]
      *   Edit global schematic/symbol attributes or attributes
-     *   of currently selected instances */
+     *   of currently selected instances.
+     *   Optional 'scope' (current|selected|all) pins the slick form's "Apply to"
+     *   setting before opening, so a keybinding can launch straight into a given
+     *   scope (e.g. bind one key to `edit_prop current`, another to
+     *   `edit_prop selected`). It updates the sticky ::slickprop_apply_scope. */
     else if(!strcmp(argv[1], "edit_prop"))
     {
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2) {
+        if(strcmp(argv[2], "current") && strcmp(argv[2], "selected") && strcmp(argv[2], "all")) {
+          Tcl_SetResult(interp, "xschem edit_prop: scope must be current|selected|all", TCL_STATIC);
+          return TCL_ERROR;
+        }
+        tclsetvar("slickprop_apply_scope", argv[2]);
+      }
       edit_property(0);
       Tcl_ResetResult(interp);
     }
