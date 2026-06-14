@@ -6599,6 +6599,15 @@ proc set_netlist_dir { what {dir {} }} {
 }
 
 
+# Floor a modal dialog's minimum size to its natural requested size so a
+# remembered-too-short (or WM-placed-short) geometry can never clip the
+# packed-at-bottom action button row (OK/Cancel/Load/Del). See issues/0006.
+# Call AFTER all widgets are packed and BEFORE the modal tkwait.
+proc dialog_minsize_floor {w} {
+  update idletasks
+  wm minsize $w [winfo reqwidth $w] [winfo reqheight $w]
+}
+
 proc enter_text {textlabel {preserve_disabled disabled}} {
   global has_cairo preserve_unchanged_attrs wm_fix props enter_text_default_geometry
   global text_tabs_setting tabstop
@@ -6709,6 +6718,7 @@ proc enter_text {textlabel {preserve_disabled disabled}} {
   .dialog.f2.txt mark set insert 1.0
   focus .dialog.f2.txt
   #grab set .dialog
+  dialog_minsize_floor .dialog
   tkwait window .dialog
   return $tctx::retval
 }
@@ -7613,6 +7623,7 @@ proc edit_prop_legacy {txtlabel} {
     }
   }
   focus .dialog.symprop
+  dialog_minsize_floor .dialog
   tkwait window .dialog
   xschem set semaphore [expr {[xschem get semaphore] -1}]
   return $tctx::rcode
@@ -7940,6 +7951,7 @@ proc text_line {txtlabel clear {preserve_disabled disabled} } {
   #grab set .dialog
   #focus .dialog.textinput
   set tctx::rcode {}
+  dialog_minsize_floor .dialog
   tkwait window .dialog
 
   if {$preserve_disabled eq {disabled}} {

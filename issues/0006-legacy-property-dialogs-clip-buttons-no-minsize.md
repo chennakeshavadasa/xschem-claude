@@ -1,9 +1,12 @@
 # Issue 0006 — legacy property dialogs clip their action buttons (no `wm minsize` floor)
 
 **Opened:** 2026-06-14
-**Status:** OPEN — root cause found + verified on two dialogs; fix sketched; not
-yet implemented. This file doubles as the **next-session build brief** (option (b):
-fix `enter_text` *and* sweep the sibling legacy dialogs).
+**Status:** FIXED (code) — minsize floor implemented on the three affected legacy
+dialogs (`enter_text`, `text_line`, `edit_prop_legacy`) via a shared
+`dialog_minsize_floor` helper; the stretch dialogs were inspected and found
+unaffected (position-only geometry, naturally sized). **One step remains: the
+eyeball pass on a real display** (§5) before this can be marked fully RESOLVED.
+See §8 for the resolution record.
 **Affects:** the legacy Tk property/edit dialogs (`enter_text`, `text_line`,
 `edit_prop_legacy`, …) — usability when the window opens (or is remembered) too
 short. NOT the slick property form (`slickprop::edit_form`), which sizes to
@@ -174,3 +177,44 @@ size-to-content logic, so it never had this bug; the older dialogs predate that
 and were never given a minimum-size floor. This issue closes the gap for the ones
 users still reach (text objects, graphical objects, global props) with the
 smallest possible change.
+
+---
+
+## 8. Resolution record (2026-06-14)
+
+Implemented the post-pack `wm minsize` floor exactly as sketched in §4, factored
+into the optional shared helper:
+
+```tcl
+proc dialog_minsize_floor {w} {
+  update idletasks
+  wm minsize $w [winfo reqwidth $w] [winfo reqheight $w]
+}
+```
+
+defined in `src/xschem.tcl` just above `enter_text`, and called immediately before
+the modal `tkwait window .dialog` (after all widgets are packed) in:
+
+| Dialog | Call site | Status |
+| --- | --- | --- |
+| `enter_text` | before `tkwait window .dialog` (~`:6722`) | **floored** |
+| `text_line` | before `tkwait window .dialog` (~`:7953`) | **floored** |
+| `edit_prop_legacy` | before `tkwait window .dialog` (~`:7626`) | **floored** |
+| `edit_vi_prop` | n/a | **not applicable** — launches an external `$editor`, no Tk toplevel / no packed buttons to clip |
+
+**Stretch dialogs inspected, NOT floored** (none exhibit the bug): `property_search`
+(`:6998`), `attach_labels_to_inst` (`:7134`), `ask_save` (`:7202`), `input_line`
+(`:8678`). Each forces only *position* (`wm geometry .dialog "+$X+$Y"`), keeps no
+remembered size, and has no vertically-expanding content widget competing with the
+button row — so the WM never makes them shorter than their controls. Adding a floor
+would be inert; left untouched to keep the change minimal.
+
+`info complete` confirms `xschem.tcl` still parses cleanly after the edits. The
+change is Tcl-only (no C touched); the slick form (`slickprop::edit_form`) is
+untouched.
+
+**Remaining gate:** the §5 eyeball pass on a real display (WSLg-flaky for scripted
+GUI runs — drive by hand): open each of the three dialogs, confirm the OK/Cancel/
+Load/Del row is visible at the default and any remembered size, and that the WM
+refuses to shrink the window past the buttons. Once confirmed, flip the §Status
+line to RESOLVED.
