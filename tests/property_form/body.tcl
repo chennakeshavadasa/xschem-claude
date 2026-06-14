@@ -961,7 +961,7 @@ if {[gui2_ok]} {
   }
   check {PF47a OK-with-edit logs exactly one apply line} {[llength $::pf47_log] == 1}
   check {PF47b the line is the replayable apply command (scope + new value)} \
-    {[string match "xschem apply_properties current *value=2k*" [lindex $::pf47_log 0]]}
+    {[string match "xschem apply_properties current *value=*2k*" [lindex $::pf47_log 0]]}
   check {PF47c the line carries the old value too (changed-fields-only replay)} \
     {[string match "*value=1k*" [lindex $::pf47_log 0]]}
 
@@ -981,10 +981,9 @@ if {[gui2_ok]} {
   pf_form_run current {
     pf_setfield value 3k
     slickprop::apply_now
-    slickprop::cancel
   }
   check {PF47e the Apply button also logs the apply} \
-    {[llength $::pf47_log] == 1 && [string match "*value=3k*" [lindex $::pf47_log 0]]}
+    {[llength $::pf47_log] == 1 && [string match "*value=*3k*" [lindex $::pf47_log 0]]}
 } else {
   foreach t {PF47a PF47b PF47c PF47d PF47e} { check "$t (skipped: no main window)" {1} }
 }

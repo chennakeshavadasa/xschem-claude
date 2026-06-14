@@ -313,11 +313,27 @@ proc slickprop::do_apply {} {
   if {[info exists nav(disp_id)] && $nav(disp_id) ne {} && $nav(disp_id) >= 0} {
     set did [xschem apply_properties $::slickprop_apply_scope $nav(disp_id) \
                $::tctx::retval $cur(orig)]
-    if {$did} { set ::tctx::applied 1 }
+    if {$did} {
+      set ::tctx::applied 1
+      # action-log the EFFECT (only when something changed): the replayable
+      # command itself, so sourcing the log re-applies the edit. Logged here at
+      # the interactive layer — NOT in the C engine, which the replay command and
+      # CIW-typed commands reuse and would double-log (see
+      # code_analysis/apply_properties_logging_decision.md).
+      slickprop::log_apply [list xschem apply_properties \
+        $::slickprop_apply_scope $nav(disp_id) $::tctx::retval $cur(orig)]
+    }
   }
   set copy_cell 0
   set prev_symbol $symbol
   return $did
+}
+
+# Append one replayable apply command to the action log (Xschem.log) and mirror
+# it to the CIW pane, via the existing `xschem log_action` bridge. A thin seam:
+# one place to evolve the logging, and the spy point the tests hook.
+proc slickprop::log_apply {line} {
+  catch {xschem log_action $line}
 }
 
 # The Apply button (P2): apply the change set to the scope and STAY OPEN,
