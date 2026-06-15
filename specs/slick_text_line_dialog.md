@@ -1,8 +1,15 @@
 # Spec — slick `text_line` dialog (discoverable graphical-object attributes)
 
-*Status:* **RATIFIED 2026-06-14 — RED-first in progress.** User decisions: colour/
-layer **deferred** (§4); **Rectangle first** (L1), other types follow (L2);
-`ellipse` rendered as an **Ellipse checkbox + Start/End angle fields** (§3).
+*Status:* **L1+L2 IMPLEMENTED 2026-06-14 (RED→GREEN), pending eyeball.** User
+decisions: colour/layer **deferred** (§4); ellipse as **checkbox + Start/End angle
+fields**. L1 = generic schema core + Rectangle; **L2 = line/poly/arc/wire** (dash/
+fill/Width(bus)/Smooth(bezier)). Core+view in `property_form.tcl`/`xschem.tcl`
+(`slickprop::gfx_schema` + generic `schema_*`/`bool_*`; `gfxform::` view;
+`text_line` dispatch via `xschem selection`; legacy = `text_line_legacy`). Tests
+RL1–RL8 (suite 220/0, sabotage-verified). The dashed object in
+`mos_power_ampli.sch` is a **poly**, now covered. **Remaining: eyeball pass** (the
+five types open the panel; global/header/instance paths unchanged). L3 polish
+(extra UX) only if needed.
 Follow-up to the slick `enter_text` work ([[slick-property-forms]],
 `specs/slick_text_dialog.md`, RESOLVED). Same idea, applied to the legacy
 `text_line` dialog (`xschem.tcl`) — the one reached by `q` on a
