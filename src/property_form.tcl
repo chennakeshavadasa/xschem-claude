@@ -130,14 +130,18 @@ proc slickprop::text_schema {} {
 # Value forms (verified in editprop.c): dash int (0=solid); fill enum
 # full|false|absent; bus numeric width; bezier bool true; ellipse "a b" angles.
 proc slickprop::gfx_schema {type} {
+  set dash    [dict create tok dash    label {Dash (0=solid)} widget int]
+  set fill    [dict create tok fill    label {Fill} widget enum \
+                 choices [dict create Default {} None false Full full]]
+  set bus     [dict create tok bus     label {Width} widget num]
+  set bezier  [dict create tok bezier  label {Smooth (bezier)} widget bool on true]
+  set ellipse [dict create tok ellipse label {Ellipse} widget ellipse]
   switch -- $type {
-    rect - rectangle - xRECT {
-      return [list \
-        [dict create tok dash    label {Dash (0=solid)} widget int] \
-        [dict create tok fill    label {Fill} widget enum \
-           choices [dict create Default {} None false Full full]] \
-        [dict create tok ellipse label {Ellipse} widget ellipse]]
-    }
+    rect - rectangle - xRECT { return [list $dash $fill $ellipse] }
+    line - LINE              { return [list $dash $bus] }
+    poly - polygon - POLYGON { return [list $dash $fill $bezier $bus] }
+    arc  - ARC               { return [list $dash $fill $bus] }
+    wire - WIRE              { return [list $bus] }
     default { return {} }
   }
 }
@@ -211,7 +215,11 @@ proc slickprop::text_assemble {orig desired extra} { return [slickprop::schema_a
 # ticks only on 'bold' (weight=normal is not-bold); slant ticks on italic OR
 # oblique (both are slanted); every other bool ticks on any truthy value — which
 # includes hide=instance (hide-when-instantiated still means "hidden").
-proc slickprop::text_bool_checked {tok value} {
+# Generic bool checkbox helpers (shared by the text and graphical panels).
+# bool_checked: should the box be ticked for this token's current value? weight
+# ticks only on 'bold'; slant on italic OR oblique; every other bool (incl. the
+# graphical 'bezier' and hide=instance) ticks on any truthy value.
+proc slickprop::bool_checked {tok value} {
   switch -- $tok {
     weight { return [expr {$value eq "bold"}] }
     slant  { return [expr {$value eq "italic" || $value eq "oblique"}] }
@@ -221,6 +229,19 @@ proc slickprop::text_bool_checked {tok value} {
     }
   }
 }
+# bool_value: the value to write for a bool field on OK. An UNCHANGED box returns
+# the loaded raw value verbatim (so a value the on-value does not capture survives
+# untouched); a freshly ticked box writes <on>; a freshly unticked box removes
+# (empty). <on> is passed in so this is schema-agnostic.
+proc slickprop::bool_value {on loaded chk0 chk} {
+  if {$chk == $chk0} { return $loaded }
+  if {$chk} { return $on }
+  return {}
+}
+
+# text_* bool helpers: thin wrappers over the generic ones (text_schema knows the
+# on-value), kept for the enter_text view and the TX9/TX10 tests.
+proc slickprop::text_bool_checked {tok value} { return [slickprop::bool_checked $tok $value] }
 
 # The token value to write back for a bool field on OK. <loaded> is the value the
 # field opened with, <chk0> its initial tick state, <chk> its current tick state.
@@ -229,13 +250,11 @@ proc slickprop::text_bool_checked {tok value} {
 # is preserved untouched; a freshly ticked box writes the schema on-value; a
 # freshly unticked box removes the token (empty).
 proc slickprop::text_bool_value {tok loaded chk0 chk} {
-  if {$chk == $chk0} { return $loaded }
-  if {$chk} {
-    foreach row [slickprop::text_schema] {
-      if {[dict get $row tok] eq $tok} { return [dict get $row on] }
-    }
+  set on {}
+  foreach row [slickprop::text_schema] {
+    if {[dict get $row tok] eq $tok} { set on [dict get $row on]; break }
   }
-  return {}
+  return [slickprop::bool_value $on $loaded $chk0 $chk]
 }
 
 # ===========================================================================

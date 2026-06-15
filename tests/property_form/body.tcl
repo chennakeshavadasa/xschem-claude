@@ -1301,3 +1301,39 @@ check {RL4d unknown name preserved}     {[xschem get_tok $::RO name 2] eq "foo"}
 ### (guards that generalising the core did not change enter_text behaviour).
 check {RL5a text_fields still parses weight} {[f_dg [f_trow [f_tfields {weight=bold}] weight] value] eq "bold"}
 check {RL5b text_extra still strips owned}   {[lsearch [xschem list_tokens [f_textra {weight=bold name=n}] 0] weight] < 0}
+
+# ===========================================================================
+# Slick text_line L2 — the remaining graphical types (line/poly/arc/wire). Same
+# generic core; adds their gfx_schema and a num (bus width) + bool (bezier)
+# widget kind. The bool helpers are generalised out of the text-specific ones so
+# bezier can reuse them. RED first.
+# ===========================================================================
+
+### RL6 — per-type schemas (tokens, order, new widget kinds).
+check {RL6a line schema = dash bus}        {[tx_toks [f_gschema line]] eq {dash bus}}
+check {RL6b poly schema = dash fill bezier bus} {[tx_toks [f_gschema poly]] eq {dash fill bezier bus}}
+check {RL6c arc schema = dash fill bus}    {[tx_toks [f_gschema arc]] eq {dash fill bus}}
+check {RL6d wire schema = bus}             {[tx_toks [f_gschema wire]] eq {bus}}
+check {RL6e poly bezier is a bool widget}  {[f_dg [f_trow [f_gschema poly] bezier] widget] eq "bool"}
+check {RL6f poly bezier on=true}           {[f_dg [f_trow [f_gschema poly] bezier] on] eq "true"}
+check {RL6g bus is a num widget}           {[f_dg [f_trow [f_gschema line] bus] widget] eq "num"}
+
+### RL7 — the generic bool helpers (bezier reuses them; text_* still delegate).
+proc f_boolchk {t v}     { if {[catch {slickprop::bool_checked $t $v} r]}     {return -2}; return $r }
+proc f_boolval {on l c0 c} { if {[catch {slickprop::bool_value $on $l $c0 $c} r]} {return -2}; return $r }
+check {RL7a bezier=true -> checked}              {[f_boolchk bezier true] == 1}
+check {RL7b bezier absent -> unchecked}          {[f_boolchk bezier {}] == 0}
+check {RL7c bool_value toggled on writes on}     {[f_boolval true {} 0 1] eq "true"}
+check {RL7d bool_value unchanged keeps loaded}   {[f_boolval true weird 1 1] eq "weird"}
+check {RL7e text_bool_value still works}         {[f_bvalue weight bold 1 0] eq ""}
+check {RL7f text_bool_checked still works}       {[f_bchecked slant oblique] == 1}
+
+### RL8 — the generic core over a polygon prop (fill enum + bezier bool + bus num).
+set ::PSC [f_gschema poly]
+set ::PP  {dash=2 fill=full bezier=true bus=3 name=p1}
+set ::PF  [f_sfields $::PSC $::PP]
+check {RL8a poly dash parsed}        {[f_dg [f_trow $::PF dash] value] eq "2"}
+check {RL8b poly bezier parsed}      {[f_dg [f_trow $::PF bezier] value] eq "true"}
+check {RL8c poly bus parsed}         {[f_dg [f_trow $::PF bus] value] eq "3"}
+check {RL8d poly extra keeps name}   {[xschem get_tok [f_sextra $::PSC $::PP] name 2] eq "p1"}
+check {RL8e poly no-edit identical}  {[f_sassemble $::PSC $::PP {} [f_sextra $::PSC $::PP]] eq $::PP}

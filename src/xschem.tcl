@@ -7953,8 +7953,10 @@ proc write_data {data f} {
 namespace eval gfxform {
   variable orig {}      ;# property string the dialog opened with (tctx::retval)
   variable schema {}    ;# the per-type slickprop::gfx_schema
-  variable val          ;# array: int-field tok -> current value (dash)
+  variable val          ;# array: int/num-field tok -> current value (dash, bus)
   variable loaded       ;# array: tok -> value it opened with
+  variable chk          ;# array: bool-field tok -> current checkbox state
+  variable chk0         ;# array: bool-field tok -> initial checkbox state
   variable fillchoices {}
   variable fill_label {} ;# enum combobox var (a choice label)
   variable fill_label0 {}
@@ -7981,10 +7983,10 @@ proc gfxform::label_for {choices v} {
 
 # Seed the field state from the incoming property string for object <type>.
 proc gfxform::init {prop type} {
-  variable orig; variable schema; variable val; variable loaded
+  variable orig; variable schema; variable val; variable loaded; variable chk; variable chk0
   variable fillchoices; variable fill_label; variable fill_label0
   variable ell_on; variable ell_on0; variable ell_start; variable ell_end
-  array unset val; array unset loaded
+  array unset val; array unset loaded; array unset chk; array unset chk0
   set orig $prop
   set schema [slickprop::gfx_schema $type]
   set ell_on 0; set ell_on0 0; set ell_start 0; set ell_end 360
@@ -7993,7 +7995,11 @@ proc gfxform::init {prop type} {
     set v   [dict get $row value]
     set loaded($tok) $v
     switch -- [dict get $row widget] {
-      int  { set val($tok) $v }
+      int - num { set val($tok) $v }
+      bool {
+        set chk0($tok) [slickprop::bool_checked $tok $v]
+        set chk($tok)  $chk0($tok)
+      }
       enum {
         set fillchoices [dict get $row choices]
         set fill_label0 [gfxform::label_for $fillchoices $v]
@@ -8013,16 +8019,19 @@ proc gfxform::init {prop type} {
 
 # {tok val ...} desired-token list from the current field state (no widget reads).
 proc gfxform::desired {} {
-  variable schema; variable val; variable loaded; variable fillchoices
+  variable schema; variable val; variable loaded; variable chk; variable chk0; variable fillchoices
   variable fill_label; variable fill_label0
   variable ell_on; variable ell_start; variable ell_end
   set d {}
   foreach row $schema {
     set tok [dict get $row tok]
     switch -- [dict get $row widget] {
-      int {
+      int - num {
         set v [string trim $val($tok)]
         if {$v eq {} || $v eq "0"} { lappend d $tok {} } else { lappend d $tok $v }
+      }
+      bool {
+        lappend d $tok [slickprop::bool_value [dict get $row on] $loaded($tok) $chk0($tok) $chk($tok)]
       }
       enum {
         if {$fill_label eq $fill_label0} {
@@ -8076,10 +8085,14 @@ proc text_line_slick {txtlabel clear preserve_disabled type} {
     set f .dialog.appear.$tok
     frame $f
     switch -- [dict get $row widget] {
-      int {
-        label $f.l -text "$lab"
+      int - num {
+        label $f.l -text "$lab:"
         entry $f.e -textvariable gfxform::val($tok) -width 6
         pack $f.l $f.e -side left
+      }
+      bool {
+        checkbutton $f.ck -text "$lab" -variable gfxform::chk($tok)
+        pack $f.ck -side left
       }
       enum {
         label $f.l -text "$lab:"
