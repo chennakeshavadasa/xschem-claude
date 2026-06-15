@@ -526,6 +526,8 @@ proc slickprop::ok {} {
   set ::slickprop_form_open 0
   catch {set ::slickprop_geometry [wm geometry .dialog]} ;# remember size+pos
   catch {xschem highlight_scope clear}                   ;# remove the scope outline
+  # M2: the close cleanup moved here from the (now removed) post-tkwait block.
+  catch {trace remove variable ::slickprop_apply_scope write slickprop::apply_scope_greying}
   destroy .dialog
 }
 
@@ -536,6 +538,8 @@ proc slickprop::cancel {} {
   set edit_symbol_prop_new_sel {}
   catch {set ::slickprop_geometry [wm geometry .dialog]} ;# remember size+pos
   catch {xschem highlight_scope clear}                   ;# remove the scope outline
+  # M2: the close cleanup moved here from the (now removed) post-tkwait block.
+  catch {trace remove variable ::slickprop_apply_scope write slickprop::apply_scope_greying}
   destroy .dialog
 }
 
@@ -863,7 +867,9 @@ proc slickprop::update_nav_ui {} {
 # per declared symbol attribute (Cadence-style, strict), Enter=OK / Escape=Cancel.
 # Same C contract as the old edit_prop: reads tctx::retval (current property
 # string) and the `symbol` global on entry; sets tctx::retval (new string) +
-# tctx::rcode ({ok}|{}) and returns rcode. Modal.
+# tctx::rcode ({ok}|{}). MODELESS (M2, issue 0009): returns immediately (no
+# tkwait) with the form floating; the apply happens later via OK/Apply, so the
+# returned rcode is {} and the x==0 instance path ignores it.
 proc slickprop::edit_form {txtlabel} {
   global symbol prev_symbol no_change_attrs preserve_unchanged_attrs copy_cell
   global user_wants_copy_cell edit_prop_size edit_prop_pos edit_symbol_prop_new_sel
@@ -875,16 +881,18 @@ proc slickprop::edit_form {txtlabel} {
   # sticky "Apply to" scope: default Only Current, retained across opens
   if {![info exists ::slickprop_apply_scope]} { set ::slickprop_apply_scope current }
   slickprop::init_fonts
-  xschem set semaphore [expr {[xschem get semaphore] + 1}]
-  set ::slickprop_form_open 1   ;# modeless: let the canvas keep selecting (M1)
+  set ::slickprop_form_open 1   ;# modeless (M2): form floats, canvas stays fully live
   # record the LAUNCH as a non-replayable marker (every launch route — q / menu /
   # `xschem edit_prop` — converges here). A `#` comment, so replay skips it: the
-  # form is modal and the only replayable effect is the apply (logged separately).
+  # launch is an intention (not an effect); only the apply is replayable (logged
+  # separately).
   slickprop::log_event \
-    "# xschem edit_prop $::slickprop_apply_scope — Edit Properties form opened (non-replayable: modal)"
+    "# xschem edit_prop $::slickprop_apply_scope — Edit Properties form opened (non-replayable)"
   toplevel .dialog -class Dialog
   wm title .dialog {Edit Properties}
-  wm transient .dialog [xschem get topwindow]
+  # M2 (issue 0009): a PLAIN toplevel — NOT `wm transient` — so the WM lets the
+  # user click/activate the schematic window independently while the form floats.
+  # We `raise` it once at the end so it is not born behind the main window.
   set X [expr {[winfo pointerx .dialog] - 60}]
   set Y [expr {[winfo pointery .dialog] - 35}]
   wm geometry .dialog "+$X+$Y"
@@ -1047,9 +1055,15 @@ proc slickprop::edit_form {txtlabel} {
     focus $slickprop::cur(entry,[lindex $slickprop::cur(tokens) 0])
   }
 
-  tkwait window .dialog
-  set ::slickprop_form_open 0   ;# form gone: re-lock canvas selection
-  catch {trace remove variable ::slickprop_apply_scope write slickprop::apply_scope_greying}
-  xschem set semaphore [expr {[xschem get semaphore] - 1}]
+  raise .dialog                 ;# M2: float in front initially (no transient), non-capturing
+  # M2 (issue 0009): NON-BLOCKING. We deliberately do NOT `tkwait` here — edit_form
+  # returns immediately and the launching callback unwinds, so callback()'s
+  # re-entrancy semaphore drops back to 0 and the schematic accepts ALL bound
+  # commands while the form floats (was: tkwait kept the launching frame on the C
+  # stack, pinning semaphore>=2 and blocking everything but zoom + Shift-select).
+  # The form lives as an independent toplevel; OK/Cancel (slickprop::ok /
+  # ::cancel) do the apply + the close cleanup (clear the flag, remove the scope
+  # trace, destroy). rcode is {} here and is ignored by the x==0 instance path,
+  # which applies mid-session via `xschem apply_properties`.
   return $::tctx::rcode
 }

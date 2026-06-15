@@ -221,28 +221,30 @@ if {[gui_ok]} {
 ### never hang. Guarded so an environment without a usable main window just skips.
 proc gui2_ok {} { return [expr {[catch {winfo exists .drw} x]==0 && $x}] }
 if {[gui2_ok]} {
+  catch {while {[winfo exists .dialog]} {slickprop::cancel; update}}
+  foreach id [after info] {catch {after cancel $id}}
   xschem set modified 0
   xschem clear force schematic
-  xschem instance res.sym 0 0 0 0 {name=RTEST}
-  set ::symbol res.sym
-  set ::tctx::retval {name=RTEST value=1k}
+  xschem instance res.sym 0 0 0 0 {name=RTEST value=1k}
+  xschem select instance RTEST                 ;# xschem edit_prop edits the selection
   set ::no_change_attrs 0; set ::preserve_unchanged_attrs 0; set ::copy_cell 0
+  set ::slickprop_apply_scope current
   set ::pf16_built 0
-  after 500 {
-    if {[info exists slickprop::cur(entry,value)]} {
-      set ::pf16_built 1
-      slickprop::placeholder_in value
-      $slickprop::cur(entry,value) delete 0 end
-      $slickprop::cur(entry,value) insert 0 2k
-      slickprop::ok
-    }
+  # M2: non-blocking — edit_prop returns with the form built; edit + OK in-line.
+  catch {xschem edit_prop}
+  if {[winfo exists .dialog] && [info exists slickprop::cur(entry,value)]} {
+    set ::pf16_built 1
+    slickprop::placeholder_in value
+    $slickprop::cur(entry,value) delete 0 end
+    $slickprop::cur(entry,value) insert 0 2k
+    slickprop::ok
   }
-  after 4000 {catch {slickprop::cancel}}  ;# safety: never hang the suite
-  set pf16_rc [catch {slickprop::edit_form {Input property:}} pf16_ret]
   check {PF16a edit_form built per-field entries from the live template} {$::pf16_built == 1}
-  check {PF16b edit_form returned rcode ok after OK} {$pf16_ret eq "ok"}
-  check {PF16c OK wrote the edited value into tctx::retval (subst-into-original)} \
-    {[xschem get_tok $::tctx::retval value 2] eq "2k" && [string match {name=RTEST*} $::tctx::retval]}
+  check {PF16b OK set rcode ok and closed the (non-blocking) form} \
+    {$::tctx::rcode eq "ok" && ![winfo exists .dialog]}
+  check {PF16c OK wrote the edited value into the instance (subst-into-original)} \
+    {[xschem get_tok [xschem getprop instance 0] value 2] eq "2k" &&
+     [xschem get_tok [xschem getprop instance 0] name 2] eq "RTEST"}
   check {PF16d the dialog geometry was remembered on close (WxH+X+Y)} \
     {[info exists ::slickprop_geometry] && [regexp {^[0-9]+x[0-9]+} $::slickprop_geometry]}
 } else {
@@ -319,36 +321,24 @@ proc pf_count_value {v} {
 }
 
 # --- generic modal driver (shared by P1 + P2 tests) ------------------------
-# Open the real modal form under <scope> and run <body> once the field grid is
-# actually built, by POLLING (not a fixed delay — under WSLg the build time
-# varies and a fixed `after` races it). <body> runs at global scope and may
-# close the dialog itself (ok/cancel); otherwise the poller cancels it. Pending
-# timers are dropped on return so a stale one can't cancel a later test's dialog.
-proc pf_tick {} {
-  if {$::pf_done} return
-  if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
-    set ::pf_ran 1
-    if {[catch {uplevel #0 $::pf_body} m]} { set ::pf_err $m }
-    catch {if {[winfo exists .dialog]} {slickprop::cancel}}
-    return
-  }
-  incr ::pf_ticks
-  if {$::pf_ticks > 150} { catch {if {[winfo exists .dialog]} {slickprop::cancel}}; return }
-  after 40 pf_tick
-}
+# M2 (issue 0009): the form is now NON-BLOCKING — `xschem edit_prop` returns
+# immediately with the field grid built, so the old POLLING dance (needed while
+# edit_prop blocked in tkwait) is gone: just open, run <body> inline, then ensure
+# the dialog is closed. <body> runs at global scope and may close it (ok/cancel).
+# A clean slate + stale-timer drain keeps each open independent.
 proc pf_form_run {scope body} {
   set ::slickprop_apply_scope $scope
   set ::edit_symbol_prop_new_sel {}
-  set ::pf_body $body
   set ::pf_ran 0
   set ::pf_err {}
-  set ::pf_done 0
-  set ::pf_ticks 0
-  set a2 [after 12000 {catch {slickprop::cancel}}]  ;# hard safety: never hang
-  after 40 pf_tick
+  catch {while {[winfo exists .dialog]} {slickprop::cancel; update}}
+  foreach id [after info] {catch {after cancel $id}}
   catch {xschem edit_prop}
-  set ::pf_done 1                                   ;# stop any lingering poll
-  after cancel $a2
+  if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
+    set ::pf_ran 1
+    if {[catch {uplevel #0 $body} m]} { set ::pf_err $m }
+  }
+  catch {if {[winfo exists .dialog]} {slickprop::cancel}}
   if {$::pf_err ne {}} { puts $::logfd "PFERR($scope): $::pf_err"; flush $::logfd }
 }
 
@@ -435,13 +425,16 @@ check {PF24a scope_value inverts scope_label for every canonical value} \
    [slickprop::scope_value [slickprop::scope_label selected]] eq "selected" &&
    [slickprop::scope_value [slickprop::scope_label all]]      eq "all"}
 if {[gui2_ok]} {
+  catch {while {[winfo exists .dialog]} {slickprop::cancel; update}}
+  foreach id [after info] {catch {after cancel $id}}
   pf_setup_insts
   xschem select instance R1
   set ::slickprop_apply_scope all
-  after 300 {catch {slickprop::cancel}}
-  catch {xschem edit_prop}
+  catch {xschem edit_prop}                   ;# M2: non-blocking
+  set ::pf24b_scope $::slickprop_apply_scope
+  catch {if {[winfo exists .dialog]} {slickprop::cancel}}
   check {PF24b scope persists across a form open (sticky, not reset)} \
-    {$::slickprop_apply_scope eq "all"}
+    {$::pf24b_scope eq "all"}
 } else { check {PF24b (skipped: no main window)} {1} }
 
 # ===========================================================================
@@ -668,25 +661,17 @@ if {[gui2_ok]} {
 # is rejected without opening the dialog.
 # ===========================================================================
 
-# open via `xschem edit_prop <arg>`, return the scope the built form sees, cancel
+# open via `xschem edit_prop <arg>`, return the scope the built form sees, cancel.
+# M2: non-blocking — edit_prop returns with the form built, so read inline.
 proc pf_edit_prop_arg {arg} {
-  set ::pf_done 0; set ::pf_ticks 0; set ::pf_seen {}
-  proc ::pf_argtick {} {
-    if {$::pf_done} return
-    if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
-      set ::pf_seen $::slickprop_apply_scope
-      catch {slickprop::cancel}
-      return
-    }
-    incr ::pf_ticks
-    if {$::pf_ticks > 150} { catch {if {[winfo exists .dialog]} {slickprop::cancel}}; return }
-    after 40 ::pf_argtick
-  }
-  set safe [after 12000 {catch {slickprop::cancel}}]
-  after 40 ::pf_argtick
+  set ::pf_seen {}
+  catch {while {[winfo exists .dialog]} {slickprop::cancel; update}}
+  foreach id [after info] {catch {after cancel $id}}
   catch {eval xschem edit_prop $arg}
-  set ::pf_done 1
-  after cancel $safe
+  if {[winfo exists .dialog] && [info exists slickprop::cur(tokens)]} {
+    set ::pf_seen $::slickprop_apply_scope
+  }
+  catch {if {[winfo exists .dialog]} {slickprop::cancel}}
   return $::pf_seen
 }
 
@@ -1404,6 +1389,29 @@ if {[gui2_ok]} {
   }
   check {PF63a deleting the edited instance + Apply is a graceful no-op (0, no crash)} {$::m2_did == 0}
   check {PF63b no instance carries the un-applied value} {[pf_count_value 9k] == 0}
+
+  # PF64 — the relocated C selection hook actually fires: with the form open, a
+  # canvas selection change followed by a Button1 RELEASE re-targets the form via
+  # the new end-of-handle_button_release hook (M1's notification moved off the old
+  # semaphore>=2 carve-out). We change the engine selection directly (that alone
+  # does NOT notify), then synthesize a bare Button1 release and assert the form
+  # adopted it. Drives the real C path (`xschem callback`), unlike PF40-46 which
+  # call on_selection_changed directly.
+  catch {while {[winfo exists .dialog]} {slickprop::cancel; update}}
+  foreach id [after info] {catch {after cancel $id}}
+  pf_setup_insts
+  xschem select instance R1
+  set ::slickprop_apply_scope current
+  set ::m2_hook_disp -1
+  m2_open_capture {
+    xschem unselect_all
+    xschem select instance R2                  ;# engine selection changes...
+    xschem callback .drw 5 200 200 0 1 0 0      ;# ...Button1 release fires the C hook
+    update idletasks
+    if {[info exists slickprop::nav(disp_id)]} { set ::m2_hook_disp $slickprop::nav(disp_id) }
+  }
+  check {PF64 a Button1 release re-targets the open form (relocated C hook)} \
+    {$::m2_hook_disp eq [xschem instance_id R2]}
 } else {
-  foreach t {PF60 PF61 PF62 PF63a PF63b} { check "$t (skipped: no main window)" {1} }
+  foreach t {PF60 PF61 PF62 PF63a PF63b PF64} { check "$t (skipped: no main window)" {1} }
 }

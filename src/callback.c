@@ -5005,19 +5005,13 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        xctx->mx_double_save=xctx->mousex;
        xctx->my_double_save=xctx->mousey;
      }
-     /* Modeless slick property form (M1): selection stays live while it is open.
-      * Do a normal click/shift-click selection (move/wire/place remain locked by
-      * their own semaphore guards), then let the form react (rebuild its nav set,
-      * scope, warning and white highlight). See
-      * code_analysis/modeless_property_form_decision.md. */
-     if(tclgetboolvar("slickprop_form_open")) {
-       if(!(state & (ShiftMask | ControlMask))) unselect_all(0);
-       select_object(xctx->mousex, xctx->mousey, SELECTED, 0, NULL);
-       rebuild_selected_array();
-       draw();
-       tcleval("slickprop::on_selection_changed");
-       return;
-     }
+     /* NOTE (M2, issue 0009): the slick property form (slickprop::edit_form) is now
+      * NON-BLOCKING and no longer raises the semaphore, so it is NOT reached here —
+      * a live click while it is open runs at semaphore<2 and goes through the normal
+      * selection path below; the form is re-targeted from the relocated hook at the
+      * end of handle_button_release(). The branches below remain for the LEGACY
+      * blocking dialogs (edit_prop_legacy / text_line / enter_text), which still
+      * raise the semaphore. See code_analysis/modeless_form_M2_decision.md. */
      if(tcleval("winfo exists .dialog.f2.txt")[0] == '1') { /* proc enter_text */
        tcleval(".dialog.buttons.ok invoke");
        return;
@@ -5334,6 +5328,13 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
    }
    if(draw_xhair) draw_crosshair(3, state); /* restore crosshair when selecting / unselecting */
    if(snap_cursor && ((state == ShiftMask) || wire_draw_active)) draw_snap_cursor(3); /* erase & redraw */
+   /* M2 (issue 0009): a live canvas selection change re-targets the open modeless
+    * property form. This is M1's on_selection_changed hook, relocated off the old
+    * semaphore>=2 carve-out (the form no longer locks the dispatcher) onto the
+    * normal selection-completion path. Fires at button release — after any
+    * click-select / rubber-band / move gesture has settled — and on_selection_changed
+    * itself no-ops if the selection set did not actually change. */
+   if(tclgetboolvar("slickprop_form_open")) tcleval("slickprop::on_selection_changed");
    return;
 }
 
