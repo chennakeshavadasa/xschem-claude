@@ -1,16 +1,16 @@
 # Spec — slick `enter_text` dialog (discoverable text attributes)
 
-*Status:* **IMPLEMENTED 2026-06-14 (RED→GREEN), pending eyeball gate.** Ratified
-§2 mapping + §3 layout. Core landed in `src/property_form.tcl`
+*Status:* **RESOLVED 2026-06-14 — eyeball-confirmed by user ("working well
+enough").** Ratified §2 mapping + §3 layout. Core in `src/property_form.tcl`
 (`slickprop::text_schema`/`text_fields`/`text_extra`/`text_assemble`/
 `text_bool_checked`/`text_bool_value`), tests TX1–TX10 (suite 181/0,
-sabotage-verified); the Tk form (`enter_text` + `slicktext::` view) landed in
-`src/xschem.tcl`, raw-box preserved as `enter_text_legacy`. Headless `--pipe`
-data-path smoke green (incl. no-data-loss on untouched `slant=oblique`). **Only
-remaining item: the manual eyeball pass (§6) — Tk layout/UX can't be asserted
-headlessly.** Scope: **`enter_text` first** (text objects), **common visual
-attributes only**. `text_line` (graphical primitives) is a deliberate
-**follow-up**, not in this spec.
+sabotage-verified); Tk form (`enter_text` + `slicktext::` view) in
+`src/xschem.tcl`, raw-box preserved as `enter_text_legacy`. Post-eyeball UX
+fixes: size-to-content geometry (was mis-sized on reopen), Tab field navigation,
+and Enter=OK from every field except the multi-line text box (verified via Tk
+binding test). Scope was **`enter_text`** (text objects), **common visual attrs
+only**. **NEXT: `text_line` graphical primitives** (rect/line/poly/arc/wire) —
+same approach, per-type static schema; see specs/slick_text_line_dialog.md.
 
 ---
 
