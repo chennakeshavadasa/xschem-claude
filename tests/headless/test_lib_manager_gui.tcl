@@ -66,6 +66,21 @@ check "GUI6 selecting a cell fills views" [expr {[lsearch $views schematic] >= 0
 check "GUI7 current_cell resolves selection" [expr {[libmgr::current_cell] eq {examples cmos_inv}}] \
   "(=> [libmgr::current_cell])"
 
+# GUI8 — "New window" on: each opened cell gets its own window/tab
+set libmgr::new_window 1
+set n0 [xschem get ntabs]
+lb_pick $cellLb cmos_inv libmgr::on_cell; libmgr::open_schematic
+set n1 [xschem get ntabs]
+lb_pick $cellLb nand2 libmgr::on_cell; libmgr::open_schematic
+set n2 [xschem get ntabs]
+check "GUI8 new-window mode adds a tab per open" [expr {$n1 == $n0 + 1 && $n2 == $n1 + 1}] "(=> $n0 $n1 $n2)"
+
+# GUI9 — "New window" off: opening reuses the current window (no new tab)
+set libmgr::new_window 0
+lb_pick $cellLb flop libmgr::on_cell; libmgr::open_schematic
+set n3 [xschem get ntabs]
+check "GUI9 current-window mode reuses the tab" [expr {$n3 == $n2}] "(=> $n2 -> $n3)"
+
 destroy .libmgr
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout

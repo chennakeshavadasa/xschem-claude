@@ -23,6 +23,7 @@
 namespace eval libmgr {
   variable sel_lib  "" ;# currently selected library name
   variable sel_cell "" ;# currently selected cell name
+  variable new_window 1 ;# open schematics in a new window/tab (vs the current one)
 }
 
 proc libmgr::open {} {
@@ -56,9 +57,10 @@ proc libmgr::open {} {
   ttk::frame $w.b
   ttk::button $w.b.open  -text "Open schematic" -command libmgr::open_schematic
   ttk::button $w.b.place -text "Place symbol"   -command libmgr::place_symbol
+  ttk::checkbutton $w.b.neww -text "New window" -variable libmgr::new_window
   ttk::button $w.b.ref   -text "Refresh"        -command libmgr::refresh
   ttk::button $w.b.close -text "Close"          -command "destroy $w"
-  pack $w.b.open $w.b.place $w.b.ref -side left -padx 4 -pady 4
+  pack $w.b.open $w.b.place $w.b.neww $w.b.ref -side left -padx 4 -pady 4
   pack $w.b.close -side right -padx 4 -pady 4
   pack $w.b -side bottom -fill x
 
@@ -132,12 +134,13 @@ proc libmgr::current_cell {} {
 }
 
 proc libmgr::open_schematic {} {
+  variable new_window
   set lc [libmgr::current_cell]
   if {$lc eq {}} return
   set ref "[lindex $lc 0]/[lindex $lc 1]"
   set f [xschem cellview_path $ref schematic]
-  if {$f ne {}} { xschem load $f } \
-  else { .libmgr.status configure -text "no schematic view for $ref" }
+  if {$f eq {}} { .libmgr.status configure -text "no schematic view for $ref"; return }
+  if {$new_window} { xschem load_new_window $f } else { xschem load $f }
 }
 
 proc libmgr::place_symbol {} {
