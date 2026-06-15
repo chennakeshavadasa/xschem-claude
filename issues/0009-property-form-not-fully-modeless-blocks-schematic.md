@@ -1,11 +1,27 @@
 # Issue 0009 — the property editor form blocks schematic interaction (not fully modeless)
 
 **Opened:** 2026-06-14
-**Status:** IN PROGRESS (2026-06-14) — D1 audit done + ratified (Option A: make the
-form non-blocking; D3: drop `wm transient` + initial `raise`). Decision doc:
-`code_analysis/modeless_form_M2_decision.md`. RED tests landed (PF60-63 in
-`tests/property_form/body.tcl`; PF61/PF62 the RED discriminators). The audit
-**corrected** the original D1 framing — see §1 note below.
+**Status:** IMPLEMENTED 2026-06-14 — PENDING MANUAL EYEBALL (D3 focus/activation
+is WM-dependent; WSLg can't verify it headlessly). Commits: `a557170f` (RED),
+`ad8c7f45` (GREEN). Decision doc (ratified Option A + D3): `code_analysis/
+modeless_form_M2_decision.md`. The audit **corrected** the original D1 framing —
+see §1 note below.
+
+**What landed:** `slickprop::edit_form` is non-blocking (no `tkwait`), no longer
+raises the semaphore, and is a plain toplevel (no `wm transient`, initial
+`raise`). Close cleanup moved to `slickprop::ok`/`::cancel`. M1's
+`on_selection_changed` hook relocated from the `callback.c:5002` semaphore>=2
+carve-out to the end of `handle_button_release` (gated by `slickprop_form_open`).
+No semaphore>=2 guard was rewritten. Tests: property_form suite 220→226 (PF60-64;
+PF61 = semaphore 0 while open, PF62 = no transient, PF64 drives the real C release
+hook via `xschem callback`); main regression + headless callback tests green.
+
+**EYEBALL CHECKLIST (do on the real display, then mark RESOLVED):** open the form
+(Q) → (1) click the schematic title bar — it activates, form stays visible and
+does not capture focus; (2) run pan / move / wire / place / delete / descend while
+the form floats — all work; (3) selecting a different instance re-targets the
+form; (4) delete the edited instance — Apply/OK no-ops (no crash); (5) form does
+not get lost behind the main window. Record the result here.
 **Affects:** the slick instance property form (`slickprop::edit_form`,
 `src/property_form.tcl`). While it is open, the schematic window accepts only
 **selection** (Shift-click add, via M1) and **zoom** — every other command is

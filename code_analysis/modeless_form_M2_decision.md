@@ -1,7 +1,9 @@
 # M2 — full modeless property form: D1 guard audit + decision
 
-**Status:** RATIFIED 2026-06-14 — Option A (non-blocking form) + D3 drop `wm transient`
-+ initial `raise`. Implementing RED-first.
+**Status:** IMPLEMENTED 2026-06-14 (RED `a557170f` / GREEN `ad8c7f45`) — Option A
+(non-blocking form) + D3 drop `wm transient` + initial `raise`. PENDING the manual
+eyeball pass (D3 focus/activation is WM-dependent; see the issue's eyeball
+checklist). Headless suite 226/226; main regression + headless callback tests green.
 **Issue:** `issues/0009-property-form-not-fully-modeless-blocks-schematic.md`
 **Builds on:** M1 modeless-selection (`code_analysis/modeless_property_form_decision.md`),
 the slick form (`src/property_form.tcl`), the input dispatcher (`src/callback.c`).
