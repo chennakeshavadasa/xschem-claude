@@ -3362,6 +3362,11 @@ static void handle_motion_notify(int event, KeySym key, int state, int rstate, i
     static double tk_scaling = 1.0;
     tk_scaling = atof(tcleval("tk scaling"));
     if(!tabbed_interface && strcmp(win_path, xctx->current_win_path)) return;
+    /* A motion delivered to this canvas means the pointer is inside it. EnterNotify
+     * is the only other setter, but with the shared tabbed canvas a tab switch
+     * does not regenerate an Enter -- so without this the hover cue and crosshair
+     * would stay dead until the schematic is reopened. LeaveNotify still clears it. */
+    xctx->mouse_inside = 1;
     if( waves_selected(event, key, state, button)) {
       waves_callback(event, mx, my, key, button, aux, state);
       return;
