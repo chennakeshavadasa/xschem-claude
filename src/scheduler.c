@@ -3739,6 +3739,25 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
       }
       Tcl_ResetResult(interp);
     }
+
+    /* libraries
+     *   Read-only library registry query (library-manager Phase 1). Returns a
+     *   Tcl list of {name path} pairs for every defined library. The registry =
+     *   library.defs files listed in $XSCHEM_LIBRARY_DEFS plus auto-discovered
+     *   dirs carrying a library.tag on the search path. Implemented in Tcl
+     *   (src/library_defs.tcl); see code_analysis/library_manager_design.md. */
+    else if(!strcmp(argv[1], "libraries"))
+    {
+      tcleval("library_list");
+    }
+
+    /* library <name>
+     *   Absolute path of the named library, or "" if it is not defined. */
+    else if(!strcmp(argv[1], "library"))
+    {
+      if(argc > 2) tclvareval("library_resolve {", argv[2], "}", NULL);
+      else Tcl_ResetResult(interp);
+    }
     else { *cmd_found = 0;}
   return TCL_OK;
 }

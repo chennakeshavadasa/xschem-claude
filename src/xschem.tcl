@@ -10803,6 +10803,8 @@ proc load_raw {{type {}}} {
 # the command palette. Loaded once at startup; build_widgets consumes it per window.
 source $XSCHEM_SHAREDIR/action_registry.tcl
 load_action_table
+# Library registry (Cadence cds.lib analog): `xschem libraries` / `xschem library`
+source $XSCHEM_SHAREDIR/library_defs.tcl
 # Slick per-field "Edit Properties" form (replaces the legacy raw-text dialog)
 source $XSCHEM_SHAREDIR/property_form.tcl
 # Replay keybindings.csv / mousebindings.csv (share-dir defaults, then the user's
