@@ -66,6 +66,27 @@ check "D2 schematic= override -> override view" [expr {[norm $g2] eq [norm $OTHE
 set g3 [descend_to $tmp/p3.sch fsub.sym {name=x1}]
 check "D3 legacy flat descend unchanged" [expr {[norm $g3] eq [norm $FSUBSCH]}] "(=> $g3)"
 
+# --- D4 — hierarchical netlist resolves the lib-qualified subcircuit ---------
+# The netlister calls the SAME get_sch_from_sym (with inst=-1) to find a
+# subcircuit's schematic view, so its .subckt must appear in the spice netlist.
+xschem set netlist_type spice
+set ::netlist_dir $tmp
+xschem clear force schematic
+xschem instance tlib/sub 0 0 0 0 {name=x1}
+xschem saveas $tmp/top.sch schematic
+xschem netlist
+set ndef 0
+set nl [file join $tmp top.spice]
+if {[file exists $nl]} {
+  set fp [open $nl r]; set d [read $fp]; close $fp
+  # require the .subckt header AND its real body (the two cmos_inv transistors):
+  # the header alone is emitted from the symbol pins even when the schematic view
+  # is not found, so the M1/M2 lines are what prove the schematic was netlisted.
+  set ndef [expr {[regexp -nocase {\.subckt\s+sub\M} $d] &&
+                  [regexp -line {^M1 } $d] && [regexp -line {^M2 } $d]}]
+}
+check "D4 hierarchical netlist emits .subckt sub with body" $ndef {}
+
 file delete -force $tmp
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout

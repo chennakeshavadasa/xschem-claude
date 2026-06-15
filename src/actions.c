@@ -2312,6 +2312,18 @@ void get_additional_symbols(int what)
 /* fallback = 1: if schematic attribute is set but file not existing fallback
  * to defaut symbol schematic (symname.sym -> symname.sch)
  * if inst == -1 use only symbol reference */
+/* If 'ref' is a lib-qualified reference "lib/cell" whose schematic view exists
+ * (<libpath>/<cell>/schematic/<cell>.sch), return its absolute path, else "".
+ * Thin wrapper over the Tcl resolver (library-manager Phase 4). Lets descend and
+ * the schematic= override target the cell's schematic VIEW rather than ext-swap
+ * the symbol-view path. See code_analysis/library_manager_design.md. */
+static const char *cellview_sch_path(const char *ref)
+{
+  char c[PATH_MAX + 100];
+  my_snprintf(c, S(c), "cellview_path {%s} schematic", ref);
+  return tcleval(c);
+}
+
 void get_sch_from_sym(char *filename, xSymbol *sym, int inst, int fallback)
 {
   char *sch = NULL;
@@ -2364,9 +2376,12 @@ void get_sch_from_sym(char *filename, xSymbol *sym, int inst, int fallback)
       is_gen = 1;
       dbg(1, "get_sch_from_sym(): filename=%s\n", filename);
     } else { /* not generator */
+      const char *cv;
       dbg(1, "get_sch_from_sym(): after tcl_hook2 sch=%s\n", sch);
       /* for schematics referenced from web symbols do not build absolute path */
       if(web_url) my_strncpy(filename, sch, PATH_MAX);
+      /* a lib-qualified override (lib/cell) points at the cell's schematic view */
+      else if((cv = cellview_sch_path(sch))[0]) my_strncpy(filename, cv, PATH_MAX);
       else my_strncpy(filename, abs_sym_path(sch, ""), PATH_MAX);
     }
   }
@@ -2386,7 +2401,10 @@ void get_sch_from_sym(char *filename, xSymbol *sym, int inst, int fallback)
   /* no schematic attr from instance or symbol */
   if(!cancel && (!str_tmp[0] || (fallback && !is_gen && filename[0] && !file_exists ))) {
     const char *symname_tcl = tcl_hook2(sym->name);
+    const char *cv;
     if(is_generator(symname_tcl))  my_strncpy(filename, symname_tcl, PATH_MAX);
+    /* lib-qualified symbol: its schematic lives in the cell's schematic view */
+    else if(!web_url && (cv = cellview_sch_path(sym->name))[0]) my_strncpy(filename, cv, PATH_MAX);
     else if(tclgetboolvar("search_schematic")) {
       /* for schematics referenced from web symbols do not build absolute path */
       if(web_url) my_strncpy(filename, add_ext(sym->name, ".sch"), PATH_MAX);
