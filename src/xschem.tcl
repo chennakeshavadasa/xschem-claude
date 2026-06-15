@@ -10816,6 +10816,8 @@ source $XSCHEM_SHAREDIR/action_registry.tcl
 load_action_table
 # Library registry (Cadence cds.lib analog): `xschem libraries` / `xschem library`
 source $XSCHEM_SHAREDIR/library_defs.tcl
+# Library Manager GUI (Cadence-style Library/Cell/View browser)
+source $XSCHEM_SHAREDIR/library_manager.tcl
 # Slick per-field "Edit Properties" form (replaces the legacy raw-text dialog)
 source $XSCHEM_SHAREDIR/property_form.tcl
 # Replay keybindings.csv / mousebindings.csv (share-dir defaults, then the user's
@@ -11256,6 +11258,8 @@ proc build_widgets { {topwin {} } } {
      -label "Search all search-paths for schematic associated to symbol" -variable search_schematic
   $topwin.menubar.sym add checkbutton -label "Allow duplicated instance names (refdes)" \
       -selectcolor $selectcolor -variable disable_unique_names
+  $topwin.menubar.tools add command -label "Library Manager" -command "library_manager"
+  $topwin.menubar.tools add separator
   $topwin.menubar.tools add command -label "Insert symbol" -command "xschem place_symbol" -accelerator {Ins, Shift-I}
   $topwin.menubar.tools add command -label "Insert text" -command "xschem place_text" -accelerator T
   $topwin.menubar.tools add command -label "Insert wire" -command "xschem wire" -accelerator W
