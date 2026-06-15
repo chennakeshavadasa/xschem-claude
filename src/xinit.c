@@ -457,6 +457,10 @@ void create_gc(void)
   /* dedicated GC for the apply-scope highlight overlay (white outline on edit
    * targets); foreground + line width set in build_colors() (theme-aware). */
   xctx->gc_scope = XCreateGC(display,xctx->window,0L,NULL);
+  /* dedicated GC for the hover (awareness) highlight; foreground + dashed line
+   * style set in build_colors(). hover_type 0 = nothing currently outlined. */
+  xctx->gc_hover = XCreateGC(display,xctx->window,0L,NULL);
+  xctx->hover_type = 0;
 }
 
 void free_gc()
@@ -467,6 +471,7 @@ void free_gc()
     XFreeGC(display,xctx->gcstipple[i]);
   }
   XFreeGC(display,xctx->gc_scope);
+  XFreeGC(display,xctx->gc_hover);
 }
 
 static void alloc_xschem_data(const char *top_path, const char *win_path)
@@ -1094,6 +1099,22 @@ int build_colors(double dim, double dim_bg)
       if(!hc || !hc[0]) hc = tclgetboolvar("dark_colorscheme") ? "#ffffff" : "#101010";
       XSetForeground(display, xctx->gc_scope, find_best_color((char *)hc));
       XSetLineAttributes(display, xctx->gc_scope, width, LineSolid, LINECAP, LINEJOIN);
+    }
+    /* hover (awareness) highlight GC: a MILD, DASHED outline (default yellow,
+     * minimum weight) under the tracking cursor. Color via hover_highlight_color,
+     * weight via hover_highlight_width (screen px; 0 = thinnest server line). The
+     * dash makes it read as "awareness", distinct from selection / scope outlines. */
+    if(has_x) {
+      const char *hc = tclgetvar("hover_highlight_color");
+      const char *hw = tclgetvar("hover_highlight_width");
+      int width = (hw && hw[0]) ? atoi(hw) : 1;
+      char dashes[2];
+      if(width < 0) width = 0;
+      if(!hc || !hc[0]) hc = "yellow";
+      XSetForeground(display, xctx->gc_hover, find_best_color((char *)hc));
+      XSetLineAttributes(display, xctx->gc_hover, width, LineOnOffDash, LINECAP, LINEJOIN);
+      dashes[0] = 4; dashes[1] = 4;
+      XSetDashes(display, xctx->gc_hover, 0, dashes, 2);
     }
     if(has_x) for(i=0;i<cadlayers; ++i) {
 #ifdef __unix__

@@ -12033,6 +12033,12 @@ if {$OS == "Windows"} {
 }
 set_ne auto_hilight 0
 set_ne auto_hilight_graph_nodes 0
+## hover (awareness) highlight: mild dashed outline on the object under the
+## tracking cursor (Cadence-style). On by default; reads in C (build_colors +
+## draw_hover). color = any X color name / #rrggbb; width = screen px (min 1, 0=thin).
+set_ne hover_highlight 1
+set_ne hover_highlight_color yellow
+set_ne hover_highlight_width 1
 set_ne use_tclreadline 1
 set_ne en_hilight_conn_inst 0
 ## xpm to png conversion

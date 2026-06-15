@@ -1047,6 +1047,10 @@ typedef struct {
   unsigned int *scope_hi_id; /* per-entry STABLE id (resolved to index at draw time) */
   int scope_hi_n;       /* number of objects in the overlay (0 = inactive) */
   int scope_hi_alloc;   /* allocated capacity of the two arrays above */
+  GC gc_hover;          /* hover (awareness) highlight: dashed thin colored GC */
+  int hover_type;       /* hover highlight: currently-outlined object type (0 = none) */
+  int hover_n;          /* hover highlight: its array index */
+  int hover_col;        /* hover highlight: its layer (graphical types) */
   char **color_array;
   unsigned int color_index[256];
   XColor xcolor_array[256];
@@ -1427,6 +1431,8 @@ extern void draw_selection(GC g, int interruptable);
 extern void draw_scope_highlight(void);     /* apply-scope white-outline overlay */
 extern void clear_scope_highlight(void);
 extern void add_scope_highlight(int type, unsigned int id);
+extern void draw_hover_shape(GC g, int type, int n, int c); /* hover outline for one object */
+extern void draw_hover(int force);          /* hover (awareness) highlight, motion-driven */
 extern int delete_wires(int selected_flag);
 extern void delete(int to_push_undo);
 extern void delete_only_rect_line_arc_poly(void);

@@ -5448,6 +5448,89 @@ void draw_scope_highlight(void)
   drawtempline(g, END, 0.0, 0.0, 0.0, 0.0);
 }
 
+/* ===========================================================================
+ * Hover (awareness) highlight — outline ONE object (the one under the tracking
+ * cursor) in its natural shape with the GC <g>. Mirrors draw_scope_highlight()'s
+ * per-type dispatch, but takes a live {type, index, layer} (the object is
+ * re-found on every motion, so no stable-id indirection is needed) and is
+ * bounds-checked so a stale ref (e.g. after an edit) is a safe no-op rather than
+ * a crash. The orchestration (detect on motion, erase previous, draw new,
+ * window-only) lives in draw_hover() in callback.c, alongside draw_crosshair().
+ * Called with g = gc_hover to draw, or g = gctiled to erase (re-stamp the
+ * background pixmap over the old outline). type 0 = nothing -> no-op.
+ * =========================================================================== */
+void draw_hover_shape(GC g, int type, int n, int c)
+{
+  switch(type) {
+    case ELEMENT:
+      if(n >= 0 && n < xctx->instances) {
+        double x1 = xctx->inst[n].xx1, y1 = xctx->inst[n].yy1;
+        double x2 = xctx->inst[n].xx2, y2 = xctx->inst[n].yy2;
+        RECTORDER(x1, y1, x2, y2);
+        drawtemprect(g, ADD, x1, y1, x2, y2);
+      }
+      break;
+    case WIRE:
+      if(n >= 0 && n < xctx->wires)
+        drawtempline(g, ADD, xctx->wire[n].x1, xctx->wire[n].y1,
+                             xctx->wire[n].x2, xctx->wire[n].y2);
+      break;
+    case xRECT:
+      if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->rects[c]) {
+        double x1 = xctx->rect[c][n].x1, y1 = xctx->rect[c][n].y1;
+        double x2 = xctx->rect[c][n].x2, y2 = xctx->rect[c][n].y2;
+        RECTORDER(x1, y1, x2, y2);
+        drawtemprect(g, ADD, x1, y1, x2, y2);
+      }
+      break;
+    case LINE:
+      if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->lines[c])
+        drawtempline(g, ADD, xctx->line[c][n].x1, xctx->line[c][n].y1,
+                             xctx->line[c][n].x2, xctx->line[c][n].y2);
+      break;
+    case POLYGON:
+      if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->polygons[c]) {
+        int bezier = 2 + !strboolcmp(
+          get_tok_value(xctx->poly[c][n].prop_ptr, "bezier", 0), "true");
+        drawtemppolygon(g, NOW, xctx->poly[c][n].x, xctx->poly[c][n].y,
+                        xctx->poly[c][n].points, bezier);
+      }
+      break;
+    case ARC:
+      if(c >= 0 && c < cadlayers && n >= 0 && n < xctx->arcs[c])
+        drawtemparc(g, ADD, xctx->arc[c][n].x, xctx->arc[c][n].y,
+                    xctx->arc[c][n].r, xctx->arc[c][n].a, xctx->arc[c][n].b);
+      break;
+    case xTEXT:
+      if(n >= 0 && n < xctx->texts) {
+        double tx1, ty1, tx2, ty2, longest;
+        int nlines;
+        char *estr;
+        #if HAS_CAIRO==1
+        int customfont = set_text_custom_font(&xctx->text[n]);
+        #endif
+        estr = my_expand(get_text_floater(n), tclgetintvar("tabstop"));
+        if(text_bbox(estr, xctx->text[n].xscale, xctx->text[n].yscale,
+                     xctx->text[n].rot, xctx->text[n].flip,
+                     xctx->text[n].hcenter, xctx->text[n].vcenter,
+                     xctx->text[n].x0, xctx->text[n].y0,
+                     &tx1, &ty1, &tx2, &ty2, &nlines, &longest)) {
+          RECTORDER(tx1, ty1, tx2, ty2);
+          drawtemprect(g, ADD, tx1, ty1, tx2, ty2);
+        }
+        my_free(_ALLOC_ID_, &estr);
+        #if HAS_CAIRO==1
+        if(customfont) cairo_restore(xctx->cairo_ctx);
+        #endif
+      }
+      break;
+    default: break;
+  }
+  drawtemparc(g, END, 0.0, 0.0, 0.0, 0.0, 0.0);
+  drawtemprect(g, END, 0.0, 0.0, 0.0, 0.0);
+  drawtempline(g, END, 0.0, 0.0, 0.0, 0.0);
+}
+
 
 void draw(void)
 {
@@ -5695,6 +5778,12 @@ void draw(void)
       draw_selection(xctx->gc[SELLAYER], 0); /* 20181009 moved outside of cadlayers loop */
     }
     draw_scope_highlight(); /* apply-scope white outline, on top of the selection */
+    /* this full redraw wiped the window-only hover outline: forget it, then
+     * re-establish it at the current pointer so the awareness cue survives
+     * pan/zoom (like the crosshair below). draw_hover() no-ops when disabled /
+     * mid-gesture / pointer outside. */
+    xctx->hover_type = 0;
+    draw_hover(1);
     if(tclgetboolvar("draw_crosshair")) draw_crosshair(7, 0); /* what = 1(clear) + 2(draw) */
   } /* if(has_x) */
 }

@@ -53,18 +53,23 @@ xschem instance res.sym 0 0 0 0 {name=R1 value=1k}
 xschem wire 100 100 300 100
 xschem zoom_full
 update idletasks
+# EnterNotify (X11 event 7): mark the pointer inside the canvas, exactly as the WM
+# does when you move into the window. draw_hover (like draw_crosshair) only tracks
+# while mouse_inside, so a synthesized motion needs a preceding Enter.
+xschem callback .drw 7 100 100 0 0 0 0
+update idletasks
 
 # --- HV6 (defaults FIRST, before we touch the var) --------------------------
 check "HV6a hover_highlight defaults ON" \
-  [expr {[catch {xschem get hover_highlight} v]==0 && $v==1} ] \
-  "(=> [catch {xschem get hover_highlight} v; set v])"
+  [expr {[info exists ::hover_highlight] && $::hover_highlight==1} ] \
+  "(=> [expr {[info exists ::hover_highlight] ? $::hover_highlight : {unset}}])"
 check "HV6b hover_highlight_width var exists (min default)" \
   [expr {[catch {set ::hover_highlight_width}]==0}] {}
 check "HV6c hover_highlight_color var exists (yellow default)" \
   [expr {[catch {set ::hover_highlight_color}]==0}] {}
 
 # enable explicitly for the behavior tests
-catch {xschem set hover_highlight 1}
+set ::hover_highlight 1
 
 # --- HV1 — motion over the wire midpoint reports the wire -------------------
 motion_to 200 100
@@ -85,10 +90,10 @@ motion_to $cx $cy
 check "HV5 hover over an instance reports it" [expr {[hov_type] eq "instance"}] "(=> [hov_type])"
 
 # --- HV3 — master enable gates detection ------------------------------------
-catch {xschem set hover_highlight 0}
+set ::hover_highlight 0
 motion_to 200 100
 check "HV3 disabled (hover_highlight 0) reports nothing" [expr {[hov_type] eq ""}] "(=> [hov_type])"
-catch {xschem set hover_highlight 1}
+set ::hover_highlight 1
 
 # --- HV4 — an active gesture suppresses the idle hover cue -------------------
 # start a button3 zoom-rect gesture (sets ui_state), then move over the wire.

@@ -111,6 +111,7 @@ int get_instance(const char *s)
 }
 
 static int object_type_from_name(const char *s); /* defined below; used by xschem_cmds_h */
+static void object_descriptor(char *buf, int bufsz, int type, int i, int c); /* used by `hover` */
 
 static void xschem_cmd_help(int argc, const char **argv)
 {
@@ -2534,6 +2535,23 @@ static int xschem_cmds_h(Tcl_Interp *interp, int argc, const char *argv[], int *
     else if(!strcmp(argv[1], "help"))
     {
       xschem_cmd_help(argc, argv);
+    }
+
+    /* hover
+     *   The hover (awareness) highlight. Return the uniform descriptor dict of the
+     *   object currently under the tracking cursor (same {type index layer id name}
+     *   format as `xschem object`), or "" if none. Read-only — the outline itself
+     *   is driven by motion events (draw_hover()). */
+    else if(!strcmp(argv[1], "hover"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(xctx->hover_type) {
+        char buf[512];
+        object_descriptor(buf, S(buf), xctx->hover_type, xctx->hover_n, xctx->hover_col);
+        Tcl_SetResult(interp, buf, TCL_VOLATILE);
+      } else {
+        Tcl_ResetResult(interp);
+      }
     }
 
     /* hier_psprint [file]

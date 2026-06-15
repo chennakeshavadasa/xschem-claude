@@ -1792,6 +1792,51 @@ void draw_crosshair(int what, int state)
   xctx->draw_pixmap = sdp;
 }
 
+/* Hover (awareness) highlight: outline the object under the tracking cursor with
+ * a mild dashed line (xctx->gc_hover). WINDOW-ONLY, exactly like draw_crosshair():
+ * the outline never enters save_pixmap, so it is erased by re-stamping the
+ * background pixmap (xctx->gctiled) over the previously-outlined shape and then
+ * re-stroking the selection + scope overlays it may have covered (they are
+ * window-only too). Suppressed while busy (semaphore>=2), mid-gesture
+ * (ui_state!=0), when disabled (hover_highlight) or the pointer is outside the
+ * canvas (!mouse_inside) — in all those cases the previous outline is erased and
+ * none is drawn. <force> redraws even if the hovered object is unchanged (used to
+ * re-establish the outline after a full redraw). Focus-independent: it runs on
+ * MotionNotify, which X11 delivers to the window under the pointer regardless of
+ * keyboard focus. See code_analysis/hover_highlight_decision.md. */
+void draw_hover(int force)
+{
+  int sdw = xctx->draw_window, sdp = xctx->draw_pixmap;
+  int prev_type = xctx->hover_type;
+  Selected newsel;
+
+  if(!has_x) return;
+  if(tclgetboolvar("hover_highlight") && xctx->mouse_inside &&
+     xctx->ui_state == 0 && xctx->semaphore < 2) {
+    newsel = find_closest_obj(xctx->mousex, xctx->mousey, 0);
+  } else {
+    newsel.type = 0; newsel.n = 0; newsel.col = 0;
+  }
+  /* unchanged hovered object -> nothing to do */
+  if(!force && newsel.type == prev_type &&
+     (int)newsel.n == xctx->hover_n && newsel.col == xctx->hover_col) return;
+
+  xctx->draw_pixmap = 0;
+  xctx->draw_window = 1;
+  if(prev_type) { /* erase the previous outline, then repair selection/scope overlays */
+    draw_hover_shape(xctx->gctiled, prev_type, xctx->hover_n, xctx->hover_col);
+    draw_selection(xctx->gc[SELLAYER], 0);
+    draw_scope_highlight();
+  }
+  if(newsel.type) draw_hover_shape(xctx->gc_hover, newsel.type, (int)newsel.n, newsel.col);
+  xctx->hover_type = newsel.type;
+  xctx->hover_n = (int)newsel.n;
+  xctx->hover_col = newsel.col;
+
+  xctx->draw_window = sdw;
+  xctx->draw_pixmap = sdp;
+}
+
 static void unselect_at_mouse_pos(int mx, int my)
 {
        xctx->last_command = 0;
@@ -3410,6 +3455,10 @@ static void handle_motion_notify(int event, KeySym key, int state, int rstate, i
         }
       }
     }
+    /* hover (awareness) highlight: outline the object under the cursor. Before the
+     * crosshair redraw so the crosshair stays on top. No-op when disabled / mid-
+     * gesture (ui_state!=0 here) / pointer outside. */
+    draw_hover(0);
     if(draw_xhair) {
       draw_crosshair(2, state); /* what = 2(draw) */
     }
@@ -5617,6 +5666,7 @@ int callback(const char *win_path, int event, int mx, int my, KeySym key, int bu
      if(snap_cursor) draw_snap_cursor(1); /* erase */
      tclvareval(xctx->top_path, ".drw configure -cursor {}" , NULL);
      xctx->mouse_inside = 0;
+     draw_hover(0); /* erase the hover outline when the pointer leaves the canvas */
      break;
 
    case EnterNotify:
