@@ -69,17 +69,26 @@ check "GUI7 current_cell resolves selection" [expr {[libmgr::current_cell] eq {e
 # GUI8 — "New window" on: each opened cell gets its own window/tab
 set libmgr::new_window 1
 set n0 [xschem get ntabs]
-lb_pick $cellLb cmos_inv libmgr::on_cell; libmgr::open_schematic
+lb_pick $cellLb cmos_inv libmgr::on_cell; libmgr::open_view
 set n1 [xschem get ntabs]
-lb_pick $cellLb nand2 libmgr::on_cell; libmgr::open_schematic
+lb_pick $cellLb nand2 libmgr::on_cell; libmgr::open_view
 set n2 [xschem get ntabs]
 check "GUI8 new-window mode adds a tab per open" [expr {$n1 == $n0 + 1 && $n2 == $n1 + 1}] "(=> $n0 $n1 $n2)"
 
 # GUI9 — "New window" off: opening reuses the current window (no new tab)
 set libmgr::new_window 0
-lb_pick $cellLb flop libmgr::on_cell; libmgr::open_schematic
+lb_pick $cellLb flop libmgr::on_cell; libmgr::open_view
 set n3 [xschem get ntabs]
 check "GUI9 current-window mode reuses the tab" [expr {$n3 == $n2}] "(=> $n2 -> $n3)"
+
+# GUI10 — a SYMBOL view can be opened (for editing), not only placed
+lb_pick $libLb  devices libmgr::on_lib
+lb_pick $cellLb res     libmgr::on_cell
+lb_pick $viewLb symbol  libmgr::on_view
+libmgr::open_view
+set want [xschem cellview_path devices/res symbol]
+check "GUI10 symbol view opens for editing" [expr {[xschem get schname] eq $want}] \
+  "(=> [xschem get schname])"
 
 destroy .libmgr
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }

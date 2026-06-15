@@ -55,7 +55,7 @@ proc libmgr::open {} {
   pack $w.status -side bottom -fill x
 
   ttk::frame $w.b
-  ttk::button $w.b.open  -text "Open schematic" -command libmgr::open_schematic
+  ttk::button $w.b.open  -text "Open" -command libmgr::open_view
   ttk::button $w.b.place -text "Place symbol"   -command libmgr::place_symbol
   ttk::checkbutton $w.b.neww -text "New window" -variable libmgr::new_window
   ttk::button $w.b.ref   -text "Refresh"        -command libmgr::refresh
@@ -67,8 +67,8 @@ proc libmgr::open {} {
   bind $w.pw.lib.lb  <<ListboxSelect>> libmgr::on_lib
   bind $w.pw.cell.lb <<ListboxSelect>> libmgr::on_cell
   bind $w.pw.view.lb <<ListboxSelect>> libmgr::on_view
-  bind $w.pw.cell.lb <Double-1>        libmgr::open_schematic
-  bind $w.pw.view.lb <Double-1>        libmgr::activate
+  bind $w.pw.cell.lb <Double-1>        libmgr::open_view
+  bind $w.pw.view.lb <Double-1>        libmgr::open_view
 
   libmgr::populate_libs
 }
@@ -133,13 +133,30 @@ proc libmgr::current_cell {} {
   return [list $sel_lib $sel_cell]
 }
 
-proc libmgr::open_schematic {} {
+# the {lib cell view} to open: the selected view, or (if only a cell is chosen)
+# its schematic if present else its first view. {} if nothing usable.
+proc libmgr::current_view {} {
+  variable sel_lib; variable sel_cell
+  if {$sel_lib eq "" || $sel_cell eq ""} { return {} }
+  set v [libmgr::cursel .libmgr.pw.view.lb]
+  if {$v eq ""} {
+    set views [xschem cell_views $sel_lib $sel_cell]
+    if {[lsearch $views schematic] >= 0} { set v schematic } \
+    elseif {[llength $views] > 0} { set v [lindex $views 0] } \
+    else { return {} }
+  }
+  return [list $sel_lib $sel_cell $v]
+}
+
+# open the selected view in its editor (schematic OR symbol), in a new window or
+# the current one per the "New window" checkbox.
+proc libmgr::open_view {args} {
   variable new_window
-  set lc [libmgr::current_cell]
-  if {$lc eq {}} return
-  set ref "[lindex $lc 0]/[lindex $lc 1]"
-  set f [xschem cellview_path $ref schematic]
-  if {$f eq {}} { .libmgr.status configure -text "no schematic view for $ref"; return }
+  set lcv [libmgr::current_view]
+  if {$lcv eq {}} return
+  lassign $lcv lib cell view
+  set f [xschem cellview_path "$lib/$cell" $view]
+  if {$f eq {}} { .libmgr.status configure -text "no $view view for $lib/$cell"; return }
   if {$new_window} { xschem load_new_window $f } else { xschem load $f }
 }
 
@@ -149,13 +166,6 @@ proc libmgr::place_symbol {} {
   set ref "[lindex $lc 0]/[lindex $lc 1]"
   if {[xschem cellview_path $ref symbol] ne {}} { xschem place_symbol $ref } \
   else { .libmgr.status configure -text "no symbol view for $ref" }
-}
-
-# double-click a view: open it (schematic) or place it (symbol)
-proc libmgr::activate {args} {
-  set v [libmgr::cursel .libmgr.pw.view.lb]
-  if {$v eq "schematic"} { libmgr::open_schematic } \
-  elseif {$v eq "symbol"} { libmgr::place_symbol }
 }
 
 # convenience global alias
