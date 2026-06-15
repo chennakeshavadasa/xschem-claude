@@ -75,19 +75,25 @@ def rewrite_reference(ref, index):
         return ref
     if "://" in ref:                      # web URL
         return ref
+    # A `.sch` reference is xschem's "instantiate the schematic directly" form
+    # (the cell may have no symbol view), so the .sch must be PRESERVED. A `.sym`
+    # or bare reference becomes a bare lib/cell (symbol view inferred).
     base = ref
-    for ext in _EXTS:                     # drop a trailing .sym/.sch if present
+    suffix = ""
+    for ext in _EXTS:                     # strip a trailing .sym/.sch if present
         if base.endswith(ext):
+            if ext == ".sch":
+                suffix = ".sch"
             base = base[:-len(ext)]
             break
     if "/" in base:
         prefix, _, last = base.rpartition("/")
         if prefix in index.libnames and last in index.lib_cells.get(prefix, ()):
-            return prefix + "/" + last
+            return prefix + "/" + last + suffix
         return ref                        # unknown prefix / not a cell: leave as-is
     libs = index.cell_to_libs.get(base)
     if libs:
-        return libs[0] + "/" + base
+        return libs[0] + "/" + base + suffix
     return ref                            # not a known cell: leave as-is
 
 

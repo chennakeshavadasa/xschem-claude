@@ -64,6 +64,10 @@ if HAVE:
     check("RW5 generator untouched",    rw("gen.tcl(@x)") == "gen.tcl(@x)", "(=> %s)" % rw("gen.tcl(@x)"))
     check("RW6 absolute path untouched", rw("/abs/x.sym") == "/abs/x.sym", "(=> %s)" % rw("/abs/x.sym"))
     check("RW7 unknown cell untouched", rw("nosuch.sym") == "nosuch.sym", "(=> %s)" % rw("nosuch.sym"))
+    # a `.sch` ref is direct-schematic instantiation -> KEEP the .sch (the cell
+    # may have no symbol view); only `.sym`/bare refs become bare lib/cell.
+    check("RW8 .sch ref keeps extension", rw("amp.sch") == "mylib/amp.sch", "(=> %s)" % rw("amp.sch"))
+    check("RW9 qualified .sch keeps ext", rw("mylib/amp.sch") == "mylib/amp.sch", "(=> %s)" % rw("mylib/amp.sch"))
 
     # --- RT: whole-text rewriting (C {} refs + schematic= attr) -------------
     out = m.rewrite_text(AMP_SCH, idx)
@@ -71,8 +75,8 @@ if HAVE:
     check("RT2 C-ref qualified rewritten", "C {devices/res} 200" in out, "")
     check("RT3 legacy lab_pin rewritten", "C {devices/lab_pin} " in out, "")
     check("RT4 generator ref preserved", "C {gen.tcl(@x)} " in out, "")
-    check("RT5 schematic= attr rewritten", "schematic=mylib/res" not in out and "schematic=devices/res}" in out,
-          "(schematic= -> devices/res)")
+    check("RT5 schematic= attr rewritten", "schematic=devices/res.sch}" in out,
+          "(schematic=res.sch -> devices/res.sch)")
     check("RT6 wire line untouched",     "N 0 0 10 0 {}" in out, "")
     check("RT7 rewrite is idempotent",   m.rewrite_text(out, idx) == out, "")
 
