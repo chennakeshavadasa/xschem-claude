@@ -126,6 +126,20 @@ check "HV8 no hover on an already-selected object" \
   [expr {[hov_type] eq ""}] "(=> [hov_type], ui_state=[xschem get ui_state])"
 xschem unselect_all
 
+# --- HV9 — a motion re-establishes hover after the pointer-inside flag was
+# cleared (LeaveNotify). In the tabbed UI the canvas is shared, so switching the
+# active tab back to this schematic does NOT regenerate an EnterNotify; only a
+# motion arrives. If motion does not re-assert mouse_inside, hover (and the
+# crosshair) silently stop working until the schematic is reopened. A
+# MotionNotify for the canvas means the pointer IS inside it.
+set ::hover_highlight 1
+motion_to 200 100
+check "HV9a hover works before leave" [expr {[hov_type] eq "wire"}] "(=> [hov_type])"
+xschem callback .drw 8 100 100 0 0 0 0   ;# LeaveNotify clears mouse_inside
+update idletasks
+motion_to 200 100                        ;# a motion, WITHOUT a preceding Enter
+check "HV9b motion re-establishes hover after leave" [expr {[hov_type] eq "wire"}] "(=> [hov_type])"
+
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout
 exit [expr {$fail == 0 ? 0 : 1}]
