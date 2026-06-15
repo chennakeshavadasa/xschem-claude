@@ -8967,6 +8967,11 @@ proc rel_sym_path {symbol {paths {}} } {
 
   if { $paths eq {}} {set paths $pathlist}
   regsub {^~/} $symbol ${env(HOME)}/ symbol
+  ## rule 2 (library-manager): a symbol-view path inside a registered library
+  ## relativizes to the portable "lib/cell" reference. On a miss fall through to
+  ## the legacy prefix stripping below. See code_analysis/library_manager_design.md.
+  set q [lib_qualified_rel $symbol]
+  if {$q ne {}} { return $q }
   # if {$OS eq "Windows"} {
   #   if {![regexp {^[A-Za-z]\:/} $symbol]} {
   #     set symbol [pwd]/$symbol
@@ -9075,6 +9080,12 @@ proc abs_sym_path {fname {ext {} } {paths {}}} {
     ## if file does not exists but directory does return anyway
     if { [file exists [file dirname "$tmpfname"]] } { return "$tmpfname" }
   }
+  ## rule 2 (library-manager): a lib-qualified reference "lib/cell[.ext]" whose
+  ## library is registered resolves under the lib/cell/view layout. On any miss
+  ## fall through to the legacy search below (rule 3) so flat libraries and old
+  ## references keep working. See code_analysis/library_manager_design.md.
+  set libabs [lib_qualified_abs $fname]
+  if {$libabs ne {}} { return $libabs }
   ## if fname is present in one of the paths paths get the absolute path
   set name {}
   foreach path_elem $paths {

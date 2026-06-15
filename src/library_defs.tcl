@@ -103,3 +103,60 @@ proc library_resolve {name} {
   if {[dict exists $defs $name]} { return [dict get $defs $name] }
   return {}
 }
+
+# --- Phase 2: lib/cell/view resolution -------------------------------------
+# A registered library 'libname' holds cell 'cell' whose 'view' datafile lives at
+# <libpath>/<cell>/<view>/<cell>.<ext>. Returns the absolute path if that file
+# exists, else "" (callers fall back to the legacy flat search).
+proc cellview_resolve {libname cell view} {
+  set lpath [library_resolve $libname]
+  if {$lpath eq {}} { return {} }
+  set ext [expr {$view eq "schematic" ? ".sch" : ".sym"}]
+  set cand [file join $lpath $cell $view $cell$ext]
+  if {[file exists $cand]} { return $cand }
+  return {}
+}
+
+# `xschem cellview_path <lib/cell> <view>` backend. The reference is "lib/cell"
+# (a trailing .sym/.sch extension, if present, is ignored — the view argument
+# governs). Returns the abs datafile path or "".
+proc cellview_path {ref view} {
+  if {![regexp {^([^/]+)/(.+)$} $ref -> libname rest]} { return {} }
+  return [cellview_resolve $libname [file rootname $rest] $view]
+}
+
+# abs_sym_path rule 2: resolve a lib-qualified reference "lib/cell[.ext]" under
+# the new layout. The view is inferred from the extension (.sch -> schematic,
+# else symbol). Returns "" on any miss so abs_sym_path falls through to legacy.
+proc lib_qualified_abs {fname} {
+  if {![regexp {^([^/]+)/(.+)$} $fname -> libname rest]} { return {} }
+  if {[library_resolve $libname] eq {}} { return {} }
+  switch -- [file extension $rest] {
+    .sch    { set view schematic }
+    default { set view symbol }
+  }
+  return [cellview_resolve $libname [file rootname $rest] $view]
+}
+
+# rel_sym_path rule 2: if 'symbol' is an absolute path to a SYMBOL view inside a
+# registered library (<libpath>/<cell>/symbol/<cell>.sym) return the portable
+# "lib/cell" reference (longest-matching library wins). Else "" and the caller
+# uses the legacy prefix stripping. Schematic-view paths are left to legacy here
+# (lib-qualified schematic references are handled in Phase 4 / descend).
+proc lib_qualified_rel {symbol} {
+  set best {}; set bestlen -1
+  foreach pair [library_list] {
+    set lname [lindex $pair 0]; set lpath [lindex $pair 1]
+    regsub {/*$} $lpath {/} lpath
+    set pl [string length $lpath]
+    if {[string equal -length $pl $lpath $symbol]} {
+      set rest [string range $symbol $pl end]
+      if {[regexp {^([^/]+)/symbol/([^/]+)$} $rest -> cell file]} {
+        if {[file rootname $file] eq $cell && $pl > $bestlen} {
+          set best "$lname/$cell"; set bestlen $pl
+        }
+      }
+    }
+  }
+  return $best
+}

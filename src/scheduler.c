@@ -572,6 +572,18 @@ static int xschem_cmds_c(Tcl_Interp *interp, int argc, const char *argv[], int *
       Tcl_ResetResult(interp);
     }
 
+    /* cellview_path <lib/cell> <view>
+     *   Absolute path of the datafile for cell <cell> view <view> in library
+     *   <lib> under the lib/cell/view layout (<libpath>/<cell>/<view>/<cell>.ext),
+     *   or "" if the library/cell/view does not exist. <view> is "schematic" or
+     *   "symbol". Read-only resolver (library-manager Phase 2); implemented in
+     *   Tcl (src/library_defs.tcl). See code_analysis/library_manager_design.md. */
+    else if(!strcmp(argv[1], "cellview_path"))
+    {
+      if(argc > 3) tclvareval("cellview_path {", argv[2], "} {", argv[3], "}", NULL);
+      else Tcl_ResetResult(interp);
+    }
+
     /* case_insensitive 1|0
      *   Set case insensitive symbol lookup. Use only on case insensitive filesystems */
     else if(!strcmp(argv[1], "case_insensitive"))
