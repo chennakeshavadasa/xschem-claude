@@ -1,7 +1,8 @@
-# Phase 7a (library-manager) — headless smoke of the Library Manager tree wiring.
-# Drives the real ttk::treeview logic (build + lazy expand) against the committed
-# xschem_library_oa registry, asserting the tree populates Library -> Cell -> View
-# correctly. Pixels / interaction remain a manual eyeball item.
+# Phase 7a (library-manager) — headless smoke of the Library Manager panes.
+# Cadence-style layout: three always-visible columns Library | Cell | View
+# (left->right). Selecting a library fills the Cell list; selecting a cell fills
+# the View list. This drives the real listbox logic against xschem_library_oa;
+# pixels / interaction remain a manual eyeball item.
 #
 # Run under X with --pipe from src/:
 #   DISPLAY=:0 ./xschem --pipe -q --script ../tests/headless/test_lib_manager_gui.tcl
@@ -11,51 +12,58 @@ proc check {name ok detail} {
   global fail
   if {$ok} { puts "ok:   $name $detail" } else { puts "FAIL: $name $detail"; incr fail }
 }
-# child item of $parent whose -text is $txt, or "" if none
-proc child_with_text {t parent txt} {
-  foreach c [$t children $parent] { if {[$t item $c -text] eq $txt} { return $c } }
-  return {}
+proc lb_items {lb} { return [$lb get 0 end] }
+proc lb_index {lb txt} {
+  set i 0; foreach v [$lb get 0 end] { if {$v eq $txt} { return $i }; incr i }; return -1
 }
-proc texts {t parent} {
-  set out {}; foreach c [$t children $parent] { lappend out [$t item $c -text] }
-  return [lsort $out]
+# select item $txt in listbox $lb and fire the given handler
+proc lb_pick {lb txt handler} {
+  set i [lb_index $lb $txt]
+  if {$i < 0} return
+  $lb selection clear 0 end; $lb selection set $i; $lb activate $i
+  eval $handler
 }
 
 set repo [file normalize [file join [pwd] ..]]
 set ::XSCHEM_LIBRARY_DEFS [file join $repo xschem_library_oa library.defs]
 
-# build the window + tree
 library_manager
 update idletasks
-set t .libmgr.f.t
-check "GUI1 window + tree created" [winfo exists $t] {}
+set libLb  .libmgr.pw.lib.lb
+set cellLb .libmgr.pw.cell.lb
+set viewLb .libmgr.pw.view.lb
+check "GUI1 three panes exist" [expr {[winfo exists $libLb] && [winfo exists $cellLb] && [winfo exists $viewLb]}] {}
 
-# top level = the registered libraries
-set libs [texts $t {}]
-check "GUI2 libraries at top level" [expr {[lsearch $libs devices] >= 0 && [lsearch $libs examples] >= 0}] \
+# library pane lists the libraries
+set libs [lb_items $libLb]
+check "GUI2 library pane populated" [expr {[lsearch $libs devices] >= 0 && [lsearch $libs examples] >= 0}] \
   "(=> [llength $libs] libs)"
 
-# expand 'devices' -> cells appear (lazy population via on_open)
-set dev [child_with_text $t {} devices]
-check "GUI3 devices node present" [expr {$dev ne {}}] {}
-libmgr::on_open $dev
-update idletasks
-set devcells [texts $t $dev]
-check "GUI4 devices expands to cells" [expr {[llength $devcells] > 20 && [lsearch $devcells res] >= 0}] \
-  "(=> [llength $devcells] cells)"
+# cells/views start empty until a selection is made (panes are always present)
+check "GUI3 cell+view panes start empty" [expr {[lb_items $cellLb] eq {} && [lb_items $viewLb] eq {}}] {}
 
-# expand the 'res' cell -> its views appear
-set resitem [child_with_text $t $dev res]
-libmgr::on_open $resitem
+# select 'devices' -> cell pane fills
+lb_pick $libLb devices libmgr::on_lib
 update idletasks
-check "GUI5 res expands to its view(s)" [expr {[lsearch [texts $t $resitem] symbol] >= 0}] \
-  "(=> [texts $t $resitem])"
+set cells [lb_items $cellLb]
+check "GUI4 selecting a library fills cells" [expr {[llength $cells] > 20 && [lsearch $cells res] >= 0}] \
+  "(=> [llength $cells] cells)"
 
-# selecting a view updates the status line; current_cell resolves it
-$t focus $resitem
-$t selection set $resitem
-libmgr::on_select $t
-check "GUI6 current_cell resolves selection" [expr {[libmgr::current_cell] eq {devices res}}] \
+# selecting a different library replaces the cell list (no stale rows)
+lb_pick $libLb examples libmgr::on_lib
+update idletasks
+check "GUI5 switching library replaces cells" [expr {[lsearch [lb_items $cellLb] cmos_inv] >= 0}] \
+  "(=> [llength [lb_items $cellLb]] cells)"
+
+# select 'cmos_inv' -> view pane fills with its views
+lb_pick $cellLb cmos_inv libmgr::on_cell
+update idletasks
+set views [lb_items $viewLb]
+check "GUI6 selecting a cell fills views" [expr {[lsearch $views schematic] >= 0 && [lsearch $views symbol] >= 0}] \
+  "(=> $views)"
+
+# current selection resolves to {lib cell}
+check "GUI7 current_cell resolves selection" [expr {[libmgr::current_cell] eq {examples cmos_inv}}] \
   "(=> [libmgr::current_cell])"
 
 destroy .libmgr
