@@ -584,6 +584,15 @@ static int xschem_cmds_c(Tcl_Interp *interp, int argc, const char *argv[], int *
       else Tcl_ResetResult(interp);
     }
 
+    /* cell_views <library> <cell>
+     *   Sorted list of views present for a cell (subdirs holding a <cell>.<ext>
+     *   datafile). Backs the Library Manager tree (library-manager Phase 7a). */
+    else if(!strcmp(argv[1], "cell_views"))
+    {
+      if(argc > 3) tclvareval("cell_views {", argv[2], "} {", argv[3], "}", NULL);
+      else Tcl_ResetResult(interp);
+    }
+
     /* case_insensitive 1|0
      *   Set case insensitive symbol lookup. Use only on case insensitive filesystems */
     else if(!strcmp(argv[1], "case_insensitive"))
@@ -3768,6 +3777,15 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
     else if(!strcmp(argv[1], "library"))
     {
       if(argc > 2) tclvareval("library_resolve {", argv[2], "}", NULL);
+      else Tcl_ResetResult(interp);
+    }
+
+    /* lib_cells <library>
+     *   Sorted list of cells in a library (subdirs holding a view directory).
+     *   Backs the Library Manager tree (library-manager Phase 7a). */
+    else if(!strcmp(argv[1], "lib_cells"))
+    {
+      if(argc > 2) tclvareval("library_cells {", argv[2], "}", NULL);
       else Tcl_ResetResult(interp);
     }
     else { *cmd_found = 0;}

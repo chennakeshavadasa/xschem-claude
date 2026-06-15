@@ -130,6 +130,33 @@ proc cellview_path {ref view} {
   return [cellview_resolve $libname [file rootname $rest] $view]
 }
 
+# --- Phase 7a: tree enumeration (Library -> Cell -> View) ------------------
+# Cells in a registered library: immediate subdirs that hold at least one view
+# directory (a subdir containing a <cell>.<ext> datafile). Sorted, deduped.
+proc library_cells {libname} {
+  set lpath [library_resolve $libname]
+  if {$lpath eq {}} { return {} }
+  set cells {}
+  foreach d [glob -nocomplain -type d [file join $lpath *]] {
+    set cell [file tail $d]
+    if {[llength [glob -nocomplain [file join $d * $cell.*]]] > 0} { lappend cells $cell }
+  }
+  return [lsort -unique $cells]
+}
+
+# Views present for a cell: subdirs of <lib>/<cell> that hold a <cell>.<ext>
+# datafile (general over schematic/symbol/layout/...). Sorted.
+proc cell_views {libname cell} {
+  set lpath [library_resolve $libname]
+  if {$lpath eq {}} { return {} }
+  set base [file join $lpath $cell]
+  set views {}
+  foreach d [glob -nocomplain -type d [file join $base *]] {
+    if {[llength [glob -nocomplain [file join $d $cell.*]]] > 0} { lappend views [file tail $d] }
+  }
+  return [lsort $views]
+}
+
 # abs_sym_path rule 2: resolve a lib-qualified reference "lib/cell[.ext]" under
 # the new layout. The view is inferred from the extension (.sch -> schematic,
 # else symbol). Returns "" on any miss so abs_sym_path falls through to legacy.
