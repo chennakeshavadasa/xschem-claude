@@ -1337,3 +1337,73 @@ check {RL8b poly bezier parsed}      {[f_dg [f_trow $::PF bezier] value] eq "tru
 check {RL8c poly bus parsed}         {[f_dg [f_trow $::PF bus] value] eq "3"}
 check {RL8d poly extra keeps name}   {[xschem get_tok [f_sextra $::PSC $::PP] name 2] eq "p1"}
 check {RL8e poly no-edit identical}  {[f_sassemble $::PSC $::PP {} [f_sextra $::PSC $::PP]] eq $::PP}
+
+# ===========================================================================
+# PF60-PF63 — M2: the form is fully MODELESS (issue 0009). edit_form no longer
+# blocks (no tkwait) and no longer inflates the re-entrancy semaphore, so the
+# schematic accepts ALL bound commands while the form floats (not just zoom +
+# Shift-select). It is a plain toplevel (no `wm transient`) so the WM can
+# activate the schematic title bar independently. The C `semaphore>=2` guards
+# are untouched — they only fire on genuine nested callbacks now; the M1
+# selection hook moved off the `semaphore>=2` carve-out (callback.c:5002) onto
+# the normal selection-completion path (the relocation is a manual-eyeball item;
+# synthetic ButtonPress is WSLg-flaky). Decision doc:
+# code_analysis/modeless_form_M2_decision.md.
+#
+# Capture trick: pre-impl edit_form BLOCKS in tkwait, so we read the form's state
+# from an `after` timer that fires DURING the open form (inside that event loop)
+# and then closes it to unblock. Post-impl edit_form returns immediately with the
+# form open, so the timer is cancelled unfired and we capture in-line. Either way
+# the suite can never hang.
+# ===========================================================================
+# Open the form the REAL way (xschem edit_prop sets up tctx::retval / symbol /
+# edit_inst_id), capturing its state. Pre-impl edit_prop BLOCKS in edit_form's
+# tkwait, so <captureproc> runs from a timer DURING the open form (and closes it
+# to unblock); post-impl edit_prop returns at once with the form open and the
+# timer is cancelled unfired (we capture in-line). Either way it cannot hang.
+proc m2_open_capture {captureproc} {
+  catch {while {[winfo exists .dialog]} {slickprop::cancel; update}}  ;# clean slate
+  foreach id [after info] {catch {after cancel $id}}  ;# drain stale timers (else they fire in our tkwait)
+  set safe [after 1500 [list apply {{cp} {
+    if {[winfo exists .dialog]} { uplevel #0 $cp }
+    catch {slickprop::cancel}
+  }} $captureproc]]
+  catch {xschem edit_prop}
+  if {[winfo exists .dialog]} { uplevel #0 $captureproc }   ;# post-impl: form open
+  catch {after cancel $safe}
+  catch {if {[winfo exists .dialog]} {slickprop::cancel}}
+}
+
+if {[gui2_ok]} {
+  pf_setup_insts
+  xschem select instance R1
+  set ::slickprop_apply_scope current
+  set ::m2_open -1; set ::m2_sem -1; set ::m2_trans "NONE"
+  m2_open_capture {
+    set ::m2_open  1
+    set ::m2_sem   [xschem get semaphore]
+    set ::m2_trans [wm transient .dialog]
+  }
+  check {PF60 the form is open while the schematic stays live (modeless)} {$::m2_open == 1}
+  check {PF61 the form does not inflate the re-entrancy semaphore (0 while open)} {$::m2_sem == 0}
+  check {PF62 the form is a plain toplevel (no wm transient focus capture)} {$::m2_trans eq ""}
+
+  # PF63 — D2: deleting the edited instance out from under the form must leave
+  # Apply a graceful no-op (the stable id stops resolving), no crash, no write.
+  pf_setup_insts
+  xschem select instance R1
+  set ::slickprop_apply_scope current
+  set ::m2_did -99
+  m2_open_capture {
+    xschem unselect_all
+    xschem select instance R1
+    xschem delete                          ;# the edited instance vanishes
+    catch {pf_setfield value 9k}
+    set rc [catch {slickprop::do_apply} ret]
+    set ::m2_did [expr {($rc == 0 && $ret == 0) ? 0 : ($rc ? 2 : 1)}]
+  }
+  check {PF63a deleting the edited instance + Apply is a graceful no-op (0, no crash)} {$::m2_did == 0}
+  check {PF63b no instance carries the un-applied value} {[pf_count_value 9k] == 0}
+} else {
+  foreach t {PF60 PF61 PF62 PF63a PF63b} { check "$t (skipped: no main window)" {1} }
+}

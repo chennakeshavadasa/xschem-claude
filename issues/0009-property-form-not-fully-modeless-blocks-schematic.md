@@ -1,7 +1,11 @@
 # Issue 0009 — the property editor form blocks schematic interaction (not fully modeless)
 
 **Opened:** 2026-06-14
-**Status:** OPEN — root cause verified; design path sketched; not implemented.
+**Status:** IN PROGRESS (2026-06-14) — D1 audit done + ratified (Option A: make the
+form non-blocking; D3: drop `wm transient` + initial `raise`). Decision doc:
+`code_analysis/modeless_form_M2_decision.md`. RED tests landed (PF60-63 in
+`tests/property_form/body.tcl`; PF61/PF62 the RED discriminators). The audit
+**corrected** the original D1 framing — see §1 note below.
 **Affects:** the slick instance property form (`slickprop::edit_form`,
 `src/property_form.tcl`). While it is open, the schematic window accepts only
 **selection** (Shift-click add, via M1) and **zoom** — every other command is
@@ -42,6 +46,19 @@ Two mechanisms, the first is the real blocker:
 M1 deliberately unlocked **selection only** ("move/wire/place stay locked") to
 avoid the form's edited-instance state going stale under a structural edit. This
 issue asks to finish the job: full modeless interaction.
+
+> **Audit correction (2026-06-14).** The explicit `+1` is **not** the dominant
+> cause. `semaphore` is `callback()`'s re-entrancy counter (`++` on entry
+> `callback.c:5568`, `--` on exit `:5672`): idle = 0, in one callback = 1, nested
+> callback = 2. The form is launched from inside a callback and ends in
+> `tkwait window .dialog`, so that launching callback **never returns** — baseline
+> sits at 1 (launching frame) + 1 (explicit bump) = 2, and any new canvas event
+> nests to 3. Removing only the `+1` leaves the launching frame holding 1, so a
+> nested event still reaches 2 and stays blocked. The fix is to make the form
+> **non-blocking** (drop `tkwait`, baseline returns to 0). No `semaphore>=2` guard
+> needs special-casing; only M1's selection hook (the `:5002` carve-out) is
+> *relocated* onto the normal selection path. Full audit:
+> `code_analysis/modeless_form_M2_decision.md`.
 
 ## 2. Expected (Cadence-style)
 
