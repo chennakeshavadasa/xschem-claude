@@ -9869,6 +9869,12 @@ proc pack_tabs {} {
   }
 }
 
+# Flip the current window between editable and read-only (file-protected) mode.
+# The engine refreshes the window title to show/clear the "(read-only)" marker.
+proc toggle_readonly {} {
+  xschem set readonly [expr {[xschem get readonly] ? 0 : 1}]
+}
+
 proc setup_tabbed_interface {} {
   global tabbed_interface toolbar_horiz has_x
 
@@ -11154,6 +11160,7 @@ proc build_widgets { {topwin {} } } {
        }
   $topwin.menubar.view add checkbutton -label "Tabbed interface" -variable tabbed_interface \
     -selectcolor $selectcolor -command setup_tabbed_interface
+  $topwin.menubar.view add command -label "Toggle read-only" -command toggle_readonly
 
   $topwin.menubar.view add cascade -label "Show / Hide" \
        -menu $topwin.menubar.view.show

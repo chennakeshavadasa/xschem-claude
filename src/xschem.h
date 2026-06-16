@@ -1126,6 +1126,7 @@ typedef struct {
   int mouse_inside;
   /* set_modify */
   int prev_set_modify;
+  int readonly; /* per-window read-only: file-protection (blocks save), set on non-writable load */
   /* pan */
   int mx_s, my_s;
   int mmx_s, mmy_s;
@@ -1375,6 +1376,7 @@ extern void set_snap(double);
 extern void set_grid(double);
 extern void create_plot_cmd(void);
 extern int set_modify(int mod); /* return number of floaters */
+extern int file_writable(const char *name); /* 1 if path is writable (or check unsupported) */
 extern int there_are_floaters(void);
 #include "util.h" /* memory/string/file/debug utilities (extracted from editprop.c) */
 extern unsigned int hash_file(const char *f, int skip_path_lines);

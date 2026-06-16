@@ -204,11 +204,12 @@ proc libmgr::current_view {} {
 proc libmgr::open_view {args} {
   variable new_window
   set lcv [libmgr::current_view]
-  if {$lcv eq {}} return
+  if {$lcv eq {}} { return 0 }
   lassign $lcv lib cell view
   set f [xschem cellview_path "$lib/$cell" $view]
-  if {$f eq {}} { .libmgr.status configure -text "no $view view for $lib/$cell"; return }
+  if {$f eq {}} { .libmgr.status configure -text "no $view view for $lib/$cell"; return 0 }
   if {$new_window} { xschem load_new_window $f } else { xschem load $f }
+  return 1
 }
 
 proc libmgr::place_symbol {} {
@@ -263,11 +264,16 @@ proc libmgr::refresh_after {{lib {}} {cell {}} {view {}}} {
   libmgr::on_view
 }
 
-# Open (read-only): placeholder. xschem has no per-window read-only lock yet, so
-# this opens the view normally and notes the limitation in the status bar.
+# Open (read-only): open the view, then force the opened window into read-only
+# (file-protected) mode. A plain Open already falls back to read-only on its own
+# when the file is not writable; this forces it even for writable files.
 proc libmgr::open_view_ro {} {
-  libmgr::open_view
-  libmgr::status "[.libmgr.status cget -text]  (read-only not yet enforced)"
+  set lcv [libmgr::current_view]
+  if {$lcv eq {}} return
+  if {![libmgr::open_view]} return
+  xschem set readonly 1
+  lassign $lcv lib cell view
+  libmgr::status "opened $lib/$cell/$view read-only"
 }
 
 # --- delete ---

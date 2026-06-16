@@ -206,12 +206,13 @@ int set_modify(int mod)
        (xctx->prev_set_modify != xctx->modified || mod == -1)
       ) {
       char *top_path =  xctx->top_path[0] ? xctx->top_path : ".";
+      const char *ro = xctx->readonly ? " (read-only)" : "";
       if(xctx->modified == 1) {
-        tclvareval("wm title ", top_path, " \"xschem - [file tail [xschem get schname]]*\"", NULL);
-        tclvareval("wm iconname ", top_path, " \"xschem - [file tail [xschem get schname]]*\"", NULL);
+        tclvareval("wm title ", top_path, " \"xschem - [file tail [xschem get schname]]*", ro, "\"", NULL);
+        tclvareval("wm iconname ", top_path, " \"xschem - [file tail [xschem get schname]]*", ro, "\"", NULL);
       } else {
-        tclvareval("wm title ", top_path, " \"xschem - [file tail [xschem get schname]]\"", NULL);
-        tclvareval("wm iconname ", top_path, " \"xschem - [file tail [xschem get schname]]\"", NULL);
+        tclvareval("wm title ", top_path, " \"xschem - [file tail [xschem get schname]]", ro, "\"", NULL);
+        tclvareval("wm iconname ", top_path, " \"xschem - [file tail [xschem get schname]]", ro, "\"", NULL);
       }
       dbg(1, "modified=%d, schname=%s\n", xctx->modified, xctx->current_name);
       if(xctx->modified) tcleval("set_tab_names *");
@@ -543,11 +544,30 @@ const char *get_file_path(char *f)
  *  fast:
  *    passed to save_schematic
  */
+/* 1 if 'name' is writable on disk. On non-unix the check is unsupported and we
+ * report writable (read-only there is reachable only via explicit toggle). */
+int file_writable(const char *name)
+{
+#ifdef __unix__
+  if(!name || !name[0]) return 1;
+  return access(name, W_OK) == 0;
+#else
+  (void)name;
+  return 1;
+#endif
+}
+
 int save(int confirm, int fast)
 {
   struct stat buf;
   char *name = xctx->sch[xctx->currsch];
   int force = 0;
+
+  /* read-only window: never write the file (file-protection). Save As clears it. */
+  if(xctx->readonly) {
+    dbg(1, "save(): schematic is read-only, not saving %s\n", name);
+    return 0;
+  }
 
   /* current schematic exists on disk ... */
   if(!stat(name, &buf)) {

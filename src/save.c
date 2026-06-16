@@ -3561,6 +3561,7 @@ int load_schematic(int load_symbols, const char *fname, int reset_undo, int aler
   if(reset_undo) {
     xctx->clear_undo();
     xctx->prev_set_modify = -1; /* will force set_modify(0) to set window title */
+    xctx->readonly = 0; /* default editable; raised below if the loaded file is not writable */
   }
   else  xctx->prev_set_modify = 0;           /* will prevent set_modify(0) from setting window title */
   if(ffname && ffname[0]) {
@@ -3660,6 +3661,8 @@ int load_schematic(int load_symbols, const char *fname, int reset_undo, int aler
       read_xschem_file(fd);
       if(generator) pclose(fd);
       else fclose(fd); /* 20150326 moved before load symbols */
+      /* file-protection fallback: a non-writable file opens read-only */
+      if(reset_undo && !generator) xctx->readonly = !file_writable(name);
       if(reset_undo) set_modify(0);
       dbg(2, "load_schematic(): loaded file:wire=%d inst=%d\n",xctx->wires , xctx->instances);
       if(load_symbols) link_symbols_to_instances(-1);

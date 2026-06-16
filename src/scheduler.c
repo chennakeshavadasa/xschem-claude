@@ -1843,6 +1843,10 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
             if(xctx->raw) ret = xctx->raw->level;
             Tcl_SetResult(interp, my_itoa(ret),TCL_VOLATILE);
           }
+          else if(!strcmp(argv[2], "readonly")) { /* window is read-only (file-protected) */
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            Tcl_SetResult(interp, my_itoa(xctx->readonly),TCL_VOLATILE);
+          }
           else if(!strcmp(argv[2], "rectcolor")) { /* current layer number */
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
             Tcl_SetResult(interp, my_itoa(xctx->rectcolor),TCL_VOLATILE);
@@ -6019,6 +6023,10 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
     {
       int fast = 0;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(xctx->readonly) {
+        Tcl_SetResult(interp, "xschem save: schematic is read-only (use 'saveas' to write a copy)", TCL_STATIC);
+        return TCL_ERROR;
+      }
       dbg(1, "scheduler(): saving: current schematic\n");
       for(i = 2; i < argc; i++) {
         if(!strcmp(argv[i], "fast")) fast |= 1;
@@ -6063,6 +6071,12 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
         saveas(fptr, SCHEMATIC);
       }
       else saveas(NULL, SCHEMATIC);
+      /* after Save As the current file may have changed: re-derive read-only from
+       * the new file's writability (a cancelled dialog leaves the file unchanged) */
+      if(xctx) {
+        xctx->readonly = !file_writable(xctx->sch[xctx->currsch]);
+        set_modify(-1); /* refresh title marker */
+      }
     }
 
     /* sch_pinlist
@@ -6606,6 +6620,11 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
             int s = atoi(argv[3]);
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
             xctx->no_draw=s;
+          }
+          else if(!strcmp(argv[2], "readonly")) { /* set window read-only (0 or 1); refresh title */
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            xctx->readonly = atoi(argv[3]) ? 1 : 0;
+            set_modify(-1); /* force window-title refresh to show/clear the marker */
           }
           else if(!strcmp(argv[2], "no_undo")) { /* set to 1 to disable undo */
             int s = atoi(argv[3]);
