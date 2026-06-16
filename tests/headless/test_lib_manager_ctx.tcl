@@ -1,0 +1,105 @@
+# Phase 7b (library-manager) — right-click context menu GUI wiring. Drives the
+# Library Manager's do_* workers (the dialog-free seam under each ctx_* menu
+# action) against a private temp library, asserting both the backend effect and
+# that the panes refresh / reselect correctly. The modal dialogs and tk_popup
+# remain a manual eyeball item.
+#
+# Run under X with --pipe from src/:
+#   DISPLAY=:0 ./xschem --pipe -q --script ../tests/headless/test_lib_manager_ctx.tcl
+
+set fail 0
+proc check {name ok detail} {
+  global fail
+  if {$ok} { puts "ok:   $name $detail" } else { puts "FAIL: $name $detail"; incr fail }
+}
+proc touch {f {txt {v {xschem}}}} {
+  file mkdir [file dirname $f]; set fp [open $f w]; puts $fp $txt; close $fp
+}
+proc has {lib cell} { expr {[lsearch [xschem lib_cells $lib] $cell] >= 0} }
+proc lb {col} { return [.libmgr.pw.$col.lb get 0 end] }
+
+# --- private fixture (never touches the repo libraries) ---------------------
+set tmp [file join [pwd] _ctx_[pid]]
+file delete -force $tmp
+touch $tmp/tlib/inv.sym "v {inv sym}"
+touch $tmp/tlib/inv.sch "v {inv sch}"
+touch $tmp/tlib/buf/schematic/buf.sch "v {buf sch}"
+touch $tmp/tlib/buf/symbol/buf.sym    "v {buf sym}"
+file mkdir $tmp/dlib
+set defs [file join $tmp library.defs]
+set fp [open $defs w]; puts $fp "DEFINE tlib $tmp/tlib"; puts $fp "DEFINE dlib $tmp/dlib"; close $fp
+set ::XSCHEM_LIBRARY_DEFS $defs
+
+library_manager
+update idletasks
+
+# CTX1 — the three context menus are built and attached
+check "CTX1 context menus exist" [expr {[winfo exists .libmgr.mlib] && \
+  [winfo exists .libmgr.mcell] && [winfo exists .libmgr.mview]}] {}
+
+# CTX2 — cell menu carries Copy/Rename/Delete + the read-only open
+set labels {}
+for {set i 0} {$i <= [.libmgr.mcell index end]} {incr i} {
+  if {[.libmgr.mcell type $i] eq "command"} { lappend labels [.libmgr.mcell entrycget $i -label] }
+}
+check "CTX2 cell menu has the core ops" [expr {
+  [lsearch $labels "Copy…"] >= 0 && [lsearch $labels "Rename…"] >= 0 &&
+  [lsearch $labels "Delete"] >= 0 && [lsearch $labels "Open (read-only)"] >= 0}] "(=> $labels)"
+
+# CTX3 — ctx_post selects the row under the pointer and syncs the panes
+.libmgr.pw.lib.lb selection set [lsearch -exact [lb lib] tlib]
+libmgr::on_lib
+check "CTX3 selecting tlib fills cells" [expr {[lsearch [lb cell] inv] >= 0 && [lsearch [lb cell] buf] >= 0}] "(=> [lb cell])"
+
+# CTX4 — copy a flat cell into another library; panes refresh onto the dest
+.libmgr.pw.cell.lb selection clear 0 end
+.libmgr.pw.cell.lb selection set [lsearch -exact [lb cell] inv]
+libmgr::on_cell
+check "CTX4a do_copy_cell succeeds" [libmgr::do_copy_cell tlib inv dlib inv] {}
+check "CTX4b copy landed in dest library" [has dlib inv] {}
+check "CTX4c source cell untouched" [has tlib inv] {}
+check "CTX4d panes reselected onto dest" [expr {$libmgr::sel_lib eq "dlib" && $libmgr::sel_cell eq "inv"}] \
+  "(=> $libmgr::sel_lib / $libmgr::sel_cell)"
+
+# CTX5 — rename a nested cell in place; pane shows the new name, old one gone
+check "CTX5a do_rename_cell succeeds" [libmgr::do_rename_cell tlib buf tlib buffer] {}
+check "CTX5b renamed cell present, old gone" [expr {[has tlib buffer] && ![has tlib buf]}] {}
+check "CTX5c cell pane reflects rename" [expr {[lsearch [lb cell] buffer] >= 0 && [lsearch [lb cell] buf] < 0}] "(=> [lb cell])"
+
+# CTX6 — new cell appears and is selected
+check "CTX6a do_new_cell succeeds" [libmgr::do_new_cell tlib fresh] {}
+check "CTX6b new cell present + selected" [expr {[has tlib fresh] && $libmgr::sel_cell eq "fresh"}] {}
+check "CTX6c new cell has schematic view" [expr {[lsearch [lb view] schematic] >= 0}] "(=> [lb view])"
+
+# CTX7 — delete a view (recoverable); the other view remains
+.libmgr.pw.cell.lb selection clear 0 end
+.libmgr.pw.cell.lb selection set [lsearch -exact [lb cell] buffer]
+libmgr::on_cell
+check "CTX7a do_delete_view succeeds" [libmgr::do_delete_view tlib buffer symbol] {}
+check "CTX7b view trashed, cell + other view remain" [expr {[has tlib buffer] && \
+  [lsearch [xschem cell_views tlib buffer] symbol] < 0 && \
+  [lsearch [xschem cell_views tlib buffer] schematic] >= 0}] "(=> [xschem cell_views tlib buffer])"
+check "CTX7c symbol view recoverable from trash" [file exists [file join $tmp tlib .xschem_trash symbol]] {}
+
+# CTX8 — delete a whole cell (recoverable)
+check "CTX8a do_delete_cell succeeds" [libmgr::do_delete_cell tlib inv] {}
+check "CTX8b cell gone from library + pane" [expr {![has tlib inv] && [lsearch [lb cell] inv] < 0}] {}
+
+# CTX9 — new library registers and shows in the Library pane
+check "CTX9a do_new_library succeeds" [libmgr::do_new_library extra [file join $tmp extra]] {}
+check "CTX9b new library visible" [expr {[lsearch [lb lib] extra] >= 0 && [library_resolve extra] ne {}}] "(=> [lb lib])"
+
+# CTX10 — unregister removes it from the registry/pane but keeps files
+check "CTX10a do_unregister succeeds" [libmgr::do_unregister extra] {}
+check "CTX10b library gone from registry + pane" [expr {[library_resolve extra] eq {} && [lsearch [lb lib] extra] < 0}] {}
+check "CTX10c files left on disk" [file isdirectory [file join $tmp extra]] {}
+
+# CTX11 — backend error surfaces via status, do_* returns 0 (no crash)
+check "CTX11 collision is a soft failure" [expr {[libmgr::do_copy_cell tlib buffer tlib buffer] == 0}] \
+  "(status: [.libmgr.status cget -text])"
+
+destroy .libmgr
+file delete -force $tmp
+if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
+flush stdout
+exit [expr {$fail == 0 ? 0 : 1}]

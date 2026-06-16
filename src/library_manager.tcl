@@ -70,7 +70,53 @@ proc libmgr::open {} {
   bind $w.pw.cell.lb <Double-1>        libmgr::open_view
   bind $w.pw.view.lb <Double-1>        libmgr::open_view
 
+  libmgr::build_menus $w
+  bind $w.pw.lib.lb  <Button-3> {libmgr::ctx_post lib  %y %X %Y}
+  bind $w.pw.cell.lb <Button-3> {libmgr::ctx_post cell %y %X %Y}
+  bind $w.pw.view.lb <Button-3> {libmgr::ctx_post view %y %X %Y}
+
   libmgr::populate_libs
+}
+
+# Per-column right-click menus, built once and re-targeted on each click.
+proc libmgr::build_menus {w} {
+  catch {destroy $w.mlib $w.mcell $w.mview}
+
+  menu $w.mlib -tearoff 0
+  $w.mlib add command -label "New cell…"    -command libmgr::ctx_new_cell
+  $w.mlib add command -label "New library…" -command libmgr::ctx_new_library
+  $w.mlib add separator
+  $w.mlib add command -label "Remove from list" -command libmgr::ctx_unregister_lib
+  $w.mlib add separator
+  $w.mlib add command -label "Refresh" -command libmgr::refresh
+
+  menu $w.mcell -tearoff 0
+  $w.mcell add command -label "Open"             -command libmgr::open_view
+  $w.mcell add command -label "Open (read-only)" -command libmgr::open_view_ro
+  $w.mcell add separator
+  $w.mcell add command -label "Copy…"   -command libmgr::ctx_copy_cell
+  $w.mcell add command -label "Rename…" -command libmgr::ctx_rename_cell
+  $w.mcell add command -label "Delete"       -command libmgr::ctx_delete_cell
+  $w.mcell add separator
+  $w.mcell add command -label "New cell…" -command libmgr::ctx_new_cell
+
+  menu $w.mview -tearoff 0
+  $w.mview add command -label "Open"             -command libmgr::open_view
+  $w.mview add command -label "Open (read-only)" -command libmgr::open_view_ro
+  $w.mview add separator
+  $w.mview add command -label "Delete view" -command libmgr::ctx_delete_view
+}
+
+# Right-click in column $col: select the row under the pointer, sync the panes,
+# then post that column's menu.
+proc libmgr::ctx_post {col y rootx rooty} {
+  set lb .libmgr.pw.$col.lb
+  set idx [$lb nearest $y]
+  if {$idx >= 0 && [lindex [$lb bbox $idx] 1] ne {}} {
+    $lb selection clear 0 end; $lb selection set $idx; $lb activate $idx
+    switch -- $col { lib {libmgr::on_lib} cell {libmgr::on_cell} view {libmgr::on_view} }
+  }
+  catch {tk_popup .libmgr.m$col $rootx $rooty}
 }
 
 # helper: the selected text in a listbox, or "" if none
@@ -166,6 +212,258 @@ proc libmgr::place_symbol {} {
   set ref "[lindex $lc 0]/[lindex $lc 1]"
   if {[xschem cellview_path $ref symbol] ne {}} { xschem place_symbol $ref } \
   else { .libmgr.status configure -text "no symbol view for $ref" }
+}
+
+# --- context-menu actions --------------------------------------------------
+# Each ctx_* gathers input (confirm box / dialog) then delegates to a do_*
+# worker that takes explicit args, calls the library_defs.tcl backend, refreshes
+# the panes and reports via the status bar. The do_* layer is the testable seam
+# (no modal dialogs), returning 1 on success and 0 on a caught backend error.
+
+proc libmgr::status {msg} { catch {.libmgr.status configure -text $msg} }
+
+proc libmgr::lib_names {} {
+  set out {}
+  foreach pair [xschem libraries] { lappend out [lindex $pair 0] }
+  return $out
+}
+
+# Rebuild the Library pane, then restore the given lib (and cell) selection so
+# the panes reflect a just-completed mutation.
+proc libmgr::refresh_after {{lib {}} {cell {}}} {
+  variable sel_lib; variable sel_cell
+  if {![winfo exists .libmgr]} return
+  set ll .libmgr.pw.lib.lb
+  $ll delete 0 end
+  foreach name [libmgr::lib_names] { $ll insert end $name }
+  .libmgr.pw.cell.lb delete 0 end
+  .libmgr.pw.view.lb delete 0 end
+  set sel_lib ""; set sel_cell ""
+  if {$lib eq {}} return
+  set i [lsearch -exact [$ll get 0 end] $lib]
+  if {$i < 0} return
+  $ll selection clear 0 end; $ll selection set $i; $ll activate $i
+  libmgr::on_lib
+  if {$cell eq {}} return
+  set cl .libmgr.pw.cell.lb
+  set j [lsearch -exact [$cl get 0 end] $cell]
+  if {$j < 0} return
+  $cl selection clear 0 end; $cl selection set $j; $cl activate $j
+  libmgr::on_cell
+}
+
+# Open (read-only): placeholder. xschem has no per-window read-only lock yet, so
+# this opens the view normally and notes the limitation in the status bar.
+proc libmgr::open_view_ro {} {
+  libmgr::open_view
+  libmgr::status "[.libmgr.status cget -text]  (read-only not yet enforced)"
+}
+
+# --- delete ---
+proc libmgr::ctx_delete_cell {} {
+  set lc [libmgr::current_cell]
+  if {$lc eq {}} return
+  lassign $lc lib cell
+  set ans [tk_messageBox -parent .libmgr -type yesno -icon warning -title "Delete cell" \
+    -message "Delete cell '$lib/$cell'?\n\nIt is moved to the library trash (.xschem_trash) and can be restored."]
+  if {$ans eq "yes"} { libmgr::do_delete_cell $lib $cell }
+}
+proc libmgr::do_delete_cell {lib cell} {
+  if {[catch {library_delete_cell $lib $cell} e]} { libmgr::status "delete failed: $e"; return 0 }
+  libmgr::refresh_after $lib
+  libmgr::status "deleted $lib/$cell (recoverable in .xschem_trash)"
+  return 1
+}
+
+proc libmgr::ctx_delete_view {} {
+  variable sel_lib; variable sel_cell
+  set v [libmgr::cursel .libmgr.pw.view.lb]
+  if {$sel_lib eq {} || $sel_cell eq {} || $v eq {}} return
+  set ans [tk_messageBox -parent .libmgr -type yesno -icon warning -title "Delete view" \
+    -message "Delete the '$v' view of '$sel_lib/$sel_cell'?\n\nIt is moved to the library trash and can be restored."]
+  if {$ans eq "yes"} { libmgr::do_delete_view $sel_lib $sel_cell $v }
+}
+proc libmgr::do_delete_view {lib cell view} {
+  if {[catch {library_delete_view $lib $cell $view} e]} { libmgr::status "delete failed: $e"; return 0 }
+  libmgr::refresh_after $lib $cell
+  libmgr::status "deleted view $lib/$cell/$view (recoverable in .xschem_trash)"
+  return 1
+}
+
+# --- copy / rename (destination library + new name dialog) ---
+proc libmgr::ctx_copy_cell {} {
+  set lc [libmgr::current_cell]
+  if {$lc eq {}} return
+  lassign $lc lib cell
+  set r [libmgr::cell_dialog "Copy cell" $lib $cell]
+  if {$r eq {}} return
+  lassign $r dl dc
+  libmgr::do_copy_cell $lib $cell $dl $dc
+}
+proc libmgr::do_copy_cell {sl sc dl dc} {
+  if {[catch {library_copy_cell $sl $sc $dl $dc} e]} { libmgr::status "copy failed: $e"; return 0 }
+  libmgr::refresh_after $dl $dc
+  libmgr::status "copied $sl/$sc -> $dl/$dc"
+  return 1
+}
+
+proc libmgr::ctx_rename_cell {} {
+  set lc [libmgr::current_cell]
+  if {$lc eq {}} return
+  lassign $lc lib cell
+  set r [libmgr::cell_dialog "Rename cell" $lib $cell]
+  if {$r eq {}} return
+  lassign $r dl dc
+  libmgr::do_rename_cell $lib $cell $dl $dc
+}
+proc libmgr::do_rename_cell {sl sc dl dc} {
+  if {[catch {library_rename_cell $sl $sc $dl $dc} e]} { libmgr::status "rename failed: $e"; return 0 }
+  libmgr::refresh_after $dl $dc
+  libmgr::status "renamed $sl/$sc -> $dl/$dc"
+  return 1
+}
+
+# --- new cell / new library ---
+proc libmgr::ctx_new_cell {} {
+  variable sel_lib
+  if {$sel_lib eq {}} { libmgr::status "select a library first"; return }
+  set name [libmgr::simple_prompt "New cell in $sel_lib" "Cell name:" {}]
+  if {$name eq {}} return
+  libmgr::do_new_cell $sel_lib $name
+}
+proc libmgr::do_new_cell {lib cell} {
+  if {[catch {library_new_cell $lib $cell} e]} { libmgr::status "new cell failed: $e"; return 0 }
+  libmgr::refresh_after $lib $cell
+  libmgr::status "created cell $lib/$cell (schematic view)"
+  return 1
+}
+
+proc libmgr::ctx_new_library {} {
+  set r [libmgr::newlib_dialog]
+  if {$r eq {}} return
+  lassign $r name path
+  libmgr::do_new_library $name $path
+}
+proc libmgr::do_new_library {name path} {
+  if {[catch {library_new $name $path} e]} { libmgr::status "new library failed: $e"; return 0 }
+  libmgr::refresh_after $name
+  libmgr::status "created library $name"
+  return 1
+}
+
+proc libmgr::ctx_unregister_lib {} {
+  variable sel_lib
+  if {$sel_lib eq {}} return
+  set ans [tk_messageBox -parent .libmgr -type yesno -icon question -title "Remove from list" \
+    -message "Remove library '$sel_lib' from the registry?\n\nFiles on disk are NOT deleted."]
+  if {$ans eq "yes"} { libmgr::do_unregister $sel_lib }
+}
+proc libmgr::do_unregister {lib} {
+  if {[catch {library_unregister $lib} e]} { libmgr::status "remove failed: $e"; return 0 }
+  libmgr::refresh_after
+  libmgr::status "removed library $lib from the registry (files kept on disk)"
+  return 1
+}
+
+# --- modal dialogs ---------------------------------------------------------
+# Destination library (combobox) + new cell name (entry). Returns {lib cell} or
+# {} on cancel / empty name.
+proc libmgr::cell_dialog {title srclib srccell} {
+  variable dlg_done
+  set d .libmgr.cd
+  catch {destroy $d}
+  toplevel $d
+  wm title $d $title
+  wm transient $d .libmgr
+  ttk::label $d.l1 -text "Destination library:"
+  ttk::combobox $d.lib -state readonly -values [libmgr::lib_names]
+  $d.lib set $srclib
+  ttk::label $d.l2 -text "New cell name:"
+  ttk::entry $d.cell -width 28
+  $d.cell insert 0 $srccell
+  ttk::frame $d.b
+  ttk::button $d.b.ok     -text OK     -command {set libmgr::dlg_done 1}
+  ttk::button $d.b.cancel -text Cancel -command {set libmgr::dlg_done 0}
+  pack $d.b.ok $d.b.cancel -side left -padx 4
+  grid $d.l1 $d.lib  -sticky w -padx 6 -pady 4
+  grid $d.l2 $d.cell -sticky w -padx 6 -pady 4
+  grid $d.b  -        -pady 6
+  bind $d <Return> {set libmgr::dlg_done 1}
+  bind $d <Escape> {set libmgr::dlg_done 0}
+  set dlg_done -1
+  catch {grab $d}; focus $d.cell; $d.cell selection range 0 end
+  vwait libmgr::dlg_done
+  set ok $dlg_done
+  set res {}
+  if {$ok == 1} {
+    set name [string trim [$d.cell get]]
+    if {$name ne {}} { set res [list [$d.lib get] $name] }
+  }
+  catch {destroy $d}
+  return $res
+}
+
+# Single labelled entry. Returns the trimmed value, or {} on cancel / empty.
+proc libmgr::simple_prompt {title label {default {}}} {
+  variable dlg_done
+  set d .libmgr.sp
+  catch {destroy $d}
+  toplevel $d
+  wm title $d $title
+  wm transient $d .libmgr
+  ttk::label $d.l -text $label
+  ttk::entry $d.e -width 28
+  $d.e insert 0 $default
+  ttk::frame $d.b
+  ttk::button $d.b.ok     -text OK     -command {set libmgr::dlg_done 1}
+  ttk::button $d.b.cancel -text Cancel -command {set libmgr::dlg_done 0}
+  pack $d.b.ok $d.b.cancel -side left -padx 4
+  grid $d.l $d.e -sticky w -padx 6 -pady 4
+  grid $d.b -    -pady 6
+  bind $d <Return> {set libmgr::dlg_done 1}
+  bind $d <Escape> {set libmgr::dlg_done 0}
+  set dlg_done -1
+  catch {grab $d}; focus $d.e; $d.e selection range 0 end
+  vwait libmgr::dlg_done
+  set ok $dlg_done
+  set res {}
+  if {$ok == 1} { set res [string trim [$d.e get]] }
+  catch {destroy $d}
+  return $res
+}
+
+# Library name + directory. Returns {name path} or {} on cancel / empty name.
+proc libmgr::newlib_dialog {} {
+  variable dlg_done
+  set d .libmgr.nl
+  catch {destroy $d}
+  toplevel $d
+  wm title $d "New library"
+  wm transient $d .libmgr
+  ttk::label $d.l1 -text "Library name:"
+  ttk::entry $d.name -width 28
+  ttk::label $d.l2 -text "Directory (blank = beside library.defs):"
+  ttk::entry $d.path -width 36
+  ttk::frame $d.b
+  ttk::button $d.b.ok     -text OK     -command {set libmgr::dlg_done 1}
+  ttk::button $d.b.cancel -text Cancel -command {set libmgr::dlg_done 0}
+  pack $d.b.ok $d.b.cancel -side left -padx 4
+  grid $d.l1 $d.name -sticky w -padx 6 -pady 4
+  grid $d.l2 $d.path -sticky w -padx 6 -pady 4
+  grid $d.b  -       -pady 6
+  bind $d <Return> {set libmgr::dlg_done 1}
+  bind $d <Escape> {set libmgr::dlg_done 0}
+  set dlg_done -1
+  catch {grab $d}; focus $d.name
+  vwait libmgr::dlg_done
+  set ok $dlg_done
+  set res {}
+  if {$ok == 1} {
+    set name [string trim [$d.name get]]
+    if {$name ne {}} { set res [list $name [string trim [$d.path get]]] }
+  }
+  catch {destroy $d}
+  return $res
 }
 
 # convenience global alias

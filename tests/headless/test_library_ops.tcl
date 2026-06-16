@@ -1,0 +1,147 @@
+# Phase 7b (library-manager) — mutation backend behind the right-click context
+# menu. These procs (in src/library_defs.tcl) copy/rename/delete cells & views,
+# create cells & libraries and unregister libraries, on BOTH the nested
+# (lib/cell/view/<cell>.<ext>) and legacy flat (<cell>.{sym,sch}) layouts.
+# Deletes are RECOVERABLE: files move to <libpath>/.xschem_trash/.
+#
+# Headless (no X needed). Run with --pipe from src/:
+#   ./xschem --pipe -q --script ../tests/headless/test_library_ops.tcl
+
+set fail 0
+proc check {name ok detail} {
+  global fail
+  if {$ok} { puts "ok:   $name $detail" } else { puts "FAIL: $name $detail"; incr fail }
+}
+# does calling `body` raise a Tcl error?  (used to assert guard rails)
+proc errs {body} { return [catch [list uplevel 1 $body]] }
+proc touch {f {txt {v {xschem}}}} {
+  file mkdir [file dirname $f]; set fp [open $f w]; puts $fp $txt; close $fp
+}
+proc has {lib cell} { expr {[lsearch [xschem lib_cells $lib] $cell] >= 0} }
+proc views {lib cell} { return [lsort [xschem cell_views $lib $cell]] }
+
+# --- fixture: two libraries, both layouts -----------------------------------
+set tmp [file join [pwd] _libops_[pid]]
+file delete -force $tmp
+
+# tlib: flat cell 'inv' (sym+sch), flat 'res' (sym only), nested 'buf' (both)
+touch $tmp/tlib/inv.sym "v {inv sym}"
+touch $tmp/tlib/inv.sch "v {inv sch}"
+touch $tmp/tlib/res.sym "v {res sym}"
+touch $tmp/tlib/buf/schematic/buf.sch "v {buf sch}"
+touch $tmp/tlib/buf/symbol/buf.sym    "v {buf sym}"
+# dlib: empty destination library for cross-library ops
+file mkdir $tmp/dlib
+
+set defs [file join $tmp library.defs]
+set fp [open $defs w]
+puts $fp "DEFINE tlib $tmp/tlib"
+puts $fp "DEFINE dlib $tmp/dlib"
+close $fp
+set ::XSCHEM_LIBRARY_DEFS $defs
+
+set trash [file join $tmp tlib .xschem_trash]
+
+# === delete (recoverable) ====================================================
+# flat cell -> both files leave the library, land in trash, content preserved
+check "OP1a inv present before delete" [has tlib inv] {}
+library_delete_cell tlib inv
+check "OP1b flat cell delete removes it" [expr {![has tlib inv]}] {}
+check "OP1c trashed file is recoverable" \
+  [expr {[file exists [file join $trash inv.sym]] && \
+         [string match {*inv sym*} [exec cat [file join $trash inv.sym]]]}] {}
+
+# nested cell -> whole cell dir trashed
+library_delete_cell tlib buf
+check "OP2a nested cell delete removes it" [expr {![has tlib buf]}] {}
+check "OP2b nested cell dir trashed" [file isdirectory [file join $trash buf]] {}
+
+# delete a single VIEW of a nested cell, keeping the cell
+touch $tmp/tlib/buf2/schematic/buf2.sch "v {buf2 sch}"
+touch $tmp/tlib/buf2/symbol/buf2.sym    "v {buf2 sym}"
+check "OP3a buf2 has both views" [expr {[views tlib buf2] eq {schematic symbol}}] "(=> [views tlib buf2])"
+library_delete_view tlib buf2 symbol
+check "OP3b delete view drops just that view" [expr {[views tlib buf2] eq {schematic}}] "(=> [views tlib buf2])"
+
+# delete the sole (symbol) view of a flat cell -> cell disappears
+library_delete_view tlib res symbol
+check "OP4 delete flat view removes the file" [expr {![has tlib res]}] {}
+
+# guard: deleting a missing cell errors
+check "OP5 delete missing cell errors" [errs {library_delete_cell tlib nope}] {}
+
+# === rename (in place) =======================================================
+# rebuild a flat 'inv' and nested 'buf'
+touch $tmp/tlib/inv.sym "v {inv sym}"
+touch $tmp/tlib/inv.sch "v {inv sch}"
+touch $tmp/tlib/buf/schematic/buf.sch "v {buf sch}"
+touch $tmp/tlib/buf/symbol/buf.sym    "v {buf sym}"
+
+library_rename_cell tlib inv tlib inv2
+check "OP6a flat rename: old gone" [expr {![has tlib inv]}] {}
+check "OP6b flat rename: new has both views" [expr {[views tlib inv2] eq {schematic symbol}}] "(=> [views tlib inv2])"
+
+library_rename_cell tlib buf tlib buf_r
+check "OP7a nested rename: old gone" [expr {![has tlib buf]}] {}
+check "OP7b nested rename: datafiles renamed" \
+  [expr {[file exists [file join $tmp tlib buf_r schematic buf_r.sch]] && \
+         [file exists [file join $tmp tlib buf_r symbol buf_r.sym]]}] {}
+
+# guard: rename onto an existing cell errors
+check "OP8 rename collision errors" [errs {library_rename_cell tlib inv2 tlib buf_r}] {}
+
+# === copy ====================================================================
+# same-library copy of a flat cell
+library_copy_cell tlib inv2 tlib inv_copy
+check "OP9a copy keeps source" [has tlib inv2] {}
+check "OP9b copy creates dest with both views" [expr {[views tlib inv_copy] eq {schematic symbol}}] "(=> [views tlib inv_copy])"
+
+# cross-library copy of a nested cell -> appears in dlib, stays in tlib
+library_copy_cell tlib buf_r dlib buf_r
+check "OP10a cross-lib copy: present in dest" [has dlib buf_r] {}
+check "OP10b cross-lib copy: still in source" [has tlib buf_r] {}
+check "OP10c cross-lib copy: datafile renamed under dest cell name" \
+  [file exists [file join $tmp dlib buf_r schematic buf_r.sch]] {}
+
+# guard: copy onto an existing cell errors
+check "OP11 copy collision errors" [errs {library_copy_cell tlib inv2 tlib inv_copy}] {}
+
+# === rename across libraries (= move) ========================================
+library_rename_cell tlib inv_copy dlib inv_moved
+check "OP12a cross-lib rename: present in dest" [has dlib inv_moved] {}
+check "OP12b cross-lib rename: gone from source" [expr {![has tlib inv_copy]}] {}
+
+# === new cell ================================================================
+library_new_cell tlib brandnew
+check "OP13a new_cell appears in the library" [has tlib brandnew] {}
+check "OP13b new_cell defaults to a schematic view" [expr {[views tlib brandnew] eq {schematic}}] "(=> [views tlib brandnew])"
+set nf [xschem cellview_path tlib/brandnew schematic]
+check "OP13c new_cell file has a valid xschem header" \
+  [expr {$nf ne {} && [string match {v \{xschem*} [exec head -1 $nf]]}] "(=> [exec head -1 $nf])"
+check "OP14 new_cell collision errors" [errs {library_new_cell tlib brandnew}] {}
+
+# === new library + register ==================================================
+set newpath [file join $tmp made_lib]
+library_new mylib $newpath
+check "OP15a new library resolves" [expr {[library_resolve mylib] ne {}}] "(=> [library_resolve mylib])"
+check "OP15b new library dir created" [file isdirectory $newpath] {}
+library_new_cell mylib c1
+check "OP15c can create a cell in the new library" [has mylib c1] {}
+check "OP16 new library name collision errors" [errs {library_new mylib $newpath}] {}
+
+# === unregister ==============================================================
+library_unregister mylib
+check "OP17a unregister removes from registry" [expr {[library_resolve mylib] eq {}}] {}
+check "OP17b unregister leaves files on disk" [file isdirectory $newpath] {}
+
+# auto-discovered library (via pathlist, no DEFINE) cannot be unregistered
+file mkdir $tmp/autolib
+set fp [open [file join $tmp autolib library.tag] w]; puts $fp "NAME autolib"; close $fp
+lappend ::pathlist $tmp/autolib
+check "OP18a auto-discovered lib is visible" [expr {[library_resolve autolib] ne {}}] "(=> [library_resolve autolib])"
+check "OP18b unregister of auto-discovered lib errors" [errs {library_unregister autolib}] {}
+
+file delete -force $tmp
+if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
+flush stdout
+exit [expr {$fail == 0 ? 0 : 1}]
