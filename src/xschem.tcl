@@ -9871,8 +9871,12 @@ proc pack_tabs {} {
 
 # Flip the current window between editable and read-only (file-protected) mode.
 # The engine refreshes the window title to show/clear the "(read-only)" marker.
+# The mode change is recorded to the action log (CIW / Xschem.log) so a session
+# replays it; the bare 'xschem set readonly' does not self-log, so replay is safe.
 proc toggle_readonly {} {
-  xschem set readonly [expr {[xschem get readonly] ? 0 : 1}]
+  set v [expr {[xschem get readonly] ? 0 : 1}]
+  xschem set readonly $v
+  xschem log_action "xschem set readonly $v"
 }
 
 proc setup_tabbed_interface {} {

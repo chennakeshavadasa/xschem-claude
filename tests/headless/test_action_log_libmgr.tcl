@@ -1,0 +1,75 @@
+# Action-logging coverage for the Library Manager + read-only toggle. A Library
+# Manager open used the bare (silent "replay form") load command, so it never
+# reached the CIW / Xschem.log; mode changes were not logged at all. Both now
+# emit `xschem log_action` with the replayable command.
+#
+# Must run WITH action logging on; the harness passes --logdir and the same dir
+# in $env(XSCHEM_AL_LOGDIR). The action log is line-buffered, so lines are
+# readable in-process. Run under X with --pipe from src/:
+#   d=/tmp/al.$$; XSCHEM_AL_LOGDIR=$d DISPLAY=:0 ./xschem --pipe -q --logdir $d \
+#       --script ../tests/headless/test_action_log_libmgr.tcl
+
+set fail 0
+proc check {name ok detail} {
+  global fail
+  if {$ok} { puts "ok:   $name $detail" } else { puts "FAIL: $name $detail"; incr fail }
+}
+proc touch {f {txt {v {xschem}}}} {
+  file mkdir [file dirname $f]; set fp [open $f w]; puts $fp $txt; close $fp
+}
+proc logtext {} { set fp [open $::LOG r]; set d [read $fp]; close $fp; return $d }
+
+if {![info exists env(XSCHEM_AL_LOGDIR)]} { puts "FAIL: AL0 XSCHEM_AL_LOGDIR not set"; exit 1 }
+set LOG [file join $env(XSCHEM_AL_LOGDIR) Xschem.log]
+check "AL0 action log is open" [file isfile $LOG] "(=> $LOG)"
+
+# --- fixture: a private library with a nested cell -------------------------
+set tmp [file join [pwd] _allm_[pid]]
+file delete -force $tmp
+touch $tmp/tlib/foo/schematic/foo.sch "v {xschem version=3.4.8RC file_version=1.3}"
+touch $tmp/tlib/foo/symbol/foo.sym    "v {xschem version=3.4.8RC file_version=1.3}"
+touch $tmp/tlib/bar/schematic/bar.sch "v {xschem version=3.4.8RC file_version=1.3}"
+set defs [file join $tmp library.defs]
+set fp [open $defs w]; puts $fp "DEFINE tlib $tmp/tlib"; close $fp
+set ::XSCHEM_LIBRARY_DEFS $defs
+
+library_manager
+update idletasks
+proc pick {col txt} {
+  set lb .libmgr.pw.$col.lb
+  set i [lsearch -exact [$lb get 0 end] $txt]
+  $lb selection clear 0 end; $lb selection set $i; $lb activate $i
+}
+
+# AL1 — a Library Manager open is logged with the replayable command
+pick lib tlib;  libmgr::on_lib
+pick cell foo;  libmgr::on_cell
+set libmgr::new_window 1
+libmgr::open_view
+check "AL1 Library Manager open is logged" \
+  [string match "*xschem load_new_window {*foo/schematic/foo.sch}*" [logtext]] {}
+
+# AL2 — toggling edit mode is logged
+xschem set readonly 0
+toggle_readonly
+check "AL2 read-only toggle logged (set 1)" [string match "*xschem set readonly 1*" [logtext]] {}
+toggle_readonly
+check "AL3 read-only toggle logged (set 0)" \
+  [expr {[regexp -all {xschem set readonly 0} [logtext]] >= 1}] {}
+
+# AL4 — Open (read-only) logs both the open and the read-only lock
+pick cell bar; libmgr::on_cell
+libmgr::open_view_ro
+set t [logtext]
+check "AL4 read-only open logs the open" [string match "*load_new_window {*bar/schematic/bar.sch}*" $t] {}
+check "AL5 read-only open logs the lock" [expr {[regexp -all {xschem set readonly 1} $t] >= 2}] {}
+
+# AL6 — the logged lines are the bare replay form (no recursion / no log_action wrapper)
+check "AL6 log holds bare replayable commands" \
+  [expr {![string match "*log_action*" [logtext]]}] {}
+
+destroy .libmgr
+file delete -force $tmp
+if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
+flush stdout
+exit [expr {$fail == 0 ? 0 : 1}]

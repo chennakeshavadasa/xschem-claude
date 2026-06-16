@@ -208,7 +208,16 @@ proc libmgr::open_view {args} {
   lassign $lcv lib cell view
   set f [xschem cellview_path "$lib/$cell" $view]
   if {$f eq {}} { .libmgr.status configure -text "no $view view for $lib/$cell"; return 0 }
-  if {$new_window} { xschem load_new_window $f } else { xschem load $f }
+  # action-log: record the replayable open (the bare load_new_window/load command
+  # is otherwise the silent "replay form", so a Library Manager open would not be
+  # logged to the CIW / Xschem.log without this).
+  if {$new_window} {
+    xschem load_new_window $f
+    xschem log_action "xschem load_new_window {$f}"
+  } else {
+    xschem load $f
+    xschem log_action "xschem load {$f}"
+  }
   return 1
 }
 
@@ -272,6 +281,7 @@ proc libmgr::open_view_ro {} {
   if {$lcv eq {}} return
   if {![libmgr::open_view]} return
   xschem set readonly 1
+  xschem log_action "xschem set readonly 1"
   lassign $lcv lib cell view
   libmgr::status "opened $lib/$cell/$view read-only"
 }
