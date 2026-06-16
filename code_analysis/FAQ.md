@@ -14,6 +14,79 @@ Newest entries on top.
 
 ---
 
+## Q14. Cadence supports both the verb-noun and noun-verb interaction grammars (like LTspice's verb-noun, plus the modern select-then-act). How big is the gap between XSCHEM and Cadence here?
+
+- **Asked:** 2026-06-15
+- **Project state:** branch `library-manager` @ `5661885e`. The relevant
+  substrate is the action-registry binding table (branch
+  `feature/action-registry`, Phase 3 plan complete) — `xschem bind/unbind/bindings`,
+  data-driven `ActionDef`, context-aware dispatch, the `idle_only` semaphore flag.
+
+**Smaller than the question implies — XSCHEM already supports *both* grammars
+today.** It just doesn't frame them as "Cadence parity." The gap is qualitative
+(polish + unification), not "missing feature," and the *architectural* gap is
+small because the bindkey substrate Cadence is built on is exactly what the
+action-registry work has been constructing.
+
+**1 — XSCHEM already spans the verb-noun / noun-verb spectrum via four flags.**
+There isn't one interaction model; there's a cluster of booleans (defaults in
+`xschem.tcl:12037-12043`) that between them cover the range:
+
+| Flag | Default | What it actually controls |
+|---|---|---|
+| `intuitive_interface` | **1** | The *noun-verb* refinements: click-on-object selects, click-drag a selected object moves it, click-empty deselects (`callback.c:5166-5230`). The modern select-then-act polish. |
+| `infix_interface` | **1** | The verb *ordering*. `=1` → pressing `m`/`c`/`C`/`w`… acts **immediately at the cursor** (`copy_objects(START)` grabs where the pointer is). `=0` → the same key sets `MENUSTART \| MENUSTARTCOPY` and **waits for a click to anchor** (`callback.c:3656-3663`). That `=0` path *is* the verb-noun/prefix flow — and it's the path menu invocations already use. |
+| `persistent_command` | 0 | The *armed-verb-repeats* behavior — the command stays active across objects until Escape (`callback.c:1892`, `5120`). LTspice's "stay in the tool." |
+| `cadence_compat` | 0 | An explicit Cadence-bindkey bundle: Ctrl=simulate, click-on-selected-clears-selection, snap-cursor toggle, etc. (`callback.c:4251, 4584, 5321`). |
+
+So pressing `c` with `infix_interface=1` gives the XSCHEM-native *infix* flow
+(point already established by the cursor, verb injected in the middle); set it
+`0` and the *same key* becomes prefix/verb-noun (verb first, then click a point).
+The `MENUSTART`/`MENUSTART2` bits (`xschem.h:238-263`) are a per-command armed-verb
+state machine that already covers move, copy, wire, line, rect, arc, polygon,
+zoom, and wire-cut.
+
+**2 — The remaining gap is qualitative.** What Cadence has that XSCHEM's version
+doesn't:
+
+1. **A unified command/point-entry kernel.** Cadence's `hiEnterPoint`/`hiGetPoint`
+   is one generalized mechanism: a command declares "I need K points," the kernel
+   collects them, drives the status-bar prompts ("Point at reference… Point at
+   destination"), and allows **typed coordinate entry**. XSCHEM hardcodes the
+   prefix flow per-command via `MENUSTART2` bits and scattered
+   `if(infix_interface)` branches. No prompt line guiding the points, no
+   coordinate typing. **This is the single biggest gap.**
+2. **`persistent_command` is narrow.** The menu only exposes it as "Persistent
+   wire/line place command" (`xschem.tcl:10962`); Cadence makes nearly *every*
+   command persistent/repeating.
+3. **No per-command options form.** Cadence's F3 brings up the active command's
+   option form mid-gesture; XSCHEM has global toggles, not command-scoped ones.
+4. **The modes are four loosely-coupled booleans, not a model.** They interact
+   ad-hoc — `callback.c:2842` already notes `cadence_compat`-gated keys "the table
+   can't express," and the action-registry work hit `s`/`Ctrl+r` keys that couldn't
+   migrate because forward-behavior lives inside a `cadence_compat`-conditioned
+   branch.
+
+**3 — Why the *architectural* gap is small.** The substrate Cadence is built on
+is bindkeys + a central command dispatcher — exactly what `feature/action-registry`
+constructed: `xschem bind/unbind/bindings`, a data-driven `ActionDef` table (Tcl-
+or C-backed), context-aware dispatch, an `idle_only` flag mirroring
+semaphore-sensitivity. *That is the bindkey half of Cadence.* The missing half is
+a **generalized point-entry state machine** layered on the dispatcher — one that
+replaces the per-key `MENUSTART2` bit-twiddling and the `if(infix_interface)` forks
+with: *"current command C wants N points; here are its prompts; here's whether it
+persists; here's its options form."* Build that and the four flags collapse into
+one coherent model, with prefix/infix/persistent/cadence behaviors becoming
+*configurations* of it rather than separate code paths.
+
+**Bottom line:** feature-wise the gap is modest (both grammars already exist;
+what's missing is a prompt/point-entry kernel, generalized persistence, and
+command-scoped options); architecturally it's small and shrinking, because the
+dispatcher being decomposed is the right foundation and the `MENUSTART` machinery
+is a working-but-ad-hoc prototype of the kernel you'd formalize.
+
+---
+
 ## Q13. Why doesn't pressing `q` to open the Edit Properties form write `xschem edit_prop` to the action log?
 
 - **Asked:** 2026-06-14
