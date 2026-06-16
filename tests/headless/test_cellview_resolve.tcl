@@ -30,6 +30,12 @@ proc touch {f} { set fp [open $f w]; puts $fp "v {xschem version=3.4.0 file_vers
 touch $tmp/newlib/inv/symbol/inv.sym
 touch $tmp/newlib/inv/schematic/inv.sch
 touch $tmp/flatlib/myflatres.sym
+# alternately-named views: a view's editor type comes from the <cell>.<ext>
+# file it holds, NOT from the dir name. 'sch_alt' is a schematic view (holds
+# inv.sch); 'sym_alt' is a symbol view (holds inv.sym).
+file mkdir $tmp/newlib/inv/sch_alt $tmp/newlib/inv/sym_alt
+touch $tmp/newlib/inv/sch_alt/inv.sch
+touch $tmp/newlib/inv/sym_alt/inv.sym
 
 set SYM $tmp/newlib/inv/symbol/inv.sym
 set SCH $tmp/newlib/inv/schematic/inv.sch
@@ -74,6 +80,14 @@ check "CV9 abs(rel(symbol)) is stable" [expr {[abs_sym_path [rel_sym_path $SYM]]
 # relativize the old way (strip the path prefix -> bare name).
 check "CV10 non-library path uses legacy rel" \
   [expr {[rel_sym_path "$tmp/flatlib/myflatres.sym"] eq "myflatres.sym"}] "(=> [rel_sym_path $tmp/flatlib/myflatres.sym])"
+
+# --- CV11/CV12 — arbitrarily-named views resolve by the file they hold -------
+# The view name is a free label; resolution must follow the <cell>.<ext> file,
+# so a schematic view called 'sch_alt' opens its inv.sch (previously returned "").
+check "CV11 alt-named schematic view resolves" \
+  [expr {[cvp newlib/inv sch_alt] eq "$tmp/newlib/inv/sch_alt/inv.sch"}] "(=> [cvp newlib/inv sch_alt])"
+check "CV12 alt-named symbol view resolves" \
+  [expr {[cvp newlib/inv sym_alt] eq "$tmp/newlib/inv/sym_alt/inv.sym"}] "(=> [cvp newlib/inv sym_alt])"
 
 file delete -force $tmp
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }

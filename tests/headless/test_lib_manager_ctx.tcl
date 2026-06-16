@@ -98,6 +98,39 @@ check "CTX10c files left on disk" [file isdirectory [file join $tmp extra]] {}
 check "CTX11 collision is a soft failure" [expr {[libmgr::do_copy_cell tlib buffer tlib buffer] == 0}] \
   "(status: [.libmgr.status cget -text])"
 
+# --- view-level ops on nested cell 'buffer' (schematic view) ----------------
+.libmgr.pw.lib.lb selection clear 0 end
+.libmgr.pw.lib.lb selection set [lsearch -exact [lb lib] tlib]
+libmgr::on_lib
+.libmgr.pw.cell.lb selection clear 0 end
+.libmgr.pw.cell.lb selection set [lsearch -exact [lb cell] buffer]
+libmgr::on_cell
+
+# CTX12 — rename a view; pane relabels + reselects, and it still resolves to open
+check "CTX12a do_rename_view succeeds" [libmgr::do_rename_view tlib buffer schematic sch_main] {}
+check "CTX12b view pane relabeled + reselected" [expr {[lsearch [lb view] sch_main] >= 0 && \
+  [lsearch [lb view] schematic] < 0 && [libmgr::cursel .libmgr.pw.view.lb] eq "sch_main"}] "(=> [lb view])"
+check "CTX12c alt-named schematic view resolves for open" \
+  [string match {*buffer/sch_main/buffer.sch} [xschem cellview_path tlib/buffer sch_main]] "(=> [xschem cellview_path tlib/buffer sch_main])"
+
+# CTX13 — new typed view
+check "CTX13a do_new_view (symbol) succeeds" [libmgr::do_new_view tlib buffer sym_v symbol] {}
+check "CTX13b new view present + resolves to a .sym" [expr {[lsearch [lb view] sym_v] >= 0 && \
+  [string match {*sym_v/buffer.sym} [xschem cellview_path tlib/buffer sym_v]]}] "(=> [lb view])"
+
+# CTX14 — copy a view within the cell
+check "CTX14a do_copy_view succeeds" [libmgr::do_copy_view tlib buffer sch_main tlib buffer sch_two] {}
+check "CTX14b copy added, source kept" [expr {[lsearch [lb view] sch_two] >= 0 && [lsearch [lb view] sch_main] >= 0}] "(=> [lb view])"
+
+# CTX15 — copy a view into a NEW cell (datafile renamed to the dest cell)
+check "CTX15a do_copy_view into a new cell" [libmgr::do_copy_view tlib buffer sch_main tlib vnew schematic] {}
+check "CTX15b new cell carries the view, datafile renamed" [expr {[has tlib vnew] && \
+  [file exists [file join $tmp tlib vnew schematic vnew.sch]]}] {}
+
+# CTX16 — view-name collision is a soft failure (status set, do_* returns 0)
+check "CTX16 view rename collision is a soft failure" [expr {[libmgr::do_rename_view tlib buffer sch_main sch_two] == 0}] \
+  "(status: [.libmgr.status cget -text])"
+
 destroy .libmgr
 file delete -force $tmp
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }

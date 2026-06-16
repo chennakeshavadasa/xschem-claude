@@ -141,6 +141,43 @@ lappend ::pathlist $tmp/autolib
 check "OP18a auto-discovered lib is visible" [expr {[library_resolve autolib] ne {}}] "(=> [library_resolve autolib])"
 check "OP18b unregister of auto-discovered lib errors" [errs {library_unregister autolib}] {}
 
+# === view-level copy / rename / new (nested layout) ==========================
+# A view's editor type comes from the <cell>.<ext> file it holds, so views are
+# freely named: rename relabels the dir (datafile keeps the cell name); copy can
+# target another view name / cell / library; new_view creates a typed empty view.
+touch $tmp/tlib/vc/schematic/vc.sch "v {vc sch}"
+touch $tmp/tlib/vc/symbol/vc.sym    "v {vc sym}"
+touch $tmp/tlib/vflat.sym           "v {vflat sym}"
+
+# rename a view: the label changes, the cell's datafile keeps its name
+library_rename_view tlib vc symbol sym2
+check "VOP1a rename_view relabels the view" [expr {[views tlib vc] eq {schematic sym2}}] "(=> [views tlib vc])"
+check "VOP1b renamed view still resolves to the .sym" \
+  [expr {[xschem cellview_path tlib/vc sym2] eq [file join $tmp tlib vc sym2 vc.sym]}] "(=> [xschem cellview_path tlib/vc sym2])"
+
+# copy a view within the same cell, under a new name
+library_copy_view tlib vc schematic tlib vc sch_copy
+check "VOP2a copy_view adds the new view, keeps source" [expr {[views tlib vc] eq {sch_copy schematic sym2}}] "(=> [views tlib vc])"
+check "VOP2b copied view resolves to a .sch" \
+  [string match {*sch_copy/vc.sch} [xschem cellview_path tlib/vc sch_copy]] "(=> [xschem cellview_path tlib/vc sch_copy])"
+
+# copy a view into a NEW cell -> the datafile is renamed to the dest cell
+library_copy_view tlib vc schematic tlib vcopy schematic
+check "VOP3a copy_view into a new cell" [has tlib vcopy] {}
+check "VOP3b dest datafile renamed to the dest cell" [file exists [file join $tmp tlib vcopy schematic vcopy.sch]] {}
+
+# new typed view under a non-canonical name (schematic type, named 'altsch')
+library_new_view tlib vc altsch schematic
+check "VOP4a new_view appears" [expr {[lsearch [views tlib vc] altsch] >= 0}] "(=> [views tlib vc])"
+check "VOP4b new schematic-typed view holds a .sch and resolves" \
+  [string match {*altsch/vc.sch} [xschem cellview_path tlib/vc altsch]] "(=> [xschem cellview_path tlib/vc altsch])"
+
+# guards
+check "VOP5 rename onto an existing view errors" [errs {library_rename_view tlib vc schematic sym2}] {}
+check "VOP6 copy onto an existing view errors" [errs {library_copy_view tlib vc schematic tlib vc sch_copy}] {}
+check "VOP7 new_view name collision errors" [errs {library_new_view tlib vc altsch schematic}] {}
+check "VOP8 view ops on a flat cell error" [errs {library_rename_view tlib vflat symbol s2}] {}
+
 file delete -force $tmp
 if {$fail == 0} { puts "RESULT: ALL PASS" } else { puts "RESULT: $fail FAILED" }
 flush stdout

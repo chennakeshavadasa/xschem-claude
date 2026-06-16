@@ -99,10 +99,15 @@ proc libmgr::build_menus {w} {
   $w.mcell add command -label "Delete"       -command libmgr::ctx_delete_cell
   $w.mcell add separator
   $w.mcell add command -label "New cell…" -command libmgr::ctx_new_cell
+  $w.mcell add command -label "New view…" -command libmgr::ctx_new_view
 
   menu $w.mview -tearoff 0
   $w.mview add command -label "Open"             -command libmgr::open_view
   $w.mview add command -label "Open (read-only)" -command libmgr::open_view_ro
+  $w.mview add separator
+  $w.mview add command -label "Copy…"   -command libmgr::ctx_copy_view
+  $w.mview add command -label "Rename…" -command libmgr::ctx_rename_view
+  $w.mview add command -label "New view…" -command libmgr::ctx_new_view
   $w.mview add separator
   $w.mview add command -label "Delete view" -command libmgr::ctx_delete_view
 }
@@ -230,7 +235,7 @@ proc libmgr::lib_names {} {
 
 # Rebuild the Library pane, then restore the given lib (and cell) selection so
 # the panes reflect a just-completed mutation.
-proc libmgr::refresh_after {{lib {}} {cell {}}} {
+proc libmgr::refresh_after {{lib {}} {cell {}} {view {}}} {
   variable sel_lib; variable sel_cell
   if {![winfo exists .libmgr]} return
   set ll .libmgr.pw.lib.lb
@@ -250,6 +255,12 @@ proc libmgr::refresh_after {{lib {}} {cell {}}} {
   if {$j < 0} return
   $cl selection clear 0 end; $cl selection set $j; $cl activate $j
   libmgr::on_cell
+  if {$view eq {}} return
+  set vl .libmgr.pw.view.lb
+  set k [lsearch -exact [$vl get 0 end] $view]
+  if {$k < 0} return
+  $vl selection clear 0 end; $vl selection set $k; $vl activate $k
+  libmgr::on_view
 }
 
 # Open (read-only): placeholder. xschem has no per-window read-only lock yet, so
@@ -461,6 +472,129 @@ proc libmgr::newlib_dialog {} {
   if {$ok == 1} {
     set name [string trim [$d.name get]]
     if {$name ne {}} { set res [list $name [string trim [$d.path get]]] }
+  }
+  catch {destroy $d}
+  return $res
+}
+
+# --- view-level context actions --------------------------------------------
+proc libmgr::ctx_rename_view {} {
+  variable sel_lib; variable sel_cell
+  set v [libmgr::cursel .libmgr.pw.view.lb]
+  if {$sel_lib eq {} || $sel_cell eq {} || $v eq {}} return
+  set nv [libmgr::simple_prompt "Rename view" "New view name:" $v]
+  if {$nv eq {}} return
+  libmgr::do_rename_view $sel_lib $sel_cell $v $nv
+}
+proc libmgr::do_rename_view {lib cell oldv newv} {
+  if {[catch {library_rename_view $lib $cell $oldv $newv} e]} { libmgr::status "rename failed: $e"; return 0 }
+  libmgr::refresh_after $lib $cell $newv
+  libmgr::status "renamed view $lib/$cell/$oldv -> $newv"
+  return 1
+}
+
+proc libmgr::ctx_copy_view {} {
+  variable sel_lib; variable sel_cell
+  set v [libmgr::cursel .libmgr.pw.view.lb]
+  if {$sel_lib eq {} || $sel_cell eq {} || $v eq {}} return
+  set r [libmgr::view_dialog "Copy view" $sel_lib $sel_cell $v]
+  if {$r eq {}} return
+  lassign $r dl dc dv
+  libmgr::do_copy_view $sel_lib $sel_cell $v $dl $dc $dv
+}
+proc libmgr::do_copy_view {sl sc sv dl dc dv} {
+  if {[catch {library_copy_view $sl $sc $sv $dl $dc $dv} e]} { libmgr::status "copy failed: $e"; return 0 }
+  libmgr::refresh_after $dl $dc $dv
+  libmgr::status "copied view $sl/$sc/$sv -> $dl/$dc/$dv"
+  return 1
+}
+
+proc libmgr::ctx_new_view {} {
+  variable sel_lib; variable sel_cell
+  if {$sel_lib eq {} || $sel_cell eq {}} { libmgr::status "select a cell first"; return }
+  set r [libmgr::newview_dialog $sel_lib $sel_cell]
+  if {$r eq {}} return
+  lassign $r name type
+  libmgr::do_new_view $sel_lib $sel_cell $name $type
+}
+proc libmgr::do_new_view {lib cell view type} {
+  if {[catch {library_new_view $lib $cell $view $type} e]} { libmgr::status "new view failed: $e"; return 0 }
+  libmgr::refresh_after $lib $cell $view
+  libmgr::status "created view $lib/$cell/$view ($type)"
+  return 1
+}
+
+# Destination library (combobox) + cell + new view name. Returns {lib cell view}
+# or {} on cancel / empty cell-or-view.
+proc libmgr::view_dialog {title srclib srccell srcview} {
+  variable dlg_done
+  set d .libmgr.vd
+  catch {destroy $d}
+  toplevel $d
+  wm title $d $title
+  wm transient $d .libmgr
+  ttk::label $d.l1 -text "Destination library:"
+  ttk::combobox $d.lib -state readonly -values [libmgr::lib_names]
+  $d.lib set $srclib
+  ttk::label $d.l2 -text "Destination cell:"
+  ttk::entry $d.cell -width 28
+  $d.cell insert 0 $srccell
+  ttk::label $d.l3 -text "New view name:"
+  ttk::entry $d.view -width 28
+  $d.view insert 0 $srcview
+  ttk::frame $d.b
+  ttk::button $d.b.ok     -text OK     -command {set libmgr::dlg_done 1}
+  ttk::button $d.b.cancel -text Cancel -command {set libmgr::dlg_done 0}
+  pack $d.b.ok $d.b.cancel -side left -padx 4
+  grid $d.l1 $d.lib  -sticky w -padx 6 -pady 4
+  grid $d.l2 $d.cell -sticky w -padx 6 -pady 4
+  grid $d.l3 $d.view -sticky w -padx 6 -pady 4
+  grid $d.b  -       -pady 6
+  bind $d <Return> {set libmgr::dlg_done 1}
+  bind $d <Escape> {set libmgr::dlg_done 0}
+  set dlg_done -1
+  catch {grab $d}; focus $d.view; $d.view selection range 0 end
+  vwait libmgr::dlg_done
+  set ok $dlg_done
+  set res {}
+  if {$ok == 1} {
+    set c [string trim [$d.cell get]]; set v [string trim [$d.view get]]
+    if {$c ne {} && $v ne {}} { set res [list [$d.lib get] $c $v] }
+  }
+  catch {destroy $d}
+  return $res
+}
+
+# View name + editor type (schematic|symbol). Returns {name type} or {}.
+proc libmgr::newview_dialog {lib cell} {
+  variable dlg_done
+  set d .libmgr.nv2
+  catch {destroy $d}
+  toplevel $d
+  wm title $d "New view in $cell"
+  wm transient $d .libmgr
+  ttk::label $d.l1 -text "View name:"
+  ttk::entry $d.name -width 28
+  ttk::label $d.l2 -text "Editor type:"
+  ttk::combobox $d.type -state readonly -values {schematic symbol}
+  $d.type set schematic
+  ttk::frame $d.b
+  ttk::button $d.b.ok     -text OK     -command {set libmgr::dlg_done 1}
+  ttk::button $d.b.cancel -text Cancel -command {set libmgr::dlg_done 0}
+  pack $d.b.ok $d.b.cancel -side left -padx 4
+  grid $d.l1 $d.name -sticky w -padx 6 -pady 4
+  grid $d.l2 $d.type -sticky w -padx 6 -pady 4
+  grid $d.b  -       -pady 6
+  bind $d <Return> {set libmgr::dlg_done 1}
+  bind $d <Escape> {set libmgr::dlg_done 0}
+  set dlg_done -1
+  catch {grab $d}; focus $d.name
+  vwait libmgr::dlg_done
+  set ok $dlg_done
+  set res {}
+  if {$ok == 1} {
+    set n [string trim [$d.name get]]
+    if {$n ne {}} { set res [list $n [$d.type get]] }
   }
   catch {destroy $d}
   return $res

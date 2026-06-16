@@ -124,9 +124,18 @@ proc cellview_resolve {libname cell view} {
   set lpath [library_resolve $libname]
   if {$lpath eq {}} { return {} }
   set ext [expr {$view eq "schematic" ? ".sch" : ".sym"}]
-  # new lib/cell/view layout
+  # new lib/cell/view layout. Try the exact <cell>.<ext> first (canonical
+  # schematic/symbol views and reference resolution: behavior unchanged).
   set cand [file join $lpath $cell $view $cell$ext]
   if {[file exists $cand]} { return $cand }
+  # The view name is just a label; a view's editor type comes from the
+  # <cell>.<ext> datafile it holds, not from the name. So an arbitrarily named
+  # view ('sch_alt' holding <cell>.sch) still resolves to that file.
+  set vd [file join $lpath $cell $view]
+  if {[file isdirectory $vd]} {
+    set hits [lsort [glob -nocomplain [file join $vd $cell.*]]]
+    if {[llength $hits] > 0} { return [lindex $hits 0] }
+  }
   # legacy flat layout (so the Library Manager can open/place flat cells, and a
   # lib-qualified ref to a flat lib resolves to the same file rule 3 would find)
   set flat [file join $lpath $cell$ext]
@@ -437,5 +446,72 @@ proc library_unregister {name} {
     }
   }
   if {!$removed} { error "library is auto-discovered (no DEFINE to remove): $name" }
+  return ""
+}
+
+# --- view-level operations (nested lib/cell/view layout only) ----------------
+# A view is a <cell>/<view>/ dir holding a <cell>.<ext> datafile; its editor
+# type is that file's extension, so views are freely named. Flat cells have no
+# separate per-view files, so these ops reject them (rename/copy the cell, or
+# convert it, instead).
+
+# The nested view dir <lib>/<cell>/<view> if it exists and holds <cell>.<ext>,
+# else "".
+proc library_view_dir {lib cell view} {
+  set lp [library_resolve $lib]
+  if {$lp eq {}} { return {} }
+  set vd [file join $lp $cell $view]
+  if {[file isdirectory $vd] && [llength [glob -nocomplain [file join $vd $cell.*]]] > 0} { return $vd }
+  return {}
+}
+
+# Rename a view (relabel the dir). The cell's <cell>.<ext> datafile keeps the
+# cell name; only the view label changes.
+proc library_rename_view {lib cell oldview newview} {
+  set lp [library_resolve $lib]
+  if {$lp eq {}} { error "no such library: $lib" }
+  if {$newview eq {}} { error "view name required" }
+  if {$oldview eq $newview} { return "" }
+  set vd [library_view_dir $lib $cell $oldview]
+  if {$vd eq {}} { error "no nested view '$oldview' for $lib/$cell (flat cell has no separate view files)" }
+  set dst [file join $lp $cell $newview]
+  if {[file exists $dst]} { error "view already exists: $lib/$cell/$newview" }
+  file rename -- $vd $dst
+  return ""
+}
+
+# Copy a view to a new view name, optionally under another cell/library. When
+# the destination cell differs, the <srccell>.<ext> datafile is renamed to the
+# destination cell name. The destination view must not exist.
+proc library_copy_view {sl sc sv dl dc dv} {
+  set slp [library_resolve $sl]
+  set dlp [library_resolve $dl]
+  if {$slp eq {}} { error "no such library: $sl" }
+  if {$dlp eq {}} { error "no such library: $dl" }
+  if {$dv eq {}} { error "view name required" }
+  set svd [library_view_dir $sl $sc $sv]
+  if {$svd eq {}} { error "no nested view '$sv' for $sl/$sc (flat cell has no separate view files)" }
+  set dvd [file join $dlp $dc $dv]
+  if {[file exists $dvd]} { error "view already exists: $dl/$dc/$dv" }
+  file mkdir $dvd
+  foreach f [glob -nocomplain [file join $svd *]] {
+    set tail [file tail $f]
+    if {[file rootname $tail] eq $sc} { set tail "$dc[file extension $tail]" }
+    file copy -- $f [file join $dvd $tail]
+  }
+  return ""
+}
+
+# Create a new empty view of a given editor type (schematic|symbol) under a free
+# name. The cell must already exist; the view must not.
+proc library_new_view {lib cell view {type schematic}} {
+  set lp [library_resolve $lib]
+  if {$lp eq {}} { error "no such library: $lib" }
+  if {$view eq {}} { error "view name required" }
+  if {[library_cell_layout $lib $cell] eq {}} { error "no such cell: $lib/$cell" }
+  set vd [file join $lp $cell $view]
+  if {[file exists $vd]} { error "view already exists: $lib/$cell/$view" }
+  file mkdir $vd
+  library_write_empty_cellfile [file join $vd "$cell.[expr {$type eq "symbol" ? "sym" : "sch"}]"]
   return ""
 }
