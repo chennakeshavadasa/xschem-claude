@@ -6,14 +6,14 @@
 selected**; the visible effect is the hover-highlight redraw disturbing the
 selection overlay. Earlier framing ("a drag deselects", press-path root cause)
 was wrong and is superseded below.
-**Status:** FIX APPLIED 2026-06-16 (pending visual eyeball) — root cause pinned
-to `draw_hover`'s stale-`sel_array` repair (see §7); one-line fix in `callback.c`
+**Status:** RESOLVED 2026-06-16 — root cause pinned to `draw_hover`'s
+stale-`sel_array` repair (see §7); one-line fix in `callback.c`
 (`rebuild_selected_array()` before the repair `draw_selection`). Verified at the
 data level (the bug condition `lastsel==0` at repair time now rebuilds to the real
-count) and guarded by `tests/headless/test_hover_selection_repair.tcl`. The
-on-screen repair is a window-only overlay → final confirmation is a manual eyeball
-(move the bare pointer across the dashed box with `hover_highlight` on; the
-selection box must stay drawn).
+count), guarded by `tests/headless/test_hover_selection_repair.tcl`, and
+**confirmed by eyeball** (the selection box stays drawn while the bare pointer
+crosses the dashed box with `hover_highlight` on). Commit `991ded9a`.
+A teaching note follows in §8.
 **Affects:** interactive use with `src/cadence_style_rc`
 (`intuitive_interface=1`, `cadence_compat=1`, `enable_stretch=1`,
 `hover_highlight` on). Seen on `xschem_library/examples/mos_power_ampli.sch`.
@@ -194,5 +194,100 @@ scope for this fix.
 - Headless guard: `tests/headless/test_hover_selection_repair.tcl` (logical
   selection survives the real motion sweep across the polygon; hover engages the
   polygon so the repair branch is reachable; gated by `hover_highlight`).
-- Manual eyeball (pending): with `hover_highlight` on, the selection box stays
+- Manual eyeball (done): with `hover_highlight` on, the selection box stays
   drawn while the pointer crosses the dashed box.
+
+---
+
+## 8. Tutorial — "the map is not the territory": model, view, and where a symptom really lives
+
+This bug is small, but it is an almost perfect teaching specimen. Three lessons,
+each more general than the last.
+
+### 8.1 The assumption that sent us the wrong way
+
+The bug was reported as *"the instance gets deselected."* That sentence sounds
+like an observation, but it is actually an **interpretation**. What the eye truly
+saw was: *the dashed highlight box disappeared.* "Deselected" is the brain's model
+of *why* the box disappeared — and that inference was wrong.
+
+There are (at least) two worlds in any interactive program:
+
+- the **model** (a.k.a. *the territory*): the authoritative state. Here, "is R18
+  selected?" is one bit — its `.sel` flag.
+- the **view** (a.k.a. *the map*): a derived rendering of the model. Here, the
+  dashed box drawn on the window.
+
+The view is *supposed* to be a faithful function of the model, so we habitually
+read the model **off** the view ("no box ⇒ not selected"). That shortcut is
+correct 99% of the time, which is exactly why it is dangerous: when the view
+desyncs from the model, the shortcut lies, and you go hunting for a bug in the
+wrong world. We initially chased the *selection logic* (press handlers,
+`unselect_all`, the `cadence_compat` branch) — all model-layer code — for a
+symptom that lived entirely in the **view layer**.
+
+> **Paradigm:** a symptom you *see* is a statement about the **view**. Whether it
+> is also a statement about the **model** is a hypothesis, not a fact. Name which
+> layer you are reasoning about before you start fixing.
+
+### 8.2 The move that cracked it: localize the symptom to a layer *first*
+
+The decisive step was cheap and came before any fix: drive the exact gesture and
+ask the **model** directly — `xschem objects -selected` — instead of trusting the
+screen. It still reported R18 selected throughout. One query collapsed the search
+space by half: *the model is fine; the bug is in the view.* From there the only
+suspects were code that paints, and "what changed recently that paints on every
+mouse move?" pointed straight at the hover cue.
+
+> **Paradigm — bisect by layer.** Before fixing, run one experiment that
+> distinguishes "the state is wrong" from "the picture of the state is wrong."
+> Querying the model directly (a headless assertion, a log line, a debugger watch)
+> is usually that experiment. It is the software analogue of *"is the patient
+> actually sick, or is the thermometer broken?"*
+
+A corollary already lived in this repo's testing notes ([[green-but-hollow]]):
+our headless probe showing `selcount == 1` was *true* and *useless for the visual
+bug* — it measured the model, while the defect was in the view. Knowing which
+layer your assertion observes is as important as the assertion passing.
+
+### 8.3 The root cause, generalized: derived state drifting from its source of truth
+
+Once in the view layer, the actual defect is a classic. The repair drew from
+`sel_array` / `lastsel` — a **cached snapshot** of the selection that
+`draw_selection` was built to consume during a *move* (when the move machinery
+keeps it fresh). On the hover path nobody refreshed it, so it had drifted to
+`lastsel == 0` while the **source of truth** — the per-object `.sel` flags — still
+said "selected." The repair faithfully rendered a stale cache: nothing.
+
+This is the most common shape of view bugs everywhere — stale denormalized data,
+an un-invalidated memo, a UI framework that didn't re-render because its dependency
+list missed a field. The cure is always the same shape too:
+
+> **Paradigm — single source of truth.** Derived/cached state (`sel_array`) must
+> be **re-derived from the source of truth** (`.sel` flags) at the moment of use,
+> or invalidated when the source changes. The fix here — `rebuild_selected_array()`
+> immediately before the repair — re-derives at point of use. (The alternative,
+> invalidate-on-change, was the wrong trade here: selection changes rarely but the
+> repair path is reached often and from many callers, so deriving-on-use is both
+> simpler and harder to get wrong.)
+
+### 8.4 A fourth, quieter lesson: destructive erase needs honest repair
+
+The erase wiped a *whole bounding box* from the backing pixmap (a deliberate
+work-around, `fix_broken_tiled_fill`, for GPUs with broken tiled fills). That is
+fine **only if** every overlay it clobbers is faithfully repainted afterward. The
+hover code *tried* to (`draw_selection`, `draw_scope_highlight`) — it simply fed
+the repaint stale data. Whenever you "erase broadly, then restore selectively,"
+the restore step is load-bearing; test it against the model, not against a small,
+forgiving example (a tiny symbol's bbox barely overlaps anything — the
+giant annotation polygon's bbox overlapped *everything*, which is why this
+example exposed it and casual use did not).
+
+### Takeaways to carry forward
+
+1. "It does X" about a UI is a claim about pixels; "the state is X" is a different
+   claim. Separate them.
+2. Before fixing, bisect by layer with one model-querying experiment.
+3. A passing test that observes the wrong layer is not evidence about the bug.
+4. View bugs are usually cache-vs-truth drift; re-derive from the source of truth.
+5. Broad erase + selective repair: the repair is where the bug will hide.
