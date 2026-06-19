@@ -14,6 +14,50 @@ Newest entries on top.
 
 ---
 
+## Q15. Two instances are placed so that two of their pins sit on the same point (directly connected, no wire). One instance is then moved. The pins must STAY connected — so wire segments need to be generated. What support exists for this, and where is it on the wire-editing plan?
+
+- **Asked:** 2026-06-19
+- **Project state:** branch `fluid-editing` @ `bc0fdb66`. Wire-editing-on-move plan
+  (`code_analysis/wire_editing_spec_and_plan.md`): Phase 0 (scaffold) + Phase 1
+  (TC1–TC15 baseline) + Phase 2 (sub-grid tolerant match) landed; the new
+  `cadence_compat` modifier-drag feature is also in (`15dced84`).
+
+**The mechanism already exists — `connect_by_kissing()` (`actions.c:1163`) — but the
+drag path doesn't call it.** For each pin of the *moving* instance it scans (before the
+move) for a coincident **non-selected instance pin** (true abutment) or a touching
+wire; on a hit it inserts a zero-length wire anchored at that point (`storeobject(...,
+SELECTED1, ...)`), which the move then stretches into the connecting segment. Verified
+headlessly with two abutted `res.sym` pins at `(0,30)`, moving one by `(40,0)`:
+
+| Move | Result |
+|---|---|
+| `xschem move_objects 40 0 kissing` | one wire `{0 30 40 30}` — **connection kept** |
+| `xschem move_objects 40 0 stretch` | **0 wires — connection lost** |
+
+It fires when `xctx->connect_by_kissing == 2`, set by: the **`M`** move command
+(`callback.c:4053`) and **Ctrl+M** (`:4067`, move+stretch+kissing), an Alt-move and a
+duplicate path (`:4037`/`:3683`), scripted `move_objects … kissing`
+(`scheduler.c:3911`), and the **legacy intuitive Shift+drag** path (`:5272`).
+`move_objects` consumes it at move END (`move.c:619/1165`).
+
+**The gap:** the plain/stretch drag uses `select_attached_nets()`, which only stretches
+*existing* wires — so dragging an abutted instance silently disconnects it. And in
+**`cadence_compat`** mode the new drag branch maps plain→stretch, Ctrl→move,
+Shift→copy, so **no click-drag gesture sets the kissing flag** — the legacy Shift+drag
+that used to is now `copy`. So today this works only via the **`M` command** (or
+scripted `kissing`), not by dragging.
+
+**Where on the plan:** it was *not* a pre-existing test case. As of this commit it is
+**TC16 (Issue H / R20)**, folded into **Phase 3** — which now routes the plain /
+`cadence_compat` drag through `connect_by_kissing()`. Because that one function covers
+**both** the T-junction/mid-span case (TC5) and the pin-abutment case (TC16), a single
+Phase-3 change is positioned to turn both green *and* restore the kissing behavior
+cadence users lost. TC16's baseline test
+(`tests/headless/wireedit/test_wireedit_16_pin_abutment.tcl`) is RED on the drag path
+today.
+
+---
+
 ## Q14. Cadence supports both the verb-noun and noun-verb interaction grammars (like LTspice's verb-noun, plus the modern select-then-act). How big is the gap between XSCHEM and Cadence here?
 
 - **Asked:** 2026-06-15
