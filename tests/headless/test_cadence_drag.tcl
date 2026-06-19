@@ -162,7 +162,9 @@ proc click1 {x y mod} {
 set ::cadence_compat 1; set ::enable_stretch 1
 set ::intuitive_interface 1; xschem set intuitive_interface 1
 
-# 7a: a no-motion click on an abutted instance must NOT leave a stub wire
+# 7a: a no-motion click on an abutted instance must NOT leave a stub wire, and
+# must leave the instance SELECTED (the kiss abort's pop_undo clears selection;
+# the click handler must re-anchor it -- regression for wired-gate click).
 xschem clear force
 xschem instance {res.sym} 0 0 0 0 {}
 xschem instance {res.sym} 0 60 0 0 {}   ;# pins abut at (0,30)
@@ -171,6 +173,8 @@ lassign [inst_screen 0] sx sy
 click1 $sx $sy 0
 check "no-motion click on abutted instance leaves no stub wire" \
   [expr {[xschem get wires] == 0}]
+check "no-motion click on abutted (kissing) instance stays selected" \
+  [expr {[xschem get lastsel] == 1}]
 
 # 7b: click that kisses nothing must not leak the flag into a later Shift+copy
 xschem clear force

@@ -5337,17 +5337,25 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
 
    /* A plain intuitive press starts a move and may run connect_by_kissing(),
     * which inserts zero-length stub wires at kissed pins (to be stretched by the
-    * drag). If the gesture ends with NO motion it is just a click: abort the move
-    * here -- BEFORE the cadence deselect-others test below reads xctx->lastsel --
-    * so the kiss stub neither inflates the selection (spuriously triggering the
-    * deselect branch) nor survives as a degenerate wire. move_objects(ABORT)
-    * sweeps the stub via check_collapsing_objects(). Shift(copy)/Ctrl(detached or
-    * launcher) are handled by their own branches, so exclude them. Gestures WITH
-    * motion complete normally further down. */
+    * drag). If the gesture ends with NO motion it is just a select click: abort
+    * the move here -- BEFORE the cadence deselect-others test below reads
+    * xctx->lastsel -- so the kiss stub neither inflates the selection (spuriously
+    * triggering the deselect branch) nor survives as a degenerate wire.
+    * move_objects(ABORT) sweeps the stub via check_collapsing_objects().
+    * Shift(copy)/Ctrl(detached or launcher) have their own branches, so exclude
+    * them; gestures WITH motion complete normally further down. */
    if(intuitive && (xctx->ui_state & STARTMOVE) && xctx->drag_elements &&
       !xctx->mouse_moved && !(state & (ShiftMask | ControlMask))) {
      move_objects(ABORT, 0, 0.0, 0.0);
      xctx->drag_elements = 0;
+     /* When a kiss happened, ABORT's pop_undo cleared the selection; a click must
+      * leave the clicked object selected, so re-select what is under the cursor.
+      * When nothing was kissed the selection is intact, so leave it untouched
+      * (preserves the normal click / multi-select-then-isolate behavior). */
+     if(xctx->lastsel == 0) {
+       select_object(xctx->mousex, xctx->mousey, SELECTED, 0, NULL);
+       rebuild_selected_array();
+     }
    }
 
    /* launcher, no intuitive interface */
