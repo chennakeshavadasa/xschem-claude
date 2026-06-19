@@ -5004,7 +5004,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
 static void handle_button_press(int event, int state, int rstate, KeySym key, int button, int mx, int my,
                                 double c_snap, int draw_xhair, int crosshair_size, int enable_stretch,
-                                int tabbed_interface, const char *win_path, int aux)
+                                int cadence_compat, int tabbed_interface, const char *win_path, int aux)
 {
    int use_cursor_for_sel = tclgetintvar("use_cursor_for_selection");
    int excl = xctx->ui_state & (STARTWIRE | STARTRECT | STARTLINE | STARTPOLYGON | STARTARC);
@@ -5152,6 +5152,9 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        int already_selected = 0;
        int prev_last_sel = xctx->lastsel;
        int no_shift_no_ctrl = !(state & (ShiftMask | ControlMask));
+       /* cadence_compat forces the intuitive interface (Cadence-style direct
+        * click-drag to move/copy objects), spec specs/cadence_modifier_drag.md */
+       int intuitive = xctx->intuitive_interface || cadence_compat;
 
        xctx->shape_point_selected = 0;
        xctx->mx_save = mx; xctx->my_save = my;
@@ -5170,7 +5173,7 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        /* In *NON* intuitive interface
         * a button1 press with no modifiers will first unselect everything...
         * For intuitive interface unselection see below... */
-       if(!xctx->intuitive_interface && no_shift_no_ctrl) unselect_all(1);
+       if(!intuitive && no_shift_no_ctrl) unselect_all(1);
 
        /* find closest object. Use snap coordinates if full crosshair is enabled
         * since the mouse pointer is obscured and crosshair is snapped to grid points */
@@ -5193,18 +5196,18 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        } /*end switch */
 
        /* Clicking and drag on an instance pin -> drag a new wire */
-       if(xctx->intuitive_interface && !already_selected) {
+       if(intuitive && !already_selected) {
          if(add_wire_from_inst(&sel, xctx->mousex_snap, xctx->mousey_snap)) return;
        }
 
        /* Clicking and drag on a wire end -> drag a new wire */
-       if(xctx->intuitive_interface && !already_selected) {
+       if(intuitive && !already_selected) {
          if(add_wire_from_wire(&sel, xctx->mousex_snap, xctx->mousey_snap)) return;
        }
 
        /* In intuitive interface a button1 press with no modifiers will
         *  unselect everything... we do it here */
-       if(xctx->intuitive_interface && !already_selected && no_shift_no_ctrl )  unselect_all(1);
+       if(intuitive && !already_selected && no_shift_no_ctrl )  unselect_all(1);
 
        /* select the object under the mouse and rebuild the selected array */
        if(!already_selected) select_object(xctx->mousex, xctx->mousey, SELECTED, 0, &sel);
@@ -5216,7 +5219,7 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        if(xctx->lastsel == 1 && xctx->sel_array[0].type==POLYGON) {
          if(edit_polygon_point(state)) return; /* sets xctx->shape_point_selected */
        }
-       if(xctx->lastsel == 1 && xctx->intuitive_interface) {
+       if(xctx->lastsel == 1 && intuitive) {
          int cond = already_selected;
 
          if(cond && xctx->sel_array[0].type==xRECT) {
@@ -5234,28 +5237,46 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        dbg(1, "shape_point_selected=%d, lastsel=%d\n", xctx->shape_point_selected, xctx->lastsel);
 
        /* intuitive interface: directly drag elements */
-       if(sel.type && xctx->intuitive_interface && xctx->lastsel >= 1 &&
+       if(sel.type && intuitive && xctx->lastsel >= 1 &&
           !xctx->shape_point_selected) {
-         /* enable_stretch (from TCL variable) reverses command if enabled:
-          * - move --> stretch move
-          * - stretch move (with ctrl key) --> move
-          */
-         int stretch = (state & ControlMask ? 1 : 0) ^ enable_stretch;
          xctx->drag_elements = 1;
-         /* select attached nets depending on ControlMask and enable_stretch */
-         if(stretch && !(state & ShiftMask)) {
-           select_attached_nets(); /* stretch nets that land on selected instance pins */
+         if(cadence_compat) {
+           /* Cadence-style modifier-drag (spec specs/cadence_modifier_drag.md),
+            * INDEPENDENT of enable_stretch:
+            *   plain  -> attached move (wires follow)
+            *   Ctrl   -> detached move (wires left behind)
+            *   Shift  -> copy
+            * T-junction (connect_by_kissing) following is deferred to the
+            * wire-follow work; the plain move uses select_attached_nets() only. */
+           if(state & ShiftMask) {
+             copy_objects(START);
+           } else if(state & ControlMask) {
+             move_objects(START,0,0,0);
+           } else {
+             select_attached_nets(); /* nets that land on selected instance pins follow */
+             move_objects(START,0,0,0);
+           }
+         } else {
+           /* enable_stretch (from TCL variable) reverses command if enabled:
+            * - move --> stretch move
+            * - stretch move (with ctrl key) --> move
+            */
+           int stretch = (state & ControlMask ? 1 : 0) ^ enable_stretch;
+           /* select attached nets depending on ControlMask and enable_stretch */
+           if(stretch && !(state & ShiftMask)) {
+             select_attached_nets(); /* stretch nets that land on selected instance pins */
+           }
+           /* if dragging instances with stretch enabled and Shift down add wires to pins
+            * attached to something */
+           if((state & ShiftMask) && stretch) {
+             xctx->connect_by_kissing = 2; /* 2 will be used to reset var to 0 at end of move */
+             move_objects(START,0,0,0);
+           }
+           /* dragging away an object with Shift pressed is a copy (duplicate object) */
+           else if(state & ShiftMask) copy_objects(START);
+           /* else it is a normal move */
+           else move_objects(START,0,0,0);
          }
-         /* if dragging instances with stretch enabled and Shift down add wires to pins
-          * attached to something */
-         if((state & ShiftMask) && stretch) {
-           xctx->connect_by_kissing = 2; /* 2 will be used to reset var to 0 at end of move */
-           move_objects(START,0,0,0);
-         }
-         /* dragging away an object with Shift pressed is a copy (duplicate object) */
-         else if(state & ShiftMask) copy_objects(START);
-         /* else it is a normal move */
-         else move_objects(START,0,0,0);
        }
 
        if(tclgetboolvar("auto_hilight") && !xctx->shape_point_selected) {
@@ -5281,6 +5302,9 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
                                   int cadence_compat, int snap_cursor, int wire_draw_active)
 {
    char str[PATH_MAX + 100];
+   /* cadence_compat forces the intuitive interface (matches handle_button_press),
+    * spec specs/cadence_modifier_drag.md */
+   int intuitive = xctx->intuitive_interface || cadence_compat;
    if(waves_selected(event, key, state, button)) {
      waves_callback(event, mx, my, key, button, aux, state);
      return;
@@ -5303,7 +5327,7 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
    }
 
    /* launcher, no intuitive interface */
-   if(!xctx->intuitive_interface && state == (Button1Mask | ControlMask) &&
+   if(!intuitive && state == (Button1Mask | ControlMask) &&
       !xctx->shape_point_selected && xctx->mouse_moved == 0) {
      int savesem = xctx->semaphore;
      xctx->semaphore = 0;
@@ -5312,7 +5336,7 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
    }
 
    /* launcher, intuitive_interface, only if no movement has been done */
-   else if(xctx->intuitive_interface && state == (Button1Mask | ControlMask) &&
+   else if(intuitive && state == (Button1Mask | ControlMask) &&
       !xctx->shape_point_selected && (xctx->ui_state & STARTMOVE) && xctx->mouse_moved == 0) {
      int savesem = xctx->semaphore;
      move_objects(ABORT, 0, 0.0, 0.0);
@@ -5350,7 +5374,7 @@ static void handle_button_release(int event, KeySym key, int state, int button, 
    }
 
    /* end wire creation when dragging in intuitive interface from an inst pin or wire endpoint */
-   else if(state == Button1Mask && xctx->intuitive_interface && !tclgetboolvar("persistent_command")
+   else if(state == Button1Mask && intuitive && !tclgetboolvar("persistent_command")
         && (xctx->ui_state & STARTWIRE) && !(xctx->ui_state & MENUSTART)) {
      if(end_place_move_copy_zoom()) return;
    }
@@ -5739,8 +5763,8 @@ int callback(const char *win_path, int event, int mx, int my, KeySym key, int bu
 
    case ButtonPress:
      handle_button_press(event, state, rstate, key, button, mx, my,
-                         c_snap, draw_xhair, crosshair_size, enable_stretch, tabbed_interface,
-                         win_path, aux);
+                         c_snap, draw_xhair, crosshair_size, enable_stretch, cadence_compat,
+                         tabbed_interface, win_path, aux);
      break;
 
    case ButtonRelease:
