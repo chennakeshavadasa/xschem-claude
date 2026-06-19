@@ -181,6 +181,7 @@ Legend for diagrams: `o` pin, `●` wire endpoint, `─ │` wire, `→` move di
 | TC13 | multi-component rigid move | R5 | — |
 | TC14 | undo restores geometry | R17 | G2 |
 | TC15 | far end on fixed pin | R18 | G3 |
+| TC16 | pin-to-pin abutment generates wire | R20 | H |
 
 ### TC1 — stretch toggle OFF
 `enable_stretch 0`. Device at `(0,0)`, wire `(0,30)-(0,130)` on pin M. Move device by
@@ -269,6 +270,26 @@ device1 (moving) pin M `(0,30)`, device2 (**fixed**) pin at `(0,130)`, wire
 the wire keeps **both** connections — it must NOT translate off device2's pin; a jog
 appears so `(0,130)` stays on device2 and the moved end reaches `(40,30)`.
 
+### TC16 — pin-to-pin abutment generates a wire *(Issue H → R20; RED on the drag path)*
+device1 pin M `(0,30)`, device2 pin P `(0,30)` — the two pins are **directly
+coincident** (abutted), connected with **no wire between them**. Select device1 only,
+move it by `(40,0)`. **Expect:** a wire is **generated** to keep the pins connected —
+`(0,30)-(40,30)` (device2's pin stays at `(0,30)`, the moved pin reaches `(40,30)`).
+**Status:** the mechanism exists — `connect_by_kissing()` produces exactly this wire,
+*verified* via the `kissing` move (`xschem move_objects 40 0 kissing` ⇒ one wire
+`{0 30 40 30}`). But the **drag / stretch path does not call it**
+(`xschem move_objects 40 0 stretch` ⇒ 0 wires, connection lost), and in
+`cadence_compat` mode no click-drag gesture sets the kissing flag (the legacy
+Shift+drag that did is now `copy`). So TC16 is RED on the drag path today, GREEN only
+via the explicit `M` command / scripted `kissing`. Fix is Phase 3 (route the
+plain/stretch drag through `connect_by_kissing()`).
+
+> **Issue H (new) — pin-to-pin abutment dropped on drag.** Two abutted device pins
+> (no wire) are a legitimate connection; `connect_by_kissing()` already regenerates a
+> wire on move, but only the `M`-command/`kissing` path triggers it. The intuitive
+> drag (and the new `cadence_compat` drag) use `select_attached_nets()`, which stretches
+> existing wires only — so dragging an abutted instance silently disconnects it.
+
 ---
 
 ## Part IV — RED-first work plan (atomic steps)
@@ -327,6 +348,7 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
 | TC13 | multi-component rigid move | R5 | 🟢 GREEN (guard) | — |
 | TC14 | undo restores geometry | R17 | 🟢 GREEN (guard) | — |
 | TC15 | far end on fixed pin | R18 | 🟢 GREEN (guard) | — |
+| TC16 | pin-to-pin abutment generates wire | H/R20 | 🔴 RED (drag path) | 3 |
 
 **Findings beyond the predicted map:**
 - **TC3 is already GREEN** — with `orthogonal_wiring` on, a perpendicular move of a
@@ -355,14 +377,23 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
   tolerant ≡ `==`), stable_handles 58 PASS. Sabotage-verified (tol→0 reddens TC4).
   Test fixtures pin `cadsnap 10` in `we_reset` for a deterministic tolerance.
 
-### Phase 3 — T-junction follow *(Issue C → R4; TC5)*
-- **3.1** RED: TC5 fails (mid-span wire not selected).
-- **3.2** Decide approach (open the choice in the test's expected geometry first):
+### Phase 3 — T-junction follow + pin abutment *(Issues C & H → R4/R20; TC5, TC16)*
+- **3.1** RED: TC5 fails (mid-span wire not selected); TC16 fails on the drag/stretch
+  path (abutted pins disconnect — no wire generated).
+- **3.2** Decide approach (open the choice in the tests' expected geometry first):
   (a) add a point-on-segment (`touch()`) branch to `select_attached_nets()` that adds
-  a kissing-style stub at the pin; or (b) route the plain-drag path through the
-  existing `connect_by_kissing()`. Prefer reusing (b) if it yields the desired
-  geometry.
-- **3.3** GREEN: TC5. **Guard:** TC2/TC11 + golden harness.
+  a kissing-style stub at the pin; or (b) route the plain-drag/stretch path through the
+  existing `connect_by_kissing()`. **Prefer (b)** — `connect_by_kissing()` already
+  handles **both** the mid-span/T-junction (TC5) *and* the pin-to-pin abutment (TC16)
+  in one mechanism (its first loop is the pin-pin case, its second the wire-touch
+  case). Verified: `kissing` move regenerates the abutment wire; `stretch` does not.
+- **3.3** GREEN: TC5 **and** TC16. **Wire it into the gesture:** the intuitive
+  plain-drag and the `cadence_compat` plain-drag should set the kissing flag (or call
+  `connect_by_kissing()`) alongside `select_attached_nets()`, so abutment/T-junction
+  follow on a normal drag — this also restores what `cadence_compat` lost when
+  Shift+drag became `copy` (see [[cadence-modifier-drag]]). **Guard:** TC2/TC11/TC13
+  (rigid multi-move must not spuriously kiss its own selected pins — `connect_by_kissing`
+  already skips selected instances) + golden harness.
 
 ### Phase 4 — Corner-slide rubber-band *(Issues D1/D2/D4 → R7/R8; TC6, guard TC15)*
 - **4.1** RED: TC6 fails (frozen corner + spurious stub; wire count grows).
