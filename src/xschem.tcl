@@ -10963,6 +10963,11 @@ proc build_widgets { {topwin {} } } {
   $topwin.menubar.option add checkbutton -label "Intuitive Click & Drag interface" \
     -variable intuitive_interface -selectcolor $selectcolor \
     -command {xschem set intuitive_interface $intuitive_interface}
+  # cadence_compat is read fresh from this Tcl variable by the C side, so the
+  # checkbutton needs no extra notify. Turning it on also enables Auto Join/Trim
+  # Wires via the cadence_compat write-trace (see cadence_compat_sync).
+  $topwin.menubar.option add checkbutton -label "Cadence Compatible" \
+    -variable cadence_compat -selectcolor $selectcolor
 
   $topwin.menubar.option add cascade -label "Crosshair" \
        -menu $topwin.menubar.option.crosshair
@@ -12414,4 +12419,17 @@ trace add variable XSCHEM_LIBRARY_PATH write trace_set_vars
 # trigger file_chooser update
 trace add variable new_file_browser_depth write trace_set_vars
 trace add variable new_file_browser_ext write trace_set_vars
+
+# Cadence-compatible mode bundles in "Auto Join/Trim Wires": whenever cadence_compat
+# is turned on -- from the Options menu, an rc file, or a startup --script -- also
+# enable autotrim_wires. One-directional (turning cadence_compat off leaves
+# autotrim_wires as the user set it). The trace covers values set AFTER this point
+# (e.g. a --script); the explicit call below covers a value already set during
+# startup (e.g. an rcfile sourced before this line).
+proc cadence_compat_sync {args} {
+  global cadence_compat autotrim_wires
+  if {$cadence_compat == 1} { set autotrim_wires 1 }
+}
+trace add variable cadence_compat write cadence_compat_sync
+cadence_compat_sync
 
