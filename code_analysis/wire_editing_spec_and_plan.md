@@ -305,11 +305,44 @@ golden harness (which sets neither) green.
   - **Run from REPO ROOT** under X: `DISPLAY=:0 src/xschem --pipe -q --nolog --script
     tests/headless/wireedit/<t>.tcl` (fixture paths are CWD-relative).
 
-### Phase 1 — Baseline characterization *(tests only; no product code)*
-Write TC1–TC15 asserting **desired** behavior; run against current binary; record the
-RED/GREEN map. Expected today: TC2, TC13, TC14 GREEN (or close); TC4, TC5, TC6, TC10
-RED; TC1/TC11/TC15 establish guards. One atomic commit per test file. *Output: the
-authoritative work-list — only proceed on confirmed-RED items.*
+### Phase 1 — Baseline characterization *(tests only; no product code)* — ✅ DONE
+TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, asserting
+**desired** behavior, run against the current binary. **Authoritative RED/GREEN map
+(2026-06-19):**
+
+| TC | Behavior | Issue | Status | Phase to fix |
+|----|----------|-------|--------|------|
+| TC1 | stretch OFF → no follow | A | 🟢 GREEN (guard) | — |
+| TC2 | parallel stretch | — | 🟢 GREEN (control) | — |
+| TC3 | perpendicular lone wire L-jog | D | 🟢 **GREEN** | — (ortho already handles it) |
+| TC4 | sub-grid endpoint follows | B | 🔴 RED | 2 |
+| TC5 | T-junction follows | C | 🔴 RED | 3 |
+| TC6 | corner-slide | D1/D2 | 🔴 RED (4 checks) | 4 |
+| TC7 | colinear merge | R10 | 🔴 RED | 5 |
+| TC8 | duplicate/overlap removal | R11 | 🔴 RED | 5 |
+| TC9 | move-orphaned stub removal | R12 | 🔴 RED | 5 |
+| TC10 | exit-stub preserved | E | 🔴 RED | 6 |
+| TC11 | two nets, no over-grab | R16 | 🟢 GREEN (guard) | — |
+| TC12 | bus rubber-band, lab kept | R19 | 🔴 **RED** | (new gap, see below) |
+| TC13 | multi-component rigid move | R5 | 🟢 GREEN (guard) | — |
+| TC14 | undo restores geometry | R17 | 🟢 GREEN (guard) | — |
+| TC15 | far end on fixed pin | R18 | 🟢 GREEN (guard) | — |
+
+**Findings beyond the predicted map:**
+- **TC3 is already GREEN** — with `orthogonal_wiring` on, a perpendicular move of a
+  *lone* wire already produces a clean 2-segment Manhattan L-jog (far end fixed). The
+  Issue-D defect is specifically the **corner-slide** (TC6, a *pre-existing* corner
+  freezes), not the lone-wire case. Narrows Phase 4's scope.
+- **TC15 (R18) is GREEN** at the guard level — the stretch move keeps *both* endpoints
+  (far end stays on the fixed pin). The assertion is intentionally weak (endpoints
+  present, not full 2-segment Manhattan); Phase 4 should tighten it.
+- **TC12 RED is a real, newly-confirmed gap:** the stretch move **drops the wire's
+  property** — a bus wire labeled `lab=A[3:0]` stretches geometrically to
+  `(0,70)-(0,130)` but its prop becomes `{}` (verified via `saveas`:
+  `N 0 70 0 130 {}`). This is prop-preservation on the move path, not wire-follow
+  geometry; schedule as its own small fix (likely `move.c`), not in Phases 2–6.
+
+*The 8 RED items are the work-list; `run_wireedit.sh` stays non-zero until they land.*
 
 ### Phase 2 — Sub-grid tolerant match *(Issue B → R3; TC4)*  — smallest, contained
 - **2.1** RED: TC4 fails (exact `==` drops `(0,31)`).

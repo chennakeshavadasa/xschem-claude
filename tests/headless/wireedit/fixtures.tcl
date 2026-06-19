@@ -34,8 +34,10 @@ proc we_reset {{stretch 0} {ortho 0}} {
 # a 2-pin res.sym at (X,Y); pins P=(X,Y-30), M=(X,Y+30)
 proc we_device {X Y {rot 0} {flip 0}} { xschem instance {res.sym} $X $Y $rot $flip {} }
 proc we_wire {x1 y1 x2 y2 {prop {}}} {
+  # `xschem wire x1 y1 x2 y2 [pos] [prop]` -- prop is the 6th arg, so a pos (-1 =
+  # append) must precede it; passing prop in the pos slot silently drops it.
   if {$prop eq {}} { xschem wire $x1 $y1 $x2 $y2 } \
-  else { xschem wire $x1 $y1 $x2 $y2 $prop }
+  else { xschem wire $x1 $y1 $x2 $y2 -1 $prop }
 }
 
 # --- geometry readback (order-independent) ---------------------------------
@@ -59,6 +61,26 @@ proc segset {} {
 # is the segment with the given endpoints present (in any endpoint order)?
 proc has_seg {x1 y1 x2 y2} {
   expr {[lsearch -exact [segset] [we_norm [list $x1 $y1 $x2 $y2]]] >= 0}
+}
+# number of wires (convenience)
+proc nwires {} { xschem get wires }
+# does any wire have an endpoint exactly at (x,y)?
+proc has_endpoint {x y} {
+  set nw [xschem get wires]
+  for {set i 0} {$i < $nw} {incr i} {
+    lassign [xschem wire_coord $i] x1 y1 x2 y2
+    if {($x1 == $x && $y1 == $y) || ($x2 == $x && $y2 == $y)} { return 1 }
+  }
+  return 0
+}
+# is every wire axis-aligned (horizontal or vertical, i.e. Manhattan)?
+proc all_manhattan {} {
+  set nw [xschem get wires]
+  for {set i 0} {$i < $nw} {incr i} {
+    lassign [xschem wire_coord $i] x1 y1 x2 y2
+    if {$x1 != $x2 && $y1 != $y2} { return 0 }
+  }
+  return 1
 }
 
 # --- net membership --------------------------------------------------------
