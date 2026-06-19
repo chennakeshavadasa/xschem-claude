@@ -344,13 +344,16 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
 
 *The 8 RED items are the work-list; `run_wireedit.sh` stays non-zero until they land.*
 
-### Phase 2 — Sub-grid tolerant match *(Issue B → R3; TC4)*  — smallest, contained
-- **2.1** RED: TC4 fails (exact `==` drops `(0,31)`).
-- **2.2** Implement: in `select_attached_nets()` replace the four `==` endpoint tests
-  with a tolerant compare (`|Δ|≤ tol`, `tol = cadsnap/2`, floor to near-exact if snap
-  ≤0). Contained to `select.c`.
-- **2.3** GREEN: TC4. **Guard:** TC11 (tolerance must not merge the 20-apart net) +
-  golden harness (clean designs unaffected: exact endpoints ⇒ tolerant ≡ `==`).
+### Phase 2 — Sub-grid tolerant match *(Issue B → R3; TC4)* — ✅ DONE
+- **2.1** ✅ RED confirmed at the Phase-1 baseline (exact `==` dropped `(0,31)`).
+- **2.2** ✅ `select.c`: new `endpoint_near(ax,ay,bx,by,tol)` (|Δx|≤tol && |Δy|≤tol);
+  `select_attached_nets()` computes `tol = cadsnap/2` (floored to `1e-6` when snap
+  ≤0) and the four `==` endpoint tests now call `endpoint_near`. Contained to
+  `select.c`.
+- **2.3** ✅ GREEN: TC4. **Guards GREEN:** TC11 (20-apart net not grabbed; tol=5 at
+  cadsnap=10), golden harness PASS (clean designs unaffected — exact endpoints ⇒
+  tolerant ≡ `==`), stable_handles 58 PASS. Sabotage-verified (tol→0 reddens TC4).
+  Test fixtures pin `cadsnap 10` in `we_reset` for a deterministic tolerance.
 
 ### Phase 3 — T-junction follow *(Issue C → R4; TC5)*
 - **3.1** RED: TC5 fails (mid-span wire not selected).

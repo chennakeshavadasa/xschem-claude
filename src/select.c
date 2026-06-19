@@ -1314,14 +1314,26 @@ Selected select_object(double mx,double my, unsigned short select_mode,
 }
 
 /* Partial-select wire ends that land on instance pins  and selected nets */
+/* tolerant point match for sub-grid endpoints (Issue B): a wire endpoint snapped
+ * NEAR a pin (sub-grid jitter, fractional pin coord) still counts as attached, so
+ * a stretch move carries it. Tolerance = cadsnap/2 (floored to near-exact when
+ * snap <= 0). In clean grid-aligned designs endpoints sit exactly on pins, so
+ * this is equivalent to the old exact `==` test there. */
+static int endpoint_near(double ax, double ay, double bx, double by, double tol)
+{
+  return fabs(ax - bx) <= tol && fabs(ay - by) <= tol;
+}
+
 void select_attached_nets(void)
 {
   int wire, inst, j, i, rects, r, sqx, sqy;
-  double x0, y0;
+  double x0, y0, tol;
   Wireentry *wptr;
 
   hash_wires();
   rebuild_selected_array();
+  tol = tclgetdoublevar("cadsnap") / 2.0;
+  if(tol < 1e-6) tol = 1e-6;
 
   for(j=0;j<xctx->lastsel; ++j) {
     if(xctx->sel_array[j].type==ELEMENT) {
@@ -1334,10 +1346,10 @@ void select_attached_nets(void)
           get_square(x0, y0, &sqx, &sqy);
           for(wptr=xctx->wire_spatial_table[sqx][sqy]; wptr; wptr=wptr->next) {
             i = wptr->n;
-            if(xctx->wire[i].x1 == x0 &&  xctx->wire[i].y1 == y0) {
+            if(endpoint_near(xctx->wire[i].x1, xctx->wire[i].y1, x0, y0, tol)) {
                select_wire(i,SELECTED1, 1, 0);
             }
-            if(xctx->wire[i].x2 == x0 &&  xctx->wire[i].y2 == y0) {
+            if(endpoint_near(xctx->wire[i].x2, xctx->wire[i].y2, x0, y0, tol)) {
                select_wire(i,SELECTED2, 1, 0);
             }
           }
@@ -1360,10 +1372,10 @@ void select_attached_nets(void)
         for(wptr=xctx->wire_spatial_table[sqx][sqy]; wptr; wptr=wptr->next) {
           i = wptr->n;
           if(i == wire) continue;
-          if(xctx->wire[i].x1 == x0 &&  xctx->wire[i].y1 == y0) {
+          if(endpoint_near(xctx->wire[i].x1, xctx->wire[i].y1, x0, y0, tol)) {
              select_wire(i,SELECTED1, 1, 0);
           }
-          if(xctx->wire[i].x2 == x0 &&  xctx->wire[i].y2 == y0) {
+          if(endpoint_near(xctx->wire[i].x2, xctx->wire[i].y2, x0, y0, tol)) {
              select_wire(i,SELECTED2, 1, 0);
           }
         }

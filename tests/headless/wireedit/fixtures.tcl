@@ -30,6 +30,7 @@ proc we_reset {{stretch 0} {ortho 0}} {
   xschem clear force
   uplevel #0 [list set enable_stretch $stretch]
   uplevel #0 [list set orthogonal_wiring $ortho]
+  uplevel #0 {set cadsnap 10}   ;# spec snap grid = 10 (=> sub-grid tolerance 5)
 }
 # a 2-pin res.sym at (X,Y); pins P=(X,Y-30), M=(X,Y+30)
 proc we_device {X Y {rot 0} {flip 0}} { xschem instance {res.sym} $X $Y $rot $flip {} }
