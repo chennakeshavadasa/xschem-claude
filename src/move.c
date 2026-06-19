@@ -1142,6 +1142,93 @@ static void place_moved_wire(int n, int orthogonal_wiring)
   }
 }
 
+/* is (x,y) on a pin of a FIXED (non-selected, i.e. non-moving) instance? */
+static int point_on_fixed_pin(double x, double y)
+{
+  int inst, r, rects;
+  double px, py;
+  for(inst = 0; inst < xctx->instances; inst++) {
+    if(xctx->inst[inst].sel) continue;       /* skip moving instances */
+    if(xctx->inst[inst].ptr < 0) continue;
+    rects = (xctx->inst[inst].ptr + xctx->sym)->rects[PINLAYER];
+    for(r = 0; r < rects; r++) {
+      get_inst_pin_coord(inst, r, &px, &py);
+      if(px == x && py == y) return 1;
+    }
+  }
+  return 0;
+}
+
+/* Corner-slide (wire-editing Phase 4, Issues D1/D2/D4 -> R7/R8). After a stretch
+ * move has partially selected the wires attached to the moved pins (one endpoint
+ * each, via select_attached_nets()), a wire that runs PERPENDICULAR to the move
+ * and forms a CORNER with another wire should SLIDE: translate so the corner moves
+ * with the pin, rather than freezing while place_moved_wire() grows a jog stub at
+ * the moved end (the "frozen corner + spurious stub" of Issue D1/D2).
+ *
+ * Rule, iterated to a fixpoint so a chain of corners slides together:
+ *   - take each partially-selected (single-endpoint) wire perpendicular to the move;
+ *   - if its FAR (non-moving) endpoint sits on a FIXED instance pin, leave it alone
+ *     -> it must JOG to keep that connection (guard R18/TC15);
+ *   - else if the far endpoint is a free dangling end (no other wire there), leave
+ *     it alone -> it JOGS, anchoring the free end (TC3);
+ *   - else (the far end meets another wire = a corner) PROMOTE it to a full
+ *     selection so both endpoints translate, and select the coincident endpoint of
+ *     every neighbour wire at that corner so they stretch to follow (R2).
+ *
+ * Caller guards this to orthogonal-wiring, axis-aligned, non-rotating moves.
+ * Uses xctx->deltax/deltay only to know the move axis. Rebuilds sel_array so the
+ * move-commit loop visits the promoted/propagated wires. */
+static void compute_wire_slide(void)
+{
+  int n, m, changed;
+  double fx, fy;                        /* far (non-moving) endpoint of wire n */
+  int dxnz = (xctx->deltax != 0.0);     /* horizontal move */
+  int dynz = (xctx->deltay != 0.0);     /* vertical move */
+  xWire * const wire = xctx->wire;
+
+  if(dxnz == dynz) return;              /* not a pure axis-aligned move: nothing to do */
+
+  do {
+    changed = 0;
+    for(n = 0; n < xctx->wires; n++) {
+      int has_corner = 0;
+      /* only single-endpoint (stretching) wires; SELECTED (full) and 0 are skipped */
+      if(wire[n].sel != SELECTED1 && wire[n].sel != SELECTED2) continue;
+      /* perpendicular to the move? vertical move -> horizontal wire, and vice-versa */
+      if(dynz && wire[n].y1 != wire[n].y2) continue;
+      if(dxnz && wire[n].x1 != wire[n].x2) continue;
+      /* far endpoint = the one NOT selected */
+      if(wire[n].sel == SELECTED1) { fx = wire[n].x2; fy = wire[n].y2; }
+      else                         { fx = wire[n].x1; fy = wire[n].y1; }
+      /* never slide a wire off a fixed pin -> let it jog (keeps the connection) */
+      if(point_on_fixed_pin(fx, fy)) continue;
+      /* a corner needs another wire endpoint coincident with the far end */
+      for(m = 0; m < xctx->wires; m++) {
+        if(m == n) continue;
+        if((wire[m].x1 == fx && wire[m].y1 == fy) ||
+           (wire[m].x2 == fx && wire[m].y2 == fy)) { has_corner = 1; break; }
+      }
+      if(!has_corner) continue;        /* free dangling far end -> jog (TC3) */
+
+      /* slide: translate this wire, drag the neighbour endpoints at the corner */
+      wire[n].sel = SELECTED;
+      changed = 1;
+      for(m = 0; m < xctx->wires; m++) {
+        if(m == n) continue;
+        if(wire[m].x1 == fx && wire[m].y1 == fy && !(wire[m].sel & (SELECTED | SELECTED1))) {
+          select_wire(m, SELECTED1, 3, 0); changed = 1;
+        }
+        if(wire[m].x2 == fx && wire[m].y2 == fy && !(wire[m].sel & (SELECTED | SELECTED2))) {
+          select_wire(m, SELECTED2, 3, 0); changed = 1;
+        }
+      }
+    }
+  } while(changed);
+
+  rebuild_selected_array();
+}
+
 /* merge param unused, RFU */
 void move_objects(int what, int merge, double dx, double dy)
 {
@@ -1258,6 +1345,14 @@ void move_objects(int what, int merge, double dx, double dy)
    firsti = firstw = 1;
    draw_selection(xctx->gctiled,0);
    update_symbol_bboxes(0, 0);
+   /* corner-slide rubber-band (wire-editing Phase 4): on an orthogonal, axis-aligned,
+    * non-rotating move, let perpendicular attached wires forming a corner SLIDE with
+    * the pin instead of jogging at the moved end. Modifies/propagates the wire
+    * selection and rebuilds sel_array, so it must run before the commit loop. */
+   if(orthogonal_wiring && xctx->move_rot == 0 && xctx->move_flip == 0 &&
+      ((xctx->deltax != 0.0) != (xctx->deltay != 0.0))) {
+     compute_wire_slide();
+   }
    for(k=0;k<cadlayers; ++k)
    {
     for(i=0;i<xctx->lastsel; ++i)

@@ -338,7 +338,7 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
 | TC3 | perpendicular lone wire L-jog | D | 🟢 **GREEN** | — (ortho already handles it) |
 | TC4 | sub-grid endpoint follows | B | 🟢 **GREEN** (Phase 2 done) | 2 |
 | TC5 | T-junction follows | C | 🟢 **GREEN** (Phase 3 done) | 3 |
-| TC6 | corner-slide | D1/D2 | 🔴 RED (4 checks) | 4 |
+| TC6 | corner-slide | D1/D2 | 🟢 **GREEN** (Phase 4 done) | 4 |
 | TC7 | colinear merge | R10 | 🔴 RED | 5 |
 | TC8 | duplicate/overlap removal | R11 | 🔴 RED | 5 |
 | TC9 | move-orphaned stub removal | R12 | 🔴 RED | 5 |
@@ -406,7 +406,19 @@ TC1/2/3/4/11/13/14/15, golden harness, stable_handles 58, test_cadence_drag 12.
   (rigid multi-move must not spuriously kiss its own selected pins — `connect_by_kissing`
   already skips selected instances) + golden harness.
 
-### Phase 4 — Corner-slide rubber-band *(Issues D1/D2/D4 → R7/R8; TC6, guard TC15)*
+### Phase 4 — Corner-slide rubber-band ✅ DONE *(Issues D1/D2/D4 → R7/R8; TC6, guard TC15)*
+**Status: COMPLETE (`compute_wire_slide()`, move.c).** At move END — guarded to
+`orthogonal_wiring` + axis-aligned (`(dx!=0) != (dy!=0)`) + non-rotating — a fixpoint
+promotes each partially-selected wire that (a) runs **perpendicular** to the move and
+(b) whose **far** endpoint meets another wire (a corner) and is **not** on a fixed pin,
+to a **full** selection so it *translates* (slides) instead of jogging at the moved
+end; neighbour endpoints at the corner are selected so they stretch to follow (R2).
+Far end on a fixed pin → left partial → jogs (R18/TC15); free dangling far end → jogs
+(TC3). TC6 RED→GREEN (5/5, reproduces `desired2`); the horizontal sibling slides clean
+too (stub translates, rail stretches, 2 wires Manhattan). Sabotage-verified (disable
+the call → TC6 reddens 4/5). Guards green: wireedit TC1–5/11/13–16, golden harness,
+stable_handles 58, test_cadence_drag 16. *Residue:* complex multi-rail horizontal
+moves may leave an overlapping segment → Phase 5 cleanup.
 - **4.1** RED: TC6 fails (frozen corner + spurious stub; wire count grows).
 - **4.2** RED: TC15 fails *(or* is at-risk*)* — assert the fixed-pin connection is kept.
 - **4.3** Implement `compute_wire_slide(dx,dy)` at `move_objects(END)`, **guarded** to
