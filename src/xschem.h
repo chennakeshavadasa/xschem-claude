@@ -1093,6 +1093,19 @@ typedef struct {
   double prev_rubberx, prev_rubbery;
   /* a wire was created while separating a component frm a net or another component */
   int kissing;
+  /* set by select_attached_nets(): the in-progress move is a STRETCH move (attached
+   * wires were rubber-banded). Consumed at move_objects(END) to run release-time
+   * cleanup (trim_wires merge/dedup + move-scoped orphan removal) regardless of the
+   * autotrim_wires preference (wire-editing Phase 5). Cleared at END/ABORT. */
+  int stretch_select;
+  /* endpoint coordinates (x,y pairs) of the wires grabbed by the in-progress stretch
+   * move, captured in select_attached_nets() before the commit re-creates the wires
+   * (which re-mints ids and resets sel). Scopes the Phase-5 move-orphan removal to
+   * stubs that descend from a wire THIS move dragged, so a pre-existing wire the
+   * moved pin merely landed on (a distinct net, TC11) is never deleted. Length is
+   * 2*stretch_grabbed_n doubles (n points). */
+  double *stretch_grabbed_xy;
+  int stretch_grabbed_n;
   short move_flip;
   int manhattan_lines;
   int movelastsel;

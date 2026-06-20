@@ -1332,6 +1332,9 @@ void select_attached_nets(void)
 
   hash_wires();
   rebuild_selected_array();
+  /* mark this move as a stretch move so move_objects(END) runs the Phase-5
+   * release-time cleanup even when autotrim_wires is off (wire-editing Phase 5). */
+  xctx->stretch_select = 1;
   tol = tclgetdoublevar("cadsnap") / 2.0;
   if(tol < 1e-6) tol = 1e-6;
 
@@ -1383,6 +1386,24 @@ void select_attached_nets(void)
     }
   } /*  for(j=0;j<xctx->lastsel; ++j) */
   rebuild_selected_array();
+  /* snapshot the endpoint coords of all wires this stretch grabbed, while sel is still
+   * valid and before the commit re-creates the wires; the Phase-5 move-orphan removal
+   * (move.c) uses it to stay scoped to stubs descending from a dragged wire. */
+  {
+    int cnt = 0, k = 0;
+    for(i = 0; i < xctx->wires; i++) if(xctx->wire[i].sel) cnt++;
+    xctx->stretch_grabbed_n = 0;
+    if(cnt) {
+      my_realloc(_ALLOC_ID_, &xctx->stretch_grabbed_xy, cnt * 4 * sizeof(double));
+      for(i = 0; i < xctx->wires; i++) if(xctx->wire[i].sel) {
+        xctx->stretch_grabbed_xy[k++] = xctx->wire[i].x1;
+        xctx->stretch_grabbed_xy[k++] = xctx->wire[i].y1;
+        xctx->stretch_grabbed_xy[k++] = xctx->wire[i].x2;
+        xctx->stretch_grabbed_xy[k++] = xctx->wire[i].y2;
+      }
+      xctx->stretch_grabbed_n = k / 2;   /* number of (x,y) points */
+    }
+  }
 }
 
 void select_inside(int stretch, double x1,double y1, double x2, double y2, int sel)

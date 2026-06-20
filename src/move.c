@@ -1258,6 +1258,96 @@ static void compute_wire_slide(void)
   rebuild_selected_array();
 }
 
+/* is (x,y) on a pin of ANY instance (moving or fixed)? */
+static int point_on_any_pin(double x, double y)
+{
+  return point_on_fixed_pin(x, y) || point_on_moving_pin(x, y);
+}
+
+/* does any wire other than `self` touch (x,y) (endpoint OR mid-span)? */
+static int point_on_other_wire(double x, double y, int self)
+{
+  int m;
+  for(m = 0; m < xctx->wires; m++) {
+    if(m == self) continue;
+    if(touch(xctx->wire[m].x1, xctx->wire[m].y1, xctx->wire[m].x2, xctx->wire[m].y2, x, y))
+      return 1;
+  }
+  return 0;
+}
+
+/* predicate for wire_delete_compact(): delete wires flagged in the arg array */
+static int wire_doomed_flag(int n, void *arg) { return ((unsigned short *)arg)[n]; }
+
+/* was (x,y) an endpoint of a wire this stretch move grabbed? (coordinate snapshot
+ * taken in select_attached_nets before the commit re-creates the wires) */
+static int coord_was_grabbed(double x, double y)
+{
+  int k;
+  for(k = 0; k < xctx->stretch_grabbed_n; k++)
+    if(xctx->stretch_grabbed_xy[2*k] == x && xctx->stretch_grabbed_xy[2*k+1] == y) return 1;
+  return 0;
+}
+
+/* Move-scoped orphan removal (wire-editing Phase 5, Issue D3 -> R12, TC9). A stretch
+ * move of a component can leave a redundant dangling stub hanging off the moved pin:
+ * a wire with exactly ONE endpoint free (on no pin and no other wire) whose other
+ * endpoint sits on the MOVED component's pin while that pin is ALREADY served by
+ * another wire. Such a stub carries no connection of its own and can be dropped
+ * without changing connectivity (the bad2 residue: a vertical tail off pin M that
+ * the horizontal rail already connects). Scoped tightly so it never over-reaches:
+ *   - the FREE endpoint must match an endpoint of a wire THIS move grabbed (the
+ *     coordinate snapshot from select_attached_nets), so a pre-existing wire the
+ *     moved pin merely landed on -- a distinct net -- is never deleted (TC11). We
+ *     scope by captured geometry, not the live wire id/sel bits, because the
+ *     kissing/commit pipeline re-creates the wires (re-minting ids, clearing sel)
+ *     before move END;
+ *   - the kept (non-free) endpoint must be on a MOVING instance pin, so only stubs
+ *     at the moved pin are candidates (stubs on fixed pins are untouched);
+ *   - that pin must ALSO be touched by another wire, so removal never disconnects a
+ *     pin the stub alone reached (R16 no accidental break);
+ *   - a wire with both ends free, or both ends connected, is left alone.
+ * Gated on stretch_select and run after trim_wires() so it sees merged/deduped
+ * geometry (else an overlapping colinear pair would look like a stub-on-a-wire). */
+static void remove_move_orphan_wires(void)
+{
+  int i, removed = 0;
+  unsigned short *doomed = NULL;
+  if(xctx->wires == 0) return;
+  my_realloc(_ALLOC_ID_, &doomed, xctx->wires * sizeof(unsigned short));
+  memset(doomed, 0, xctx->wires * sizeof(unsigned short));
+  for(i = 0; i < xctx->wires; i++) {
+    int free1, free2;
+    double ax, ay, bx, by, fx, fy, kx, ky;
+    ax = xctx->wire[i].x1; ay = xctx->wire[i].y1;
+    bx = xctx->wire[i].x2; by = xctx->wire[i].y2;
+    free1 = !point_on_any_pin(ax, ay) && !point_on_other_wire(ax, ay, i);
+    free2 = !point_on_any_pin(bx, by) && !point_on_other_wire(bx, by, i);
+    if(free1 == free2) continue;                  /* need exactly one free (dangling) end */
+    if(free1) { fx = ax; fy = ay; kx = bx; ky = by; }   /* free / kept endpoints */
+    else      { fx = bx; fy = by; kx = ax; ky = ay; }
+    /* the free end must descend from a wire THIS move grabbed -- so a pre-existing
+     * wire the moved pin merely landed on (TC11) is never deleted */
+    if(!coord_was_grabbed(fx, fy)) continue;
+    /* kept end must be on a MOVED pin (this move produced/dragged the stub there) ... */
+    if(!point_on_moving_pin(kx, ky)) continue;
+    /* ... and that pin must be redundantly served by another wire, else the stub is
+     * the sole link to the pin and must stay */
+    if(!point_on_other_wire(kx, ky, i)) continue;
+    doomed[i] = 1;
+    removed = 1;
+  }
+  if(removed) {
+    wire_delete_compact(wire_doomed_flag, doomed);
+    xctx->prep_hash_wires = 0;
+    xctx->prep_net_structs = 0;
+    xctx->prep_hi_structs = 0;
+    xctx->need_reb_sel_arr = 1;
+    set_modify(1);
+  }
+  my_free(_ALLOC_ID_, &doomed);
+}
+
 /* merge param unused, RFU */
 void move_objects(int what, int merge, double dx, double dy)
 {
@@ -1311,6 +1401,11 @@ void move_objects(int what, int merge, double dx, double dy)
     * would make a subsequent Shift+drag copy spuriously draw connecting wires.
     * move END already resets it unconditionally; mirror that here. */
    if(xctx->connect_by_kissing == 2) xctx->connect_by_kissing = 0;
+   /* clear the stretch-move flag too, so an aborted stretch gesture does not leak
+    * the Phase-5 cleanup trigger into the next move (mirror of move END). */
+   xctx->stretch_select = 0;
+   xctx->stretch_grabbed_n = 0;
+   my_free(_ALLOC_ID_, &xctx->stretch_grabbed_xy);
 
    xctx->move_rot=xctx->move_flip=0;
    xctx->deltax=xctx->deltay=0.;
@@ -1700,8 +1795,21 @@ void move_objects(int what, int merge, double dx, double dy)
    }
    /* build after copying and after recalculating prepare_netlist_structs() */
    check_collapsing_objects();
+   /* Release-time cleanup (wire-editing Phase 5, Issue D3). On a STRETCH move the
+    * rubber-band can leave redundant routing. Run it for stretch moves even when
+    * autotrim_wires is off (the cadence rubber-band feel shouldn't depend on that
+    * preference). Order matters:
+    *   1. trim_wires() first: merge colinear degree-2 fragments (TC7) and drop
+    *      included/overlapping duplicates (TC8);
+    *   2. remove_move_orphan_wires() on the cleaned geometry: drop redundant dangling
+    *      stubs this move produced (TC9). It must see post-trim geometry, else an
+    *      overlapping colinear pair would look like a stub-on-a-wire. */
+   if(xctx->stretch_select || tclgetboolvar("autotrim_wires")) trim_wires();
+   if(xctx->stretch_select) remove_move_orphan_wires();
    unselect_partial_sel_wires();
-   if(tclgetboolvar("autotrim_wires")) trim_wires();
+   xctx->stretch_select = 0;
+   xctx->stretch_grabbed_n = 0;
+   my_free(_ALLOC_ID_, &xctx->stretch_grabbed_xy);
 
    if(xctx->hilight_nets) {
      propagate_hilights(1, 1, XINSERT_NOREPLACE);
