@@ -9,8 +9,12 @@
 # Building block: res.sym (a 2-pin device) at (X,Y): pin P = (X, Y-30),
 # pin M = (X, Y+30). Snap grid = 10.
 #
-# Run each test from the REPO ROOT under X:
-#   DISPLAY=:0 src/xschem --pipe -q --nolog --script tests/headless/wireedit/<test>.tcl
+# Run each test from the REPO ROOT, TRUE HEADLESS (no X server / no window needed -- the
+# scripted move path doesn't require a GUI; --nogui sets has_x=0):
+#   src/xschem --nogui --pipe -q --nolog --script tests/headless/wireedit/<test>.tcl
+# (A windowed run -- DISPLAY=:0 without --nogui -- also works but is subject to WSLg
+# flakiness; prefer --nogui. The gesture suite test_cadence_drag.tcl is the exception that
+# genuinely needs a real window.)
 
 set ::fails 0
 proc check {name ok} {

@@ -5549,7 +5549,11 @@ void draw(void)
 
   dbg(1, "draw()\n");
   if(!xctx || xctx->no_draw) return;
-  tk_scaling = atof(tcleval("tk scaling"));
+  /* `tk scaling` is a Tk command; under true headless (--nogui, has_x==0) there is no Tk
+   * interpreter, so calling it errors ("invalid command name tk"). Skip it and keep the
+   * global default (1.0) -- headless runs that still reach draw() (e.g. scripted
+   * move_objects) then produce clean output instead of per-call Tk warnings. */
+  if(has_x) tk_scaling = atof(tcleval("tk scaling"));
   cs = tclgetdoublevar("cadsnap");
   xctx->ev_precision = tclgetintvar("ev_precision");
   cairo_font_scale  = tclgetdoublevar("cairo_font_scale");

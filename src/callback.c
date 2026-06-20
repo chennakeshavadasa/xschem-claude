@@ -3367,7 +3367,9 @@ static void handle_motion_notify(int event, KeySym key, int state, int rstate, i
 {
     char str[PATH_MAX + 100];
     static double tk_scaling = 1.0;
-    tk_scaling = atof(tcleval("tk scaling"));
+    /* no Tk under true headless (--nogui, has_x==0): skip the `tk scaling` query so it
+     * doesn't error; keep the default. */
+    if(has_x) tk_scaling = atof(tcleval("tk scaling"));
     if(!tabbed_interface && strcmp(win_path, xctx->current_win_path)) return;
     /* A motion delivered to this canvas means the pointer is inside it. EnterNotify
      * is the only other setter, but with the shared tabbed canvas a tab switch
