@@ -195,14 +195,20 @@ proc mkinst::on_cell {} {
 
 proc mkinst::on_view {} { mkinst::arm }
 
-# A circuit is physical: a cell may not contain itself. A selection is recursive
-# when its schematic view IS the schematic currently being edited.
+# A circuit is physical: a cell may not contain itself, directly OR through an
+# ancestor. A selection is recursive when its schematic view is ANY schematic in
+# the current hierarchy stack (the open schematic and every parent descended
+# through) -- instantiating it there would close a loop.
 proc mkinst::is_recursive {lib cell} {
   set sch [xschem cellview_path "$lib/$cell" schematic]
   if {$sch eq {}} { return 0 }
-  set cur [xschem get schname]
-  if {$cur eq {}} { return 0 }
-  return [expr {[file normalize $sch] eq [file normalize $cur]}]
+  set sch [file normalize $sch]
+  set top [xschem get currsch]
+  for {set n 0} {$n <= $top} {incr n} {
+    set anc [xschem get schname $n]
+    if {$anc ne {} && [file normalize $anc] eq $sch} { return 1 }
+  }
+  return 0
 }
 
 # Arm the selected symbol view for placement (preview attaches to the cursor on the
@@ -222,7 +228,7 @@ proc mkinst::arm {} {
   if {[mkinst::is_recursive $mkinst::sel_lib $mkinst::sel_cell]} {
     set mkinst::armed 0
     mkinst::abort_if_placing
-    mkinst::status "cannot instantiate $mkinst::sel_cell inside its own schematic (recursion)"
+    mkinst::status "cannot instantiate $mkinst::sel_cell here - it is in the current hierarchy (recursion)"
     return
   }
   mkinst::abort_if_placing

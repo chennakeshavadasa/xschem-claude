@@ -105,12 +105,12 @@ The form is a *selector that arms a live preview*, not a click-Create dialog:
   View. Re-launching (`Edit ▸ Create Instance` / the `i` key) restores that
   selection **and re-arms the preview immediately**, so the user can place without
   touching the form.
-- **Recursion guard (a circuit is physical — no cell may contain itself).** A
-  selection is refused when its schematic view *is the schematic currently being
-  edited* (`cellview_path <lib/cell> schematic` == `xschem get schname`): the
-  preview is not armed and the status line explains. Cells with no schematic
-  (primitives) are always placeable. v1 guards the current schematic; guarding the
-  whole hierarchy stack (an ancestor is also recursion) is a noted extension.
+- **Recursion guard (a circuit is physical — no cell may contain itself, directly
+  or through an ancestor).** A selection is refused when its schematic view is *any
+  schematic in the current hierarchy stack* — the open schematic and every parent
+  descended through (`cellview_path <lib/cell> schematic` equals `xschem get
+  schname <n>` for some `n` in `0..currsch`). The preview is not armed and the
+  status line explains. Cells with no schematic (primitives) are always placeable.
 
 ## 4. Out of scope (v1)
 

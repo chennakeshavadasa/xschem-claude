@@ -43,6 +43,12 @@ file delete -force $tmp
 touch $tmp/tlib/withsym/symbol/withsym.sym    $hdr
 touch $tmp/tlib/withsym/schematic/withsym.sch $hdr
 touch $tmp/tlib/schonly/schematic/schonly.sch $hdr
+# a 2-level hierarchy for the ancestor-recursion test: parent (sym+sch) whose
+# schematic instantiates child (sym+sch).
+touch $tmp/tlib/child/symbol/child.sym     $hdr
+touch $tmp/tlib/child/schematic/child.sch  $hdr
+touch $tmp/tlib/parent/symbol/parent.sym   $hdr
+touch $tmp/tlib/parent/schematic/parent.sch "$hdr\nC {tlib/child} 0 0 0 0 {}"
 set defs [file join $tmp library.defs]
 set fp [open $defs w]; puts $fp "DEFINE tlib $tmp/tlib"; close $fp
 set ::XSCHEM_LIBRARY_DEFS $defs
@@ -139,6 +145,26 @@ check "CI7c status explains the recursion" [string match {*recursion*} [.mkinst.
 pick cell schonly mkinst::on_cell   ;# no symbol view -> still not armed, but not the recursion message
 check "CI7d schonly here is rejected for lacking a symbol, not recursion" \
   [expr {![string match {*recursion*} [.mkinst.status cget -text]]}] "(=> [.mkinst.status cget -text])"
+xschem abort_operation
+
+# === CI11 — recursion guard covers ANCESTORS in the hierarchy stack =========
+xschem abort_operation
+xschem load $tmp/tlib/parent/schematic/parent.sch
+xschem select_all
+xschem descend
+check "CI11a descended one level into child" [expr {[xschem get currsch] == 1}] "(=> currsch=[xschem get currsch])"
+check "CI11b parent is the ancestor at stack level 0" \
+  [expr {[file normalize [xschem get schname 0]] eq [file normalize $tmp/tlib/parent/schematic/parent.sch]}] \
+  "(=> [xschem get schname 0])"
+pick lib  tlib   mkinst::on_lib
+pick cell parent mkinst::on_cell
+check "CI11c placing an ANCESTOR (parent) in a descendant is blocked" [expr {![armed]}] "(=> ui=[xschem get ui_state])"
+check "CI11d status explains the recursion" [string match {*recursion*} [.mkinst.status cget -text]] "(=> [.mkinst.status cget -text])"
+# the current cell (child) is blocked too; a cell NOT in the stack still arms
+pick cell child mkinst::on_cell
+check "CI11e the current cell (child) is also blocked" [expr {![armed]}] "(=> ui=[xschem get ui_state])"
+pick cell withsym mkinst::on_cell
+check "CI11f a cell not in the stack still arms" [armed] "(=> ui=[xschem get ui_state])"
 xschem abort_operation
 
 catch {destroy .mkinst}
