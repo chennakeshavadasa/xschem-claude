@@ -1,6 +1,7 @@
 ## File: harness.tcl
 ## Headless driver for the xschem test harness. Invoked as:
-##   xschem --rcfile minrc --netlist_path <dir> --pipe -q --script harness.tcl
+##   xschem --nogui --rcfile minrc --netlist_path <dir> --pipe -q --script harness.tcl
+## (--nogui = true headless: no window even when DISPLAY is set; load + netlist only.)
 ## Environment:
 ##   REPO       absolute repo root
 ##   CASES_FILE manifest of schematics (paths relative to REPO)
