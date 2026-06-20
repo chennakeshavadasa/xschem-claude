@@ -1540,6 +1540,17 @@ void drawtempline(GC gc, int what, double linex1,double liney1,double linex2,dou
 void drawtemp_manhattanline(GC gc, int what, double x1, double y1, double x2, double y2, int force_manhattan)
 {
   double nl_xx1, nl_yy1, nl_xx2, nl_yy2;
+  int saved_manhattan_lines = xctx->manhattan_lines;
+  /* force_manhattan recomputes xctx->manhattan_lines from THIS line's own endpoints so it
+   * can be stroked as an L. But manhattan_lines is global gesture state owned by the
+   * wire/line currently being drawn (set in redraw_w_a_l_r_p_z_rubbers) or by the wire
+   * placement (place_moved_wire) -- both of which recompute it themselves before use. So
+   * drawing here must NOT leak its recomputed value: when a wire is selected and
+   * orthogonal_wiring is on, the selection overlay is repainted (draw_selection ->
+   * force_manhattan) under the in-progress rubber band on every motion, which otherwise
+   * overwrites the active wire's direction with the selected wire's orientation. A
+   * perpendicular new wire then collapses to zero length on the completing click and is
+   * silently discarded -- the wire cannot be completed (issue 0018). Restore it below. */
   if(tclgetboolvar("orthogonal_wiring") && force_manhattan) {
     recompute_orthogonal_manhattanline(x1, y1, x2, y2);
   }
@@ -1567,6 +1578,7 @@ void drawtemp_manhattanline(GC gc, int what, double x1, double y1, double x2, do
     ORDER(nl_xx1,nl_yy1,nl_xx2,nl_yy2);
     drawtempline(gc, what, nl_xx1,nl_yy1,nl_xx2,nl_yy2);
   }
+  if(force_manhattan) xctx->manhattan_lines = saved_manhattan_lines;
 }
 
 void drawtemparc(GC gc, int what, double x, double y, double r, double a, double b)
