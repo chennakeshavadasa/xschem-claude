@@ -344,7 +344,7 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
 | TC9 | move-orphaned stub removal | R12 | 🟢 **GREEN** (Phase 5 done) | 5 |
 | TC10 | exit-stub preserved | E | 🟢 **GREEN** (Phase 6 done, switch ON) | 6 |
 | TC11 | two nets, no over-grab | R16 | 🟢 GREEN (guard) | — |
-| TC12 | bus rubber-band, lab kept | R19 | 🔴 **RED** | (new gap, see below) |
+| TC12 | bus rubber-band, prop/label kept | R19 | 🟢 **GREEN** (prop-preserve fix) | (was new gap) |
 | TC13 | multi-component rigid move | R5 | 🟢 GREEN (guard) | — |
 | TC14 | undo restores geometry | R17 | 🟢 GREEN (guard) | — |
 | TC15 | far end on fixed pin | R18 | 🟢 GREEN (guard) | — |
@@ -358,11 +358,21 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
 - **TC15 (R18) is GREEN** at the guard level — the stretch move keeps *both* endpoints
   (far end stays on the fixed pin). The assertion is intentionally weak (endpoints
   present, not full 2-segment Manhattan); Phase 4 should tighten it.
-- **TC12 RED is a real, newly-confirmed gap:** the stretch move **drops the wire's
-  property** — a bus wire labeled `lab=A[3:0]` stretches geometrically to
-  `(0,70)-(0,130)` but its prop becomes `{}` (verified via `saveas`:
-  `N 0 70 0 130 {}`). This is prop-preservation on the move path, not wire-follow
-  geometry; schedule as its own small fix (likely `move.c`), not in Phases 2–6.
+- **TC12 — FIXED (prop-preservation on the colinear stretch).** The stretch move was
+  dropping the wire's **entire** prop_ptr (`N 0 70 0 130 {}`). Root cause: a *colinear*
+  slide (vertical wire, vertical move) takes the V-H/H-V branch of `place_moved_wire()`,
+  which degenerates the original wire to zero length (keeping its prop) and stores the
+  surviving real segment via `storeobject(... NULL)`; `check_collapsing_objects()` then
+  removes the degenerate original, leaving the prop-less survivor. **Fix:** the jog/
+  continuation segment inherits `wire[n].prop_ptr` (same net) in all four `place_moved_wire`
+  store sites, so persistent attributes (`bus=`, etc.) survive. *The Phase-1 assertion
+  (a wire's `lab=A[3:0]` survives) was itself wrong — a bare wire's `lab` token is a
+  write-only derived-net cache that `prepare_netlist_structs()` overwrites with the auto
+  net name move-or-not (`lab=A[3:0]` → `lab=#net1` after a no-move `resolved_net`).* TC12
+  rewritten to assert what's real: geometry follows, the persistent `bus=4` attribute
+  survives, and a real `lab_pin` net-label instance still names the net after the move.
+  Sabotage-verified (revert the fix → `bus=` wiped to `{}`). Guards: full wireedit suite,
+  golden, stable58, cadence16.
 
 *The 8 RED items are the work-list; `run_wireedit.sh` stays non-zero until they land.*
 

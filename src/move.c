@@ -1051,7 +1051,11 @@ static void place_moved_wire(int n, int orthogonal_wiring)
    wire[n].y2 = xctx->ry2;
    order_wire_points(n);
    if( xctx->rx1 != xctx->rx2) {
-     storeobject(-1, xctx->rx1,xctx->ry2,xctx->rx2,xctx->ry2,WIRE,0,0,NULL);
+     /* the L-jog's second leg is the SAME net as wire[n] -> inherit its prop (the bus
+      * label etc.). Matters when the original wire[n] degenerates to zero length and is
+      * collapsed away (a colinear slide): this stored segment is then the survivor, so
+      * dropping the prop here loses the wire's lab= entirely (TC12/R19). */
+     storeobject(-1, xctx->rx1,xctx->ry2,xctx->rx2,xctx->ry2,WIRE,0,0,wire[n].prop_ptr);
      last = xctx->wires-1;
      order_wire_points(last);
    }
@@ -1076,7 +1080,7 @@ static void place_moved_wire(int n, int orthogonal_wiring)
    wire[n].y2 = xctx->ry2;
    order_wire_points(n);
    if( xctx->rx1 != xctx->rx2) {
-     storeobject(-1, xctx->rx1,xctx->ry1,xctx->rx2,xctx->ry1,WIRE,0,0,NULL);
+     storeobject(-1, xctx->rx1,xctx->ry1,xctx->rx2,xctx->ry1,WIRE,0,0,wire[n].prop_ptr);
      last = xctx->wires-1;
      order_wire_points(last);
    }
@@ -1101,7 +1105,7 @@ static void place_moved_wire(int n, int orthogonal_wiring)
    wire[n].y2 = xctx->ry1;
    order_wire_points(n);
    if( xctx->ry1 != xctx->ry2) {
-     storeobject(-1, xctx->rx2,xctx->ry1,xctx->rx2,xctx->ry2,WIRE,0,0,NULL);
+     storeobject(-1, xctx->rx2,xctx->ry1,xctx->rx2,xctx->ry2,WIRE,0,0,wire[n].prop_ptr);
      last = xctx->wires-1;
      order_wire_points(last);
    }
@@ -1126,7 +1130,7 @@ static void place_moved_wire(int n, int orthogonal_wiring)
    wire[n].y2 = xctx->ry2;
    order_wire_points(n);
    if( xctx->ry1 != xctx->ry2) {
-     storeobject(-1, xctx->rx1,xctx->ry1,xctx->rx1,xctx->ry2,WIRE,0,0,NULL);
+     storeobject(-1, xctx->rx1,xctx->ry1,xctx->rx1,xctx->ry2,WIRE,0,0,wire[n].prop_ptr);
      last = xctx->wires-1;
      order_wire_points(last);
    }
