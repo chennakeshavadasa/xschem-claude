@@ -14,6 +14,53 @@ Newest entries on top.
 
 ---
 
+## Q16. After the wire-prop-preservation fix (`06b08e61`), what difference will a user actually notice?
+
+- **Asked:** 2026-06-19
+- **Project state:** branch `fluid-editing` @ `06b08e61` (fix), docs follow-up at
+  `d47558f5`. Wire-editing-on-move plan complete through Phase 6; this commit fixes
+  **TC12 / R19**, the last RED — the full `tests/headless/wireedit` map (TC0–TC17) is now
+  green. Bug-class write-up: `code_analysis/prop_dropped_on_move_tutorial.md`.
+
+**Short answer: stretch-moving a component no longer strips a connected wire's properties
+— most visibly, a bus wire stays a bus instead of being silently demoted to a plain
+thin wire.** On ordinary unlabeled wires there is **no visible change** (output is
+byte-identical).
+
+**Before vs after.** When you rubber-band-stretch a wire by dragging a component it's
+connected to, and the drag triggers the colinear-slide path, the move used to re-create
+the surviving wire segment with **empty properties** — wiping `bus=` and any other
+attribute tokens. A 4-bit bus drawn thick would come back as a plain thin wire on a
+different net. After the fix the survivor **inherits the original wire's `prop_ptr`**, so
+the bus (and any property) is preserved.
+
+| | drag-stretch a `{bus=4}` wire | result |
+|---|---|---|
+| before `06b08e61` | saved as | `N 0 70 0 130 {}` — bus lost, wire demoted |
+| after `06b08e61` | saved as | `N 0 70 0 130 {bus=4}` — bus preserved |
+
+**When it's visible (all three must hold):**
+1. stretch / rubber-band is active (`enable_stretch`, e.g. `cadence_compat` mode);
+2. the wire being stretched carries a **persistent attribute** (notably a bus); and
+3. the move hits the colinear-slide re-create path (`place_moved_wire()`'s V-H/H-V branch).
+
+Because it was **silent data loss**, users who hit it before likely never traced it to
+the move — they'd just notice a bus had gone thin/plain later. This removes that surprise.
+
+**What this is NOT.** It is unrelated to the Phase-6 **exit-stub** feature (`8ba5ddf7`),
+which is behind `wire_exit_stub` (default **OFF**) — users notice that one only if they
+enable it (Options → "Keep stub out of moved pins"). And the very latest commit
+(`d47558f5`) is an internal tutorial doc with **zero** user-facing effect.
+
+**Why the original test premise was wrong (worth knowing).** Phase 1 asserted a wire's
+`lab=A[3:0]` token survives the move. It can't — a bare wire's `lab` is a **write-only
+derived-net cache** that `prepare_netlist_structs()` overwrites with the auto net name
+(`#net1`) move-or-not. The real, user-visible thing to preserve is a *persistent* attribute
+(`bus=`) and a real `lab_pin` net-label **instance**, which is what TC12 now tests. See the
+tutorial for the full bug class (metadata loss across object re-creation).
+
+---
+
 ## Q15. Two instances are placed so that two of their pins sit on the same point (directly connected, no wire). One instance is then moved. The pins must STAY connected — so wire segments need to be generated. What support exists for this, and where is it on the wire-editing plan?
 
 - **Asked:** 2026-06-19
