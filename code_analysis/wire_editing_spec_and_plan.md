@@ -372,7 +372,8 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
   rewritten to assert what's real: geometry follows, the persistent `bus=4` attribute
   survives, and a real `lab_pin` net-label instance still names the net after the move.
   Sabotage-verified (revert the fix → `bus=` wiped to `{}`). Guards: full wireedit suite,
-  golden, stable58, cadence16.
+  golden, stable58, cadence16. **Tutorial write-up of the bug class (metadata loss across
+  object re-creation) + how to prevent it: `code_analysis/prop_dropped_on_move_tutorial.md`.**
 
 *The 8 RED items are the work-list; `run_wireedit.sh` stays non-zero until they land.*
 
