@@ -342,7 +342,7 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
 | TC7 | colinear merge | R10 | 🟢 **GREEN** (Phase 5 done) | 5 |
 | TC8 | duplicate/overlap removal | R11 | 🟢 **GREEN** (Phase 5 done) | 5 |
 | TC9 | move-orphaned stub removal | R12 | 🟢 **GREEN** (Phase 5 done) | 5 |
-| TC10 | exit-stub preserved | E | 🟢 **GREEN** (Phase 6 done, switch ON) | 6 |
+| TC10 | exit-stub preserved | E | 🟡 unit-GREEN, **DEFERRED** (worse on real sch — `doc/wire_exit_stub.md`) | 6 |
 | TC11 | two nets, no over-grab | R16 | 🟢 GREEN (guard) | — |
 | TC12 | bus rubber-band, prop/label kept | R19 | 🟢 **GREEN** (prop-preserve fix) | (was new gap) |
 | TC13 | multi-component rigid move | R5 | 🟢 GREEN (guard) | — |
