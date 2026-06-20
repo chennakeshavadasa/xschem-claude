@@ -2129,6 +2129,54 @@ static int edit_wire_point(int state)
   return 0;
 }
 
+/* Issue 0017 — is wire n's endpoint `which` (1 or 2) FREE/dangling, i.e. sitting on no
+ * instance pin AND touched by no other wire? Such an end has nothing to "continue", so a
+ * press+drag on it should move the end (shorten/grow), not start a new wire. */
+static int wire_endpoint_is_free(int n, int which)
+{
+  double ex = (which == 1) ? xctx->wire[n].x1 : xctx->wire[n].x2;
+  double ey = (which == 1) ? xctx->wire[n].y1 : xctx->wire[n].y2;
+  int i, r, rects, m;
+  double px, py;
+  for(i = 0; i < xctx->instances; i++) {
+    if(xctx->inst[i].ptr < 0) continue;
+    rects = (xctx->inst[i].ptr + xctx->sym)->rects[PINLAYER];
+    for(r = 0; r < rects; r++) {
+      get_inst_pin_coord(i, r, &px, &py);
+      if(px == ex && py == ey) return 0;            /* on an instance pin */
+    }
+  }
+  for(m = 0; m < xctx->wires; m++) {
+    if(m == n) continue;
+    if(touch(xctx->wire[m].x1, xctx->wire[m].y1, xctx->wire[m].x2, xctx->wire[m].y2, ex, ey))
+      return 0;                                     /* touched by another wire */
+  }
+  return 1;
+}
+
+/* Issue 0017 (cadence fluid editing) — directly grab a FREE wire vertex on press, with no
+ * pre-select step. A press exactly on a dangling wire endpoint selects that wire and hands
+ * off to edit_wire_point(), which marks the grabbed end and starts move_objects() — so the
+ * drag moves the endpoint (toward the other end = shorten, away = grow) and COMMITS ON
+ * RELEASE, never entering wire-draw mode (STARTWIRE). Connected endpoints return 0 here and
+ * fall through to add_wire_from_wire() (draw a new branch wire) as before. Reuses
+ * edit_wire_point so the grabbed-vertex behavior stays identical to the already-selected
+ * case. */
+static int grab_free_wire_vertex(Selected *sel, double mx, double my, int state)
+{
+  int n, which = 0;
+  if(sel->type != WIRE) return 0;
+  n = sel->n;
+  if(mx == xctx->wire[n].x1 && my == xctx->wire[n].y1) which = 1;
+  else if(mx == xctx->wire[n].x2 && my == xctx->wire[n].y2) which = 2;
+  if(!which) return 0;                               /* press not on an endpoint */
+  if(!wire_endpoint_is_free(n, which)) return 0;     /* free/dangling ends only */
+  unselect_all(1);
+  select_object(xctx->mousex, xctx->mousey, SELECTED, 0, sel);
+  rebuild_selected_array();
+  return edit_wire_point(state); /* sets shape_point_selected + move_objects(START); commit-on-release */
+}
+
 /* sets xctx->shape_point_selected */
 static int edit_rect_point(int state)
 {
@@ -5200,6 +5248,17 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        /* Clicking and drag on an instance pin -> drag a new wire */
        if(intuitive && !already_selected) {
          if(add_wire_from_inst(&sel, xctx->mousex_snap, xctx->mousey_snap)) return;
+       }
+
+       /* Issue 0017 (cadence fluid editing): clicking+drag on a FREE/dangling wire end
+        * grabs that vertex and moves it (toward the other end = shorten, away = grow),
+        * committing on release -- instead of starting a new wire (and getting stuck in
+        * wire-draw mode). Plain drag only; connected ends fall through to
+        * add_wire_from_wire() below (draw a new branch wire). Gated on cadence_compat so
+        * stock behavior is unchanged. Must run BEFORE add_wire_from_wire. */
+       if(cadence_compat && intuitive && !already_selected &&
+          !(state & (ControlMask | ShiftMask))) {
+         if(grab_free_wire_vertex(&sel, xctx->mousex_snap, xctx->mousey_snap, state)) return;
        }
 
        /* Clicking and drag on a wire end -> drag a new wire */
