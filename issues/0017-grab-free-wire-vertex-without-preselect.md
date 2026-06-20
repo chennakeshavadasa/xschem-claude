@@ -18,17 +18,29 @@ direct-drag dispatch in `handle_button_press` (`src/callback.c`); `add_wire_from
 
 You cannot click-and-drag the **free (dangling) endpoint** of a wire to move it — e.g.
 to drag it *toward the other end and shorten the wire*. Pressing on the endpoint and
-dragging instead **starts drawing a brand-new wire** from that point. To actually move
-the endpoint you must **first select the wire** (click it), and *then* grab the vertex.
-That extra "select first" step is exactly the friction a fluid editor should not have.
+dragging instead **starts drawing a brand-new wire** from that point — and worse, leaves
+you in **persistent wire-draw mode** (`STARTWIRE`), which you must then dismiss with a
+**double-click + ESC**.
+
+So today, to move/grow/shorten a free wire end you perform a 4-step ritual:
+**select the wire → click-drag the end → double-click → press ESC.** We want this to be
+just **click-drag-release, done.**
 
 ```
-   want:  ●─────────●   grab the free end ───▶  ●────●     (drag toward the other end = shorter)
-          A         B                            A    B'
+   want:  ●─────────●   grab the free end ───▶  ●────●     (drag TOWARD other end = shorter)
+          A         B                            A    B'    commit on release, no mode
 
-   today: press B + drag  ──▶  unselect everything, start a NEW wire from B
-          (the A–B wire keeps its length; you drew a second wire instead)
+          ●─────────●   grab the free end ───▶  ●─────────────●   (drag AWAY = grow)
+          A         B                            A             B'  commit on release, no mode
+
+   today: press B + drag  ──▶  unselect everything, start a NEW wire from B,
+          stay in wire-draw mode  ──▶  must double-click + ESC to finish
 ```
+
+The user's clarification (2026-06-20): **both** directions are wanted from the one
+gesture — TOWARD shortens, AWAY grows (same outcome as today's "extend") — but the
+gesture must **commit on release**. The thing to eliminate is the lingering wire-draw
+mode, not the grow result.
 
 ## 2. Root cause (verified in the dispatch)
 
@@ -51,32 +63,40 @@ user wants already exists — it is just gated behind a prior selection.
 ## 3. Desired behavior
 
 Pressing on a **free wire vertex** and dragging should **grab and move that vertex**
-immediately (no pre-select):
+immediately (no pre-select), as a single **press-drag-release** gesture that **commits on
+release**:
 
 - drag **toward** the other end → the wire **shortens**;
-- drag **away** → the wire **lengthens** (this subsumes today's "extend");
+- drag **away** → the wire **grows** (same outcome as today's "extend", different
+  mechanism);
+- **on release the action is committed — NO persistent wire-draw mode, no double-click,
+  no ESC**;
 - orthogonal-wiring / snap behave as they already do for a selected-wire vertex drag.
 
-It must feel identical to grabbing the vertex of an already-selected wire — because under
-the hood it is the same `edit_wire_point` → `move_objects` path; only the *press-time
-routing* changes.
+This is exactly the `edit_wire_point` → `move_objects` path that already exists for an
+*already-selected* wire: it moves the grabbed endpoint and commits on button release. It
+does **not** use `start_wire`, so it never enters `STARTWIRE` mode. The whole change is
+**press-time routing**: send the free-endpoint press to this vertex-grab instead of to
+`add_wire_from_wire`/`start_wire`. That single redirect kills both annoyances at once —
+the pre-select step *and* the lingering wire-draw mode.
 
 ## 4. Design decisions to settle first (present, don't pick unilaterally)
 
-**(a) Disambiguation vs `add_wire_from_wire`.** Press-on-endpoint currently *means*
-"draw a new wire." We must decide what each case maps to. Recommended split, keyed on
-whether the endpoint is **free/dangling** (on no instance pin AND not shared/touched by
-another wire):
+**(a) Disambiguation vs `add_wire_from_wire` — DECIDED (user, 2026-06-20).** Press-on-
+endpoint currently *means* "draw a new wire (and stay in wire-draw mode)." The split,
+keyed on whether the endpoint is **free/dangling** (on no instance pin AND not
+shared/touched by another wire):
 
-| endpoint | recommended press+drag | rationale |
+| endpoint | press+drag | rationale |
 |---|---|---|
-| **free / dangling** | **grab + stretch the vertex** (new) | nothing to "continue"; moving the loose end is the obvious direct manipulation; subsumes extend, adds shorten |
-| **connected** (on a pin / junction) | keep `add_wire_from_wire` (draw a new branch wire) | branching the net off a real connection point is meaningful there |
+| **free / dangling** | **grab the vertex → `move_objects`, commit on release** (new) | one gesture covers shorten (toward) and grow (away); nothing to "continue" at a loose end; **no wire-draw mode** |
+| **connected** (on a pin / junction) | keep `add_wire_from_wire` (draw a new branch wire) | branching the net off a real connection point is meaningful there; out of scope here |
 
-Tradeoff: at a free end you lose "start a disconnected new wire from this point" — that
-remains available via the explicit wire tool (`w`). This is the crux decision; alternative
-is to keep direction-based disambiguation (decide at first motion), which is more complex
-and makes the "away" drag inconsistent.
+Resolved tradeoff: at a free end we intentionally **drop** "start a disconnected new wire
+from this point (in wire-draw mode)" — that is precisely the irritation being removed; the
+explicit wire tool (`w`) still covers deliberate new-wire drawing. Direction-based
+disambiguation is explicitly **rejected** — the user wants both directions handled by the
+one commit-on-release vertex grab, not a mode for "away".
 
 **(b) Gating.** Gate the new behavior on **`cadence_compat`** first, so stock/intuitive
 behavior is byte-unchanged and the change is opt-in (matches how the rest of the
@@ -97,11 +117,17 @@ expose a shared predicate.)
 - **Phase 0 — characterize + test scaffold.** Add a gesture test
   `tests/headless/test_wire_vertex_grab.tcl` driving the real dispatch via
   `xschem callback .drw <press|motion|release> …` (the `test_cadence_drag` pattern; needs
-  a window). Fixtures: a lone free wire `A=(0,0)–B=(100,0)`. RED assertions:
-  (1) press at `B` + drag to `(60,0)` with `cadence_compat` on ⇒ wire becomes `(0,0)–(60,0)`
-  (one wire, shortened), NOT two wires. Confirm it is RED today (today it draws a new wire).
-  Also add a headless unit test of the **free-vertex predicate** (build wires/pins, assert
-  free vs connected) so the geometry logic is covered without a window.
+  a window). Fixtures: a lone free wire `A=(0,0)–B=(100,0)`. RED assertions (all with
+  `cadence_compat` on):
+  (1) **shorten** — press at `B`, drag to `(60,0)`, release ⇒ wire is `(0,0)–(60,0)`
+  (one wire, shorter), NOT two wires;
+  (2) **grow** — press at `B`, drag to `(150,0)`, release ⇒ wire is `(0,0)–(150,0)`
+  (one wire, longer), NOT a second wire;
+  (3) **commit on release** — after either gesture, `xschem get ui_state` has **no
+  `STARTWIRE` bit** (we are not left in wire-draw mode). All three are RED today (today the
+  press starts a new wire and stays in `STARTWIRE`). Also add a headless unit test of the
+  **free-vertex predicate** (build wires/pins, assert free vs connected) so the geometry
+  logic is covered without a window.
 
 - **Phase 1 — the free-vertex predicate.** Implement `wire_endpoint_is_free()`; unit-test
   it (free dangling end = true; end on a pin = false; end shared with another wire =
@@ -129,11 +155,15 @@ expose a shared predicate.)
 
 - **Gesture level (windowed):** `xschem callback .drw …` driver, like
   `tests/headless/test_cadence_drag.tcl` (real `.drw`, WSLg-flaky → rerun). Asserts the
-  end-to-end press→drag→release shortens the wire and yields one wire, not two.
+  end-to-end press→drag→release: shortens (toward) and grows (away) the *same* wire (one
+  wire, not two), **and that `ui_state` has no `STARTWIRE` bit afterwards** (committed, not
+  stuck in wire-draw mode).
 - **Headless unit:** the free-vertex predicate, built from in-memory wires/instances.
 - **Must not regress:** stock (`cadence_compat=0`) press-on-wire-end still draws a new wire
-  (`test_gesture_bindings` / a dedicated assertion); `add_wire_from_wire` for connected
-  endpoints; whole-wire move on mid-span press; `test_cadence_drag` (16) still green.
+  *and still enters wire-draw mode* (`test_gesture_bindings` / a dedicated assertion);
+  `add_wire_from_wire` for **connected** endpoints (the deliberate new-branch-wire gesture,
+  wire-draw mode intact); whole-wire move on mid-span press; `test_cadence_drag` (16) still
+  green.
 - **Sabotage-verify** both directions: drop the new routing ⇒ the grab test reddens and
   the new-wire test stays green; force the predicate true everywhere ⇒ connected-endpoint
   test reddens.
