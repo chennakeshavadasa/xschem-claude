@@ -1159,6 +1159,26 @@ static int point_on_fixed_pin(double x, double y)
   return 0;
 }
 
+/* is (x,y) on a pin of a MOVING (selected) instance? The corner-slide only applies
+ * when the stretch is DRIVEN by a moving instance pin. A wire grabbed at a wire-wire
+ * junction (its moving end coincides with a dragged wire's endpoint, not a pin) must
+ * stay anchored at that junction, not slide (issue 0014). */
+static int point_on_moving_pin(double x, double y)
+{
+  int inst, r, rects;
+  double px, py;
+  for(inst = 0; inst < xctx->instances; inst++) {
+    if(!xctx->inst[inst].sel) continue;      /* only MOVING instances */
+    if(xctx->inst[inst].ptr < 0) continue;
+    rects = (xctx->inst[inst].ptr + xctx->sym)->rects[PINLAYER];
+    for(r = 0; r < rects; r++) {
+      get_inst_pin_coord(inst, r, &px, &py);
+      if(px == x && py == y) return 1;
+    }
+  }
+  return 0;
+}
+
 /* Corner-slide (wire-editing Phase 4, Issues D1/D2/D4 -> R7/R8). After a stretch
  * move has partially selected the wires attached to the moved pins (one endpoint
  * each, via select_attached_nets()), a wire that runs PERPENDICULAR to the move
@@ -1168,6 +1188,11 @@ static int point_on_fixed_pin(double x, double y)
  *
  * Rule, iterated to a fixpoint so a chain of corners slides together:
  *   - take each partially-selected (single-endpoint) wire perpendicular to the move;
+ *   - require its MOVING endpoint to sit on a MOVING instance pin -- i.e. the stretch
+ *     is driven by a dragged component, not by a dragged wire. A wire grabbed at a
+ *     wire-wire junction (moving end on another wire's endpoint, no pin there) stays
+ *     anchored, so dragging a wire never pulls a perpendicular wire off the junction
+ *     (issue 0014);
  *   - if its FAR (non-moving) endpoint sits on a FIXED instance pin, leave it alone
  *     -> it must JOG to keep that connection (guard R18/TC15);
  *   - else if the far endpoint is a free dangling end (no other wire there), leave
@@ -1183,6 +1208,7 @@ static void compute_wire_slide(void)
 {
   int n, m, changed;
   double fx, fy;                        /* far (non-moving) endpoint of wire n */
+  double mx, my;                        /* moving (selected) endpoint of wire n */
   int dxnz = (xctx->deltax != 0.0);     /* horizontal move */
   int dynz = (xctx->deltay != 0.0);     /* vertical move */
   xWire * const wire = xctx->wire;
@@ -1198,9 +1224,12 @@ static void compute_wire_slide(void)
       /* perpendicular to the move? vertical move -> horizontal wire, and vice-versa */
       if(dynz && wire[n].y1 != wire[n].y2) continue;
       if(dxnz && wire[n].x1 != wire[n].x2) continue;
-      /* far endpoint = the one NOT selected */
-      if(wire[n].sel == SELECTED1) { fx = wire[n].x2; fy = wire[n].y2; }
-      else                         { fx = wire[n].x1; fy = wire[n].y1; }
+      /* far endpoint = the one NOT selected; moving endpoint = the selected one */
+      if(wire[n].sel == SELECTED1) { fx = wire[n].x2; fy = wire[n].y2; mx = wire[n].x1; my = wire[n].y1; }
+      else                         { fx = wire[n].x1; fy = wire[n].y1; mx = wire[n].x2; my = wire[n].y2; }
+      /* (a) slide only when the moving end is driven by a moving instance pin; a wire
+       * grabbed at a wire-wire junction stays anchored there (issue 0014) */
+      if(!point_on_moving_pin(mx, my)) continue;
       /* never slide a wire off a fixed pin -> let it jog (keeps the connection) */
       if(point_on_fixed_pin(fx, fy)) continue;
       /* a corner needs another wire endpoint coincident with the far end */

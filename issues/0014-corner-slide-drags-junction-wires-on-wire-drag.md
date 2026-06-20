@@ -1,8 +1,16 @@
 # Issue 0014 — dragging a wire drags the perpendicular junction wire (and beyond) when the junction has corners
 
 **Opened:** 2026-06-19
-**Status:** DIAGNOSED, not yet fixed — root cause pinned and confirmed by ablation
-(see §4/§5); fix direction proposed in §7, awaiting a decision on approach.
+**Status:** RESOLVED — fix (a) from §7 implemented in `compute_wire_slide`
+(`move.c`): a perpendicular wire is promoted to a slide only when its *moving*
+endpoint sits on a **moving instance pin** (new `point_on_moving_pin` gate); a wire
+grabbed at a wire-wire junction stays anchored. Reverse-C now keeps J/V/arms fixed
+in both drag directions; TC6 (instance corner-slide) still works. Regression test
+`tests/headless/wireedit/test_wireedit_17_wire_drag_junction.tcl`; sabotage-verified
+(remove the gate → TC17 reddens 6/6, TC6 stays green). The **shove** behavior
+(moving a *component* toward a connected perpendicular wire should push the wire
+rather than cross it) is deliberately **out of scope** here and deferred to a
+separate issue. Eyeball-confirmed by the user.
 **Affects:** interactive use with `cadence_compat` on (which now also enables
 `autotrim_wires`, commit `808ad990`) — i.e. `src/cadence_style_rc`. Requires
 `orthogonal_wiring` on (the Phase-4 corner-slide guard).
