@@ -339,9 +339,9 @@ TC1–TC15 written as `tests/headless/wireedit/test_wireedit_<NN>_*.tcl`, assert
 | TC4 | sub-grid endpoint follows | B | 🟢 **GREEN** (Phase 2 done) | 2 |
 | TC5 | T-junction follows | C | 🟢 **GREEN** (Phase 3 done) | 3 |
 | TC6 | corner-slide | D1/D2 | 🟢 **GREEN** (Phase 4 done) | 4 |
-| TC7 | colinear merge | R10 | 🔴 RED | 5 |
-| TC8 | duplicate/overlap removal | R11 | 🔴 RED | 5 |
-| TC9 | move-orphaned stub removal | R12 | 🔴 RED | 5 |
+| TC7 | colinear merge | R10 | 🟢 **GREEN** (Phase 5 done) | 5 |
+| TC8 | duplicate/overlap removal | R11 | 🟢 **GREEN** (Phase 5 done) | 5 |
+| TC9 | move-orphaned stub removal | R12 | 🟢 **GREEN** (Phase 5 done) | 5 |
 | TC10 | exit-stub preserved | E | 🔴 RED | 6 |
 | TC11 | two nets, no over-grab | R16 | 🟢 GREEN (guard) | — |
 | TC12 | bus rubber-band, lab kept | R19 | 🔴 **RED** | (new gap, see below) |
@@ -431,7 +431,20 @@ moves may leave an overlapping segment → Phase 5 cleanup.
   **Guard:** TC1/TC2/TC11/TC13/TC14 + golden + stable_handles. *Known residue:*
   horizontal moves may leave one overlapping rail segment — handed to Phase 5.
 
-### Phase 5 — Release-time cleanup *(Issue D3 → R10/R11/R12; TC7, TC8, TC9)*
+### Phase 5 — Release-time cleanup ✅ DONE *(Issue D3 → R10/R11/R12; TC7, TC8, TC9)*
+**Status: COMPLETE (commit `02975fd4`).** On a STRETCH move the release-time cleanup
+runs at move END regardless of `autotrim_wires` (new `xctx->stretch_select`, set in
+`select_attached_nets()`, cleared at END/ABORT). Order: `trim_wires()` (TC7 colinear
+merge + TC8 include/overlap dedup, reusing check.c) → `remove_move_orphan_wires()`
+(move.c, TC9: drops a redundant dangling stub off the moved pin — one free end, kept
+end on a MOVING pin another wire already serves). TC9 is scoped by a *coordinate
+snapshot* of the grabbed wires captured in `select_attached_nets` (the kissing/commit
+pipeline re-mints wire ids and clears `sel` before move END, so neither survives), so a
+pre-existing distinct-net wire the moved pin merely landed on is never deleted (TC11
+guard). TC7/8/9 RED→GREEN, sabotage-verified; guards green (wireedit TC1-9/11/13-17,
+golden, stable58, cadence16, regression). 5.4 horizontal sibling: clean (residue
+collapses). NOTE: the TC7/8/9 fixtures use a no-op stretch move to fire the cleanup on
+hand-built residue (option A).
 - **5.1** RED+GREEN: TC8 (duplicate/overlap) — ensure `trim_wires()`'s include-removal
   runs on the stretch path (call it post-move for stretch moves regardless of
   `autotrim_wires`, **or** add a dedicated post-slide dedup). Smallest first.
