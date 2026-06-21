@@ -45,3 +45,7 @@ doc/manpages/xschem.1
 Makefile.conf
 config.h
 *.Identifier
+
+# autosave backup files (cellName~.sch / ~.sym) -- never tracked
+*~.sch
+*~.sym

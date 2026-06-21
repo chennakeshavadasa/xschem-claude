@@ -3470,6 +3470,7 @@ void write_backup(void)
   struct stat buf;
   const char *name;
 
+  if(xctx->no_autosave) return; /* e.g. during load: not a user edit */
   if(!tclgetboolvar("autosave_backup")) return;
   name = xctx->sch[xctx->currsch];
   if(!name || !name[0]) return;
@@ -3554,6 +3555,7 @@ int save_schematic(const char *schname, int fast) /* 20171020 added return value
   if(!strstr(xctx->sch[xctx->currsch], ".xschem_embedded_")) {
     if(fast) set_modify(2); /* only clear modified flag, no title/tab/sim buttons update */
     else     set_modify(0);
+    remove_backup(); /* a real save committed the edits: drop the cellName~.sch */
   }
   tclvareval("catch {", xctx->top_path, ".menubar entryconfigure Simulate -background $simulate_bg}", NULL);
   tclvareval("set tctx::", xctx->current_win_path, "_simulate $simulate_bg", NULL);
@@ -3610,6 +3612,12 @@ int load_schematic(int load_symbols, const char *fname, int reset_undo, int aler
   char msg[PATH_MAX+100];
   struct stat buf;
   int i, ret = 1; /* success */
+  int save_no_autosave = xctx->no_autosave;
+
+  /* Loading is not a user edit: suppress the autosave "~" write so opening a file
+   * (and the load-time trim_wires set_modify(1) in cadence mode) never creates or
+   * touches a backup. Restored before every return. */
+  xctx->no_autosave = 1;
 
   xctx->prep_hi_structs=0;
   xctx->prep_net_structs=0;
@@ -3675,6 +3683,7 @@ int load_schematic(int load_symbols, const char *fname, int reset_undo, int aler
     dbg(1, "load_schematic(): sch[currsch]=%s\n", xctx->sch[xctx->currsch]);
     if(!name[0]) {
       my_free(_ALLOC_ID_, &ffname);
+      xctx->no_autosave = save_no_autosave;
       return 0; /* empty filename */
     }
     if(reset_undo) {
@@ -3788,6 +3797,7 @@ int load_schematic(int load_symbols, const char *fname, int reset_undo, int aler
   }
   my_free(_ALLOC_ID_, &ffname);
   if(reset_undo == 1) tcleval("eval_load_file_postprocess");
+  xctx->no_autosave = save_no_autosave;
   return ret;
 }
 

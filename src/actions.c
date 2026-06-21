@@ -161,6 +161,14 @@ int set_modify(int mod)
   if(mod == 0 || mod == 1 || mod == 2 || mod == 3) {
     xctx->modified = (mod & 1);
   }
+  /* Autosave: a genuine edit (mod 1/3 -> modified) immediately persists the buffer
+   * to its cellName~.sch backup, so descend never has to save and edits survive a
+   * crash. write_backup() is itself a no-op during load (xctx->no_autosave), when
+   * autosave_backup is off, or for an untitled buffer. Highlight/select/pan/zoom and
+   * net-resolution never call set_modify(1), so they correctly do not write.
+   * Removal of the ~ is handled by save_schematic on a real save, not here (clearing
+   * modified on load must not delete a recovery backup). */
+  if(mod == 1 || mod == 3) write_backup();
   if(mod == 1 || (mod == 0  && xctx->prev_set_modify) || mod == -2) {
     /*                Do not configure buttons if displaying in preview window */
     if(has_x && (xctx->top_path[0] == '\0' || strstr(xctx->top_path, ".x") == xctx->top_path)) {

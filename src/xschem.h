@@ -1214,6 +1214,7 @@ typedef struct {
   int pending_fullzoom;
   char hiersep[20];
   int no_undo;
+  int no_autosave; /* suppress the cellName~.sch autosave write (e.g. during load) */
   int draw_single_layer;
   int draw_dots;
   int only_probes;
