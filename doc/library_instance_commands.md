@@ -205,6 +205,7 @@ proc place_libmgr_selection {} {
   if {$view eq ""} { set view symbol }      ;# default to the symbol view
   set f [xschem cellview_path "$lib/$cell" $view]
   if {$f eq "" || ![string match *.sym $f]} { ciw_echo "no symbol view for $lib/$cell" error; return }
+  ciform::set_fields [list $lib $cell $view]  ;# remember it for the Create Instance form
   xschem place_symbol $f                      ;# cursor preview; click to drop
 }
 bind .drw <Key-F3> {place_libmgr_selection; break}
@@ -212,6 +213,14 @@ bind .drw <Key-F3> {place_libmgr_selection; break}
 
 This is the *direct* route: `xschem place_symbol <file>` is the engine's native
 placement, so it bypasses the form entirely.
+
+> **Keeping the form in sync.** Because the direct route bypasses the form, the
+> Create Instance form (the `i` key / `xschem create_instance` with no argument)
+> would otherwise still show whatever it last held — not what you just placed. The
+> `ciform::set_fields [list $lib $cell $view]` line above stashes the selection
+> into the form's fields *without opening or arming it*, so opening the form next
+> reflects the most recently placed cell. Drop that line if you do not want the
+> direct route to influence the form.
 
 **Variant — via the form (pre-filled, no manual picking).** If you would rather
 go through the Create Instance form (to get its Instance-Name field, recursion
