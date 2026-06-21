@@ -3523,6 +3523,29 @@ int load_backup_as(const char *cellfile, int set_title)
   return 1;
 }
 
+/* Return 1 if the current hierarchy has unsaved edits the user must be warned about
+ * before closing/quitting: the current level (xctx->modified) OR any ANCESTOR level
+ * on the descend stack whose cellName~ autosave backup still exists. Before B5,
+ * descending forced a save so every ancestor was clean-on-disk when you were deep,
+ * and checking xctx->modified alone was enough; B5/B6 let you descend past an
+ * unsaved parent (edits live in cellName~.sch), so a deep close/quit must look up
+ * the WHOLE stack. (With autosave_backup off the ~ trail is gone, so we can only
+ * report the current level -- consistent with there being no crash protection then.)
+ * specs/descend_hierarchy_in_memory.md */
+int hierarchy_modified(void)
+{
+  int i;
+  char bak[PATH_MAX];
+  struct stat sb;
+  if(xctx->modified) return 1;
+  if(!tclgetboolvar("autosave_backup")) return 0;
+  for(i = 0; i < xctx->currsch; i++) {
+    if(xctx->sch[i] && backup_file_name(bak, S(bak), xctx->sch[i]) && !stat(bak, &sb))
+      return 1;
+  }
+  return 0;
+}
+
 int save_schematic(const char *schname, int fast) /* 20171020 added return value */
 {
   FILE *fd;

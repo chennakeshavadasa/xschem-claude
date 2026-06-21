@@ -1286,12 +1286,12 @@ static int xschem_cmds_e(Tcl_Interp *interp, int argc, const char *argv[], int *
           int wc = get_window_count();
           dbg(1, "wc=%d\n", wc);
           if(wc > 0 ) {
-            if(!force && xctx->modified) {
+            if(!force && hierarchy_modified()) {
               tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
                         "[get_cell [xschem get schname] 0]"
                         ": UNSAVED data: want to exit?\"");
             }
-            if(force || !xctx->modified || !strcmp(tclresult(), "ok")) {
+            if(force || !hierarchy_modified() || !strcmp(tclresult(), "ok")) {
               if(has_x) tcleval("store_geom [xschem get topwindow] [xschem get current_name]");
               swap_windows(0);
               set_modify(0); /* set modified status to 0 to avoid another confirm in following line */
@@ -1299,12 +1299,12 @@ static int xschem_cmds_e(Tcl_Interp *interp, int argc, const char *argv[], int *
               draw();
             }
           } else {
-            if(!force && xctx->modified) {
+            if(!force && hierarchy_modified()) {
               tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
                         "[get_cell [xschem get schname] 0]"
                         ": UNSAVED data: want to exit?\"");
             }
-            if(force || !xctx->modified || !strcmp(tclresult(), "ok")) {
+            if(force || !hierarchy_modified() || !strcmp(tclresult(), "ok")) {
                if(closewindow) {
                  char s[40];
                  /* action-log (file-menu plan): the session ends here -- the
@@ -1329,24 +1329,24 @@ static int xschem_cmds_e(Tcl_Interp *interp, int argc, const char *argv[], int *
           int wc = get_window_count();
           dbg(1, "wc=%d\n", wc);
           if(wc > 0 ) {
-            if(has_x && !force && xctx->modified) {
+            if(has_x && !force && hierarchy_modified()) {
               tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
                         "[get_cell [xschem get schname] 0]"
                         ": UNSAVED data: want to exit?\"");
             }
-            if(!has_x || force || !xctx->modified || !strcmp(tclresult(), "ok")) {
+            if(!has_x || force || !hierarchy_modified() || !strcmp(tclresult(), "ok")) {
               if(has_x) tcleval("store_geom [xschem get topwindow] [xschem get current_name]");
               swap_tabs();
               set_modify(0);
               new_schematic("destroy", xctx->current_win_path, NULL, 1);
             }
           } else {
-            if(has_x && !force && xctx->modified) {
+            if(has_x && !force && hierarchy_modified()) {
               tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
                         "[get_cell [xschem get schname] 0]"
                         ": UNSAVED data: want to exit?\"");
             }
-            if(!has_x || force || !xctx->modified || !strcmp(tclresult(), "ok")) {
+            if(!has_x || force || !hierarchy_modified() || !strcmp(tclresult(), "ok")) {
                if(closewindow) {
                  char s[40];
                  /* action-log (file-menu plan): the session ends here -- the
@@ -1734,6 +1734,10 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
             } else {
               Tcl_SetResult(interp, "", TCL_VOLATILE);
             }
+          }
+          else if(!strcmp(argv[2], "hierarchy_modified")) { /* current level OR a dirty ancestor (deep close guard) */
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            Tcl_SetResult(interp, my_itoa(hierarchy_modified()),TCL_VOLATILE);
           }
           break;
           case 'i':
