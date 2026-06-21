@@ -15,8 +15,9 @@ Companion docs:
 - Design/plan: `specs/descend_hierarchy_in_memory.md`
 - Progress + resume state: `specs/descend_handoff.md`
 
-Covered so far: **Parts 1–7 (Steps 0–6, the design pivot, B1–B4 of the
-backing-file autosave, and B5 — removing the descend save prompt).**
+Covered so far: **Parts 1–8 (Steps 0–6, the design pivot, B1–B4 of the
+backing-file autosave, B5 — removing the descend save prompt, and B6 — extending
+autosave to symbols + the descend_symbol no-prompt path).**
 
 ---
 
@@ -634,6 +635,72 @@ claims — the green-but-hollow trap. Verify execution happened (a nonzero count
 cases that actually invoked the binary, `FATAL=0`), not just that the failure grep
 came back empty. A summary that reads a log that was never written is silence
 wearing a green coat.
+
+---
+
+## Part 8 — Extending the feature to symbols (and refusing to regress the deferred case)
+
+### Lesson 26 — When the mechanism is type-agnostic, "extend it" can be mostly "test it"
+
+B6 was "symbols too." The instinct is to write symbol-specific autosave code. But
+the backing file keys off `backup_file_name()`, which was written from the start to
+insert `~` before *either* extension (`cell.sch -> cell~.sch`, `cell.sym ->
+cell~.sym`), and the autosave hook fires from `set_modify(1)` — which a symbol edit
+calls exactly like a schematic edit. So editing a `.sym` buffer *already* wrote
+`cellName~.sym` and a save *already* removed it. The "feature" for that half of B6
+was three assertions (Part A), not new code.
+
+The lesson isn't "do nothing" — it's that when you build a choke-point mechanism
+(one filename helper, one funnel), later "extensions" often reduce to proving the
+existing path already covers the new type. Write the test that would fail if it
+*didn't*, watch it pass, and you've both verified the claim and locked it against a
+future refactor that special-cases one extension and forgets the other.
+
+**Takeaway:** before adding code to extend a feature to a new case, check whether the
+mechanism was already general. If it was, the work is a characterization test that
+pins the behavior — cheaper than code, and it documents the generality.
+
+### Lesson 27 — A test bug can look exactly like a program crash; read the command before blaming the code
+
+Part A's first run ended with `free(): invalid pointer` on exit. Alarming — a
+double-free in teardown after a symbol edit. The reflex is to suspect the autosave
+code or `free_xschem_data`. The discipline that saved an hour: *isolate before
+theorizing*. A clean descend_symbol round trip didn't crash (Probe). The crash
+needed an *edit* (`xschem line ...`) — but it fired with autosave OFF and with no
+save at all, so neither the backing file nor save was the cause.
+
+The cause was the test: `xschem line 4 -40 -40 40 -40` — five numbers. The command
+is `line x1 y1 x2 y2 [pos]`, so the trailing `-40` became `pos=-40`, and
+`storeobject(-40, ...)` indexed out of bounds. Drop the stray `4` and the crash
+vanishes. The program was fine; the *test* corrupted memory by misusing a command.
+
+**Takeaway:** a crash surfaced by your new test is not proof your feature crashes.
+Bisect what actually triggers it (edit vs. save vs. teardown; flag on vs. off)
+before reading the implementation. A malformed test command can scribble over memory
+just as well as a real bug — and "it crashes only with my change present" can simply
+mean "my change is the only thing exercising that command."
+
+### Lesson 28 — "Deferred" must mean "left as safe as before," never "quietly regressed"
+
+The plan defers embedded-symbol editing. So when B6 removed the descend_symbol save
+prompt, the easy reading was "embedded is out of scope — ignore it." That was wrong.
+`go_back`'s embedded return path (`from_embedded_sym`) reloads the parent from
+*disk*, not from `cellName~.sch`. So with the prompt gone, descending into an
+embedded symbol from a modified parent reloaded the *stale* parent on return — the
+unsaved edit silently vanished (verified: parent wires 2→1, `modified` back to 0).
+Removing the prompt didn't leave embedded "deferred"; it *broke* it.
+
+The fix gated the removal on the *same predicate* descend_symbol already uses to
+detect an embedded symbol (`EMBEDDED flag || embed attr`): non-embedded gets the new
+no-prompt backing-file behavior, embedded keeps the legacy prompt — exactly as safe
+as before. And a Part-C assertion pins it: embedded descent *still prompts*, so a
+future "finish B6" can't silently re-open the data-loss path without a red test.
+
+**Takeaway:** a feature that you're *not* touching can still be *broken* by a change
+elsewhere if it shared the guard you removed. Before deleting a guard, ask which
+other paths leaned on it — and for each one you're deferring, keep it exactly as safe
+as it was and write a test that *fails* if someone later removes that safety. Deferred
+is a promise to leave it working, not a license to let it rot.
 
 ---
 
