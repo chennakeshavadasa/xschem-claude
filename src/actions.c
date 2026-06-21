@@ -2573,15 +2573,17 @@ int descend_schematic(int instnumber, int fallback, int alert, int set_title)
      if(ret == 0) clear_all_hilights();
      if(ret == -1) return 0; /* user cancel */
    }
-   /* Preserve the parent schematic in memory (at its own level index, before the
-    * currsch++) so go_back() can restore it -- including any unsaved edits -- without
-    * a disk reload. Snapshot HERE, before descend's prepare_netlist_structs() below,
-    * which bakes derived net names into wire props: capturing the pre-resolution
-    * state keeps the restored parent byte-identical to the on-disk original.
+   /* Preserve the parent in memory ONLY when it has unsaved edits: that is the
+    * sole case go_back() consumes the snapshot (a clean/just-saved parent is
+    * restored authoritatively from disk). Skipping the snapshot for an unmodified
+    * parent avoids a full deep-copy of the whole schematic on every plain descend
+    * into the hierarchy. Snapshot at the parent's level index, before the currsch++
+    * and before descend's prepare_netlist_structs() below (which bakes derived net
+    * names into wire props) so the captured state matches the on-disk original.
     * specs/descend_hierarchy_in_memory.md. */
-   if(tclgetboolvar("descend_keep_in_memory")) {
+   if(tclgetboolvar("descend_keep_in_memory") && xctx->modified) {
      mem_snapshot_hier(xctx->currsch);
-     xctx->hier_slot_modified[xctx->currsch] = xctx->modified;
+     xctx->hier_slot_modified[xctx->currsch] = 1;
    }
    /*  build up current hierarchy path */
    dbg(1, "descend_schematic(): selected instname=%s\n", xctx->inst[n].instname);

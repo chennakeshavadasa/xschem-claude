@@ -13,7 +13,8 @@ Companion docs:
 - Design/plan: `specs/descend_hierarchy_in_memory.md`
 - Progress + resume state: `specs/descend_handoff.md`
 
-Covered so far: **Parts 1–4 (Steps 0–6).**
+Covered so far: **Parts 1–4 (Steps 0–6, incl. the snapshot-only-when-modified
+efficiency refinement).**
 
 ---
 
@@ -376,6 +377,43 @@ already dirty and about to be saved anyway. One predicate fixed the fidelity bug
 
 **Takeaway:** the best fix often shrinks the feature. Ask "when is this machinery
 actually needed?" — guarding on that condition frequently removes the bug for free.
+
+### Lesson 17 — Don't *produce* what you've decided not to *consume*
+
+Lesson 16 made `go_back` *use* the snapshot only when the parent was modified. But
+the code still *took* a full deep-copy snapshot on **every** descend — including
+the common case of browsing down into an unmodified design — and then discarded it
+unused. The producer and the consumer disagreed about when the work was needed.
+
+A reviewer's question ("do we only save the edits, to be efficient?") surfaced it.
+The fix is to gate the *production* on the same predicate as the *consumption*:
+
+```c
+/* snapshot ONLY when the parent has unsaved edits -- the sole case go_back uses it */
+if(tclgetboolvar("descend_keep_in_memory") && xctx->modified) {
+  mem_snapshot_hier(xctx->currsch);
+  xctx->hier_slot_modified[xctx->currsch] = 1;
+}
+```
+
+For a clean parent this skips a full-schematic deep copy entirely — meaningful when
+you descend several levels into a large design just to look around. Correctness is
+unchanged (a clean parent was always restored from disk).
+
+We then *locked the optimization in* with an observable invariant rather than
+trusting it: a tiny read-only query `xschem get hier_slots` (count of live
+snapshots) plus `test_descend_efficiency.tcl`:
+
+```
+unmodified descend -> hier_slots == 0   (no snapshot taken)
+modified   descend -> hier_slots == 1   (taken)
+after go_back      -> hier_slots == 0   (freed)
+```
+
+**Takeaway:** when one predicate decides whether an output is *used*, push that same
+predicate to where the output is *produced*. And make non-functional properties
+(cost, "no work done") *observable* so a test can defend them — otherwise the next
+refactor silently reintroduces the waste.
 
 ---
 

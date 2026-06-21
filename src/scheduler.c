@@ -1715,6 +1715,12 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
               Tcl_SetResult(interp, "", TCL_VOLATILE);
             }
           }
+          else if(!strcmp(argv[2], "hier_slots")) { /* number of live in-memory parent snapshots (descend) */
+            int lvl, cnt = 0;
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            for(lvl = 0; lvl < CADMAXHIER; lvl++) if(xctx->hier_slot_valid[lvl]) cnt++;
+            Tcl_SetResult(interp, my_itoa(cnt), TCL_VOLATILE);
+          }
           break;
           case 'i':
           if(!strcmp(argv[2], "infowindow_text")) { /* ERC messages */
