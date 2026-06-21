@@ -542,6 +542,26 @@ static int xschem_cmds_b(Tcl_Interp *interp, int argc, const char *argv[], int *
      *   List current input bindings as {device code mods ctx action_id} rows.
      * (the matching `unbind` lives under case 'u')
      * See claude_suggs/refactor_plan_action_registry_phase3.md */
+    /* backup write|remove|name
+     * Autosave "~" backup file for the current cell:
+     *   write  -> write cellName~.sch from the current (unsaved) buffer
+     *   remove -> delete cellName~.sch
+     *   name   -> return the backup filename (or "" if not applicable)
+     * (Hooked automatically to edits in set_modify(); also usable directly.) */
+    else if(!strcmp(argv[1], "backup"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc < 3) { Tcl_SetResult(interp, "xschem backup: missing subcommand", TCL_STATIC); return TCL_ERROR; }
+      if(!strcmp(argv[2], "write")) write_backup();
+      else if(!strcmp(argv[2], "remove")) remove_backup();
+      else if(!strcmp(argv[2], "name")) {
+        char bak[PATH_MAX];
+        if(xctx->sch[xctx->currsch] && backup_file_name(bak, S(bak), xctx->sch[xctx->currsch]))
+          Tcl_SetResult(interp, bak, TCL_VOLATILE);
+        else Tcl_SetResult(interp, "", TCL_STATIC);
+      }
+      else { Tcl_SetResult(interp, "xschem backup: unknown subcommand", TCL_STATIC); return TCL_ERROR; }
+    }
     else if(!strcmp(argv[1], "bind"))
     {
       return action_cmd_bind(argc, argv);

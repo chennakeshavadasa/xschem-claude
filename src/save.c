@@ -3437,6 +3437,64 @@ Sch_pin_record *sort_schematic_pins(int *npins)
  *   0 : did not save
  *   1 : schematic saved
  */
+/* Build the backup ("~") filename for a cell path by inserting '~' before the
+ * extension: /p/cell.sch -> /p/cell~.sch, /p/cell.sym -> /p/cell~.sym.
+ * Returns 1 on success, 0 (and empties dest) if src has no .sch/.sym extension. */
+int backup_file_name(char *dest, int destsize, const char *src)
+{
+  const char *dot;
+  int stem;
+  dest[0] = '\0';
+  if(!src || !src[0]) return 0;
+  dot = strrchr(src, '.');
+  if(!dot || (strcmp(dot, ".sch") && strcmp(dot, ".sym"))) return 0;
+  stem = (int)(dot - src);
+  /* avoid my_snprintf %.*s: the fallback my_snprintf supports only minimal specifiers */
+  if(stem + 1 + (int)strlen(dot) + 1 > destsize) return 0; /* +1 for '~', +1 for NUL */
+  memcpy(dest, src, stem);
+  dest[stem] = '~';
+  strcpy(dest + stem + 1, dot); /* dot includes leading '.', e.g. -> "~.sch" */
+  return 1;
+}
+
+/* Autosave: write the current schematic content to its "~" backup file WITHOUT
+ * touching the live buffer's identity, selection, timestamp or title (unlike
+ * save_schematic). Used as the on-disk persistence of unsaved edits, so a descend
+ * never has to save and edits survive a crash (specs/descend_hierarchy_in_memory.md).
+ * Skipped when autosave_backup is off or the buffer has no real on-disk file yet
+ * (untitled): there is nothing to back a "~" file against. */
+void write_backup(void)
+{
+  char bak[PATH_MAX];
+  FILE *fd;
+  struct stat buf;
+  const char *name;
+
+  if(!tclgetboolvar("autosave_backup")) return;
+  name = xctx->sch[xctx->currsch];
+  if(!name || !name[0]) return;
+  if(stat(name, &buf)) return; /* no real on-disk file (untitled): nothing to back up */
+  if(!backup_file_name(bak, S(bak), name)) return;
+  if(!(fd = fopen(bak, "w"))) {
+    dbg(0, "write_backup(): cannot open %s for write\n", bak);
+    return;
+  }
+  write_xschem_file(fd);
+  fclose(fd);
+  dbg(1, "write_backup(): wrote %s\n", bak);
+}
+
+/* Remove the current cell's "~" backup file (after a real save, or when the
+ * buffer returns to a clean state). No-op if it does not exist. */
+void remove_backup(void)
+{
+  char bak[PATH_MAX];
+  const char *name = xctx->sch[xctx->currsch];
+  if(!name || !name[0]) return;
+  if(!backup_file_name(bak, S(bak), name)) return;
+  xunlink(bak);
+}
+
 int save_schematic(const char *schname, int fast) /* 20171020 added return value */
 {
   FILE *fd;

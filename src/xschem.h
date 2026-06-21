@@ -1659,6 +1659,9 @@ extern char *get_generator_command(const char *str);
 extern int match_symbol(const char name[]);
 extern Sch_pin_record *sort_schematic_pins(int *npins);
 extern int save_schematic(const char *, int fast); /*  20171020 added return value */
+extern int backup_file_name(char *dest, int destsize, const char *src);
+extern void write_backup(void);
+extern void remove_backup(void);
 extern void copy_symbol(xSymbol *dest_sym, xSymbol *src_sym);
 extern void push_undo(void);
 extern void pop_undo(int redo, int set_modify_status);

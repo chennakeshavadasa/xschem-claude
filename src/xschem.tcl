@@ -12065,6 +12065,10 @@ set_ne auto_set_wire_bus 0
 # edits) without a disk reload; descend then never needs to save. Off => legacy
 # disk-reload behavior (specs/descend_hierarchy_in_memory.md).
 set_ne descend_keep_in_memory 1
+# autosave: every genuine edit immediately writes a cellName~.sch backup; saving
+# the real file removes it. Persists unsaved edits across descend and crashes
+# (specs/descend_hierarchy_in_memory.md). Off => no backup files.
+set_ne autosave_backup 1
 set_ne cadence_compat 0
 set_ne infix_interface 1
 # autostart the Library Manager window at launch (specs/library_manager_launch.md)
