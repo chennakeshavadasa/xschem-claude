@@ -1,9 +1,11 @@
-# Tutorial: from a save-prompt bug to an in-memory hierarchy
+# Tutorial: from a save-prompt bug to crash-safe hierarchical editing
 
 A real-world walkthrough of how a one-line bug report ("why does descending into
 a cell ask me to save?") turned into a small architectural feature in XSCHEM —
-preserving the parent schematic in memory so descending never has to save or risk
-losing edits.
+letting you descend through a hierarchy and edit freely without ever being
+prompted to save or risking lost edits. The design evolved mid-build (Part 5):
+an in-memory snapshot, then — on review — an editor-style `cellName~.sch` backing
+file. Both arcs are taught here, including *why* the second won.
 
 This is a **living document**: it grows one part at a time as the work proceeds.
 Every concept is paired with the concrete decision, command, or code from this
@@ -13,8 +15,8 @@ Companion docs:
 - Design/plan: `specs/descend_hierarchy_in_memory.md`
 - Progress + resume state: `specs/descend_handoff.md`
 
-Covered so far: **Parts 1–4 (Steps 0–6, incl. the snapshot-only-when-modified
-efficiency refinement).**
+Covered so far: **Parts 1–5 (Steps 0–6, the design pivot, and B1 backing-file
+helpers).**
 
 ---
 
@@ -417,6 +419,81 @@ refactor silently reintroduces the waste.
 
 ---
 
+## Part 5 — The pivot: when a simpler design appears mid-build
+
+### Lesson 18 — Evaluate a reviewer's alternative honestly; sunk cost is not a vote
+
+With the in-memory feature built and tested through Step 6, the reviewer asked:
+why keep edits in memory at all? Write the edited cell to a backing file
+`cellName~.sch` (the classic editor `~`-file), read it back on return. It reuses
+the bulletproof save/load path, persists edits to disk, and gives crash recovery.
+
+The wrong instinct is to defend what's built. We'd written real code — but six
+committed steps are not an argument for the *design*. We compared the two on the
+axes that matter for an EDA tool (new-code/bug-surface, crash safety, read-only
+dirs, disk clutter, speed) and found the backing-file approach genuinely simpler
+and more robust. So we pivoted: the in-memory mechanism (Steps 4–6) gets
+replaced; what's reusable (the Part-1 fix, the undo-serializer refactor, the
+behavior tests, this tutorial) carries forward.
+
+Two discipline points made the pivot cheap and safe:
+- **Validate the load-bearing assumption first.** The whole design hinges on
+  "a highlight is not an edit." Before re-planning, we *proved* it: no
+  `set_modify` in `hilight.c`/`findnet.c`/`node_hash.c`, and load/select/hilight
+  all leave `modified=0`. If that had been false, the autosave hook would fire on
+  every highlight — the design would have been wrong at the root.
+- **Don't over-engineer the new idea either.** The first cut proposed
+  `$XSCHEM_TMP_DIR/.hier_<pid>_<lvl>_cell.sch` to dodge read-only dirs and
+  two-windows-same-cell collisions. The reviewer pushed back: just use
+  `cellName~.sch`. Re-examined, those edge cases are non-issues for a *parent*
+  backup (the cell you're editing is writable; a read-only cell can't be saved
+  anyway). The conventional name won. Solving problems you don't have is its own
+  kind of debt.
+
+**Takeaway:** the tests and refactors you wrote are assets that survive a design
+change; the *mechanism* is replaceable. Judge a proposed design on its merits,
+prove its key assumption before committing, and resist gold-plating the
+replacement as much as defending the incumbent.
+
+### Lesson 19 — Choose the primitive by its side effects, not its name
+
+The obvious function to write the backup was `save_schematic()`. Reading it first
+saved a nasty bug: it **mutates the live buffer** — renames `sch[currsch]` to the
+new filename, clears the selection (`unselect_all`), rewrites the timestamp and
+window title. Perfect for "Save As"; catastrophic for an autosave that fires on
+*every edit* (your selection would vanish as you work; the buffer would rename
+itself to `cellName~.sch`).
+
+The right primitive was one level down: `write_xschem_file(fd)` — a pure
+serializer that takes a `FILE*` and writes content, touching no live state. So
+`write_backup()` is just `fopen` + `write_xschem_file` + `fclose`.
+
+**Takeaway:** name-matching the call ("I need to save → `save_schematic`") is how
+you import side effects you didn't want. Read the candidate and pick by what it
+*does to your state*, not what it's called. The function with fewer side effects
+is usually the correct building block.
+
+### Lesson 20 — Test the helper in isolation, and don't trust libc's twin
+
+B1 added a `xschem backup write|remove|name` command *before* wiring autosave into
+the edit path. That seam earned its keep immediately: the first run **segfaulted**,
+and because the trigger was a one-line `xschem backup name`, the cause was
+unambiguous — not buried inside a move/paste handler firing autosave mid-gesture.
+
+The cause: `backup_file_name` used `my_snprintf(dest, n, "%.*s~%s", ...)`. XSCHEM
+ships *two* `my_snprintf`s — a `vsnprintf` passthrough, and a hand-rolled fallback
+that "implements only the bare minimum set of formatting." This build used the
+fallback, which doesn't grok `%.*s` (variadic `*` precision) — it misparsed and
+crashed. The fix was plain `memcpy`/`strcpy`.
+
+**Takeaway:** build the observable seam (a tiny command/query) before the
+automatic trigger — a crash on an explicit call is a five-minute fix; the same
+crash inside an event handler is an afternoon. And a project's wrapper around a
+libc function (`my_snprintf`, custom `strdup`, …) may implement only a subset —
+don't assume full `printf` semantics.
+
+---
+
 ## Appendix — the toolbox used here
 
 - **Headless repro:** `src/xschem --no_x|--nogui -q --nolog --script f.tcl`
@@ -426,9 +503,14 @@ refactor silently reintroduces the waste.
   `addr2line -f -e src/xschem <addr>` for static symbols.
 - **Equivalence by file:** `xschem saveas f.sch schematic` then `diff` (strip the
   volatile version header line).
-- **A/B a code path:** a default-on config flag (`descend_keep_in_memory`).
+- **A/B a code path:** a default-on config flag (`descend_keep_in_memory`,
+  `autosave_backup`).
+- **An observable seam:** a tiny read-only query/command (`xschem get hier_slots`,
+  `xschem backup name`) so a test can pin behavior — and so crashes surface on a
+  one-liner, not inside an event handler.
 - **Guard rails:** `wireedit/run_wireedit.sh`, `tests/run_regression.tcl`, run
   after every step; commit refactors and behavior changes separately.
 
-*Next parts will cover Step 7 (removing the prompt safely), embedded symbols,
-the tab/context interaction, and leak-hunting — added as those steps land.*
+*Next parts will cover B2 (hooking autosave into the edit funnel), go_back reading
+the `~` file, removing the in-memory machinery and the save prompt, symbols, and
+the file-listing/lifecycle work — added as those steps land.*
