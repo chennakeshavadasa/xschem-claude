@@ -1,7 +1,60 @@
-# Spec: in-memory hierarchy so descend never saves/loses
+# Spec: descend never saves/loses edits
 
-Status: **DRAFT — awaiting sign-off before Phase 1.**
 Branch context: `fluid-editing` (cadence-style editing work).
+
+> ## ⚠ DESIGN PIVOT (2026-06-21) — backing file `cellName~.sch`, not an in-memory snapshot
+>
+> Steps 1–6 built an **in-memory** snapshot (`hier_slot[]`, reusing the undo
+> serializer). On review we are switching to a **disk backing-file / autosave**
+> design (the editor `~`-file convention, e.g. NEdit). It is simpler, reuses the
+> tested save/load path, and gives crash recovery for free. The in-memory plan
+> below is **superseded** by the "Backing-file design" and "Revised plan"
+> sections that follow; it is kept for history and because several of its pieces
+> are reused.
+>
+> ### Backing-file design
+> - In memory stays the working copy (zoom/pan/edit), always.
+> - A **genuine edit** (`set_modify(1)`, which excludes highlight/select/pan/zoom/
+>   net-resolution — verified) **immediately writes** `cellName~.sch`
+>   (`cellName~.sym` for symbols), next to the cell.
+> - **Save** writes `cellName.sch` and deletes `cellName~.sch`.
+> - The `~` file exists only while the buffer is dirty (first edit creates it).
+> - **go_back** loads `cellName~.sch` if present (logical name stays `cellName`,
+>   `modified=1`), else the clean `cellName.sch`. No snapshot, no `hier_slot[]`.
+> - **Highlight is not an edit** → no `set_modify` → no write (verified: no
+>   set_modify in hilight.c/findnet.c/node_hash.c; load/select/hilight leave
+>   modified=0).
+> - Bonus: `~` is a crash-recovery artifact for any dirty cell, not just descend.
+>
+> ### Considerations / decisions
+> - Write **immediately** per edit, but behind one `write_backup()` function so an
+>   idle-debounce can be added later if large flat schematics hitch.
+> - Gate with `autosave_backup` (default on) and skip buffers with no real on-disk
+>   name (untitled / headless tests) so tests don't spray `~` files.
+> - Hide `*~.sch` / `*~.sym` from the file-open dialog, library browser, and any
+>   directory scans. (Symbol→schematic resolution already only looks for
+>   `cellName.sch`, never `cellName~`.)
+>
+> ### Revised plan (RED-first; acceptance tests S1/S2 unchanged, mechanism-agnostic)
+> Keep: Part-1 fix, the mem_serialize/restore refactor (still used by undo), the
+> acceptance + fidelity tests, the tutorial.
+> | Step | Change | Gate |
+> |---|---|---|
+> | **B1** | `backup_file_name()` + `write_backup()` / `remove_backup()` (reuse save_schematic); `autosave_backup` flag; skip unnamed buffers | unit tcl test: edit → `cellName~.sch` appears with current content |
+> | **B2** | Hook into the edit funnel: `set_modify(1)` → write_backup; `set_modify(0/2)` → remove_backup. Verify highlight/select/load do NOT write | edit writes `~`; highlight/save/load do not; modified semantics intact |
+> | **B3** | go_back loads `cellName~.sch` when present (identity = `cellName`, modified=1); remove the in-memory overlay + descend snapshot | **S1 GREEN** via the `~` file; fidelity GREEN |
+> | **B4** | Remove dead in-memory machinery: `hier_slot[]`, snapshot/restore_hier, `descend_keep_in_memory`, `get hier_slots`; replace `test_descend_efficiency.tcl` with a `~`-file behavior test | suites green; no dead code |
+> | **B5** | Remove the descend save prompt (old Step 7) — now trivially safe (edits always autosaved) | **S2 GREEN** |
+> | **B6** | Symbols: `cellName~.sym` for edited symbols; descend-into-symbol path | symbol-edit round trip preserved |
+> | **B7** | Hide `~` files in file dialog / library browser / dir scans | `~` files not listed as cells |
+> | **B8** | Lifecycle + recovery: clean `~` on save/close; on open, detect a stale `~` and offer recovery (may be deferred) | stale-`~` handling test |
+> | **B9** | Tabs, deep hierarchy, leak/edge audit; GUI eyeball | suites green; manual pass |
+>
+> The original in-memory spec follows unchanged for reference.
+
+---
+
+## (SUPERSEDED) Original in-memory spec
 
 ## Problem
 
@@ -152,6 +205,69 @@ arrays" routine (none exists; the design is deliberately pointer-swap).
 - Eyeball in real GUI (`src/xschem --script src/cadence_style_rc`): descend via
   context menu on a clean file (no prompt), and with an unsaved parent edit
   (no prompt, edit intact on return).
+
+## Mechanism refinement (supersedes the pointer-swap sketch above)
+
+During planning, the whole-`Xschem_ctx`-pointer swap was found to collide badly
+with the `currsch`-indexed per-level metadata arrays (`sch[]`, `sch_path[]`,
+`zoom_array[]`, `hier_attr[]`, …) and the cross-level hilight functions
+(`hilight_child_pins`/`hilight_parent_pins`), which all assume a *single* ctx
+holding every level's metadata. A per-level ctx would split that metadata across
+ctxs and force a deep rewrite of the hilight traversal.
+
+**Better basis: reuse the in-memory undo serializer.** `mem_push_undo()` /
+`mem_pop_undo()` (`in_memory_undo.c:263,394`) already deep-copy the *entire*
+schematic drawing state — wires, instances, symbols (via `copy_symbol`), texts,
+rects/lines/polys/arcs and all `prop_ptr`s — into an `Undo_slot`
+(`xschem.h:723`, array `uslot[MAX_UNDO]` at 1168), and restore it. This is
+exactly the parent-snapshot we need, already tested and maintained.
+
+Refined mechanism (keeps ONE ctx; metadata/hilight machinery untouched):
+
+- Factor the serialize/restore bodies of `mem_push_undo`/`mem_pop_undo` into
+  `mem_serialize_slot(Undo_slot *s)` / `mem_restore_slot(Undo_slot *s, …)`.
+- Add a per-level snapshot store `Undo_slot hier_slot[CADMAXHIER]` (+ a
+  `hier_slot_valid[CADMAXHIER]` flag) to `Xschem_ctx`.
+- **descend:** before `clear_drawing()`/loading the child, snapshot the parent
+  into `hier_slot[currsch]`.
+- **go_back:** when a valid snapshot exists for the level, restore the parent
+  from `hier_slot[currsch]` (then set `current_name`/`current_dirname` from the
+  preserved `sch[currsch]`, invalidate `prep_*`, keep the existing
+  `hilight_parent_pins`/`propagate_hilights`/zoom restore) **instead of**
+  `load_schematic()`-from-disk. Free the slot.
+- Then the `if(xctx->modified) save(1,0)` block in `descend_schematic()` is
+  removed: the parent is preserved in memory, so descend never needs to save.
+
+This is independent of which undo backend (memory/disk) is active — the
+hierarchy snapshot always uses the in-memory serializer and its own
+`hier_slot[]` store, so it never clobbers the user's undo history.
+
+## RED-first implementation plan (atomic steps)
+
+Acceptance test `tests/headless/test_descend_preserve.tcl`, two scenarios:
+- **S1 (no data loss):** load → add a parent wire (`modified=1`) →
+  `ask_save` stubbed to return "no" → descend → `go_back` → assert parent wire
+  count restored and `modified` still 1 (unsaved-but-present). RED today
+  (wire lost). → GREEN at Step 5.
+- **S2 (no prompt):** descend on a modified parent → assert `ask_save` was
+  **not** called. RED until Step 7.
+
+| Step | Change | Test gate |
+|---|---|---|
+| **1** | Write `test_descend_preserve.tcl` (S1) and run it — confirm it **FAILS** on the current build (wire lost). | S1 RED (expected) |
+| **2** | Refactor: extract `mem_serialize_slot(Undo_slot*)` from `mem_push_undo`; call it there. No behavior change. | build + undo test (`wireedit_14`) GREEN |
+| **3** | Refactor: extract `mem_restore_slot(Undo_slot*, …)` from `mem_pop_undo`; call it there. No behavior change. | build + undo test GREEN |
+| **4** | Add `hier_slot[CADMAXHIER]` + `hier_slot_valid[]` to `Xschem_ctx`; init in `alloc_xschem_data`, free in `clear_drawing`/`delete_schematic_data`. Unused. | build + full suite GREEN |
+| **5** | descend snapshots parent into `hier_slot[currsch]` before loading child; `go_back` restores from it (incl. `current_name`/zoom/prep-invalidate) instead of disk reload, behind flag `descend_keep_in_memory` (default on). **Keep** the descend save block for now. | **S1 GREEN**; full suite + wireedit + netlisting GREEN |
+| **6** | Validate restore fidelity: add asserts to S1 for zoom, netlist output, and hilight after `go_back` (compare to a disk-reload baseline). | extended S1 GREEN |
+| **7** | Remove the `if(xctx->modified) save(1,0)` block in `descend_schematic`. Add S2 assertion. | **S2 GREEN**; suite GREEN |
+| **8** | Embedded-symbol path (`.xschem_embedded_`): confirm snapshot preserves the edited `sym[]`; drop/adjust now-redundant temp-reload logic in `go_back`. | new `test_descend_embedded` GREEN |
+| **9** | Tab interaction: descend in a tab, switch away/back, `go_back` — state intact (`hier_slot[]` rides with the per-tab ctx). Audit `switch_tab`. | new `test_descend_tab` GREEN |
+| **10** | Deep multi-level descend + memory freed on each `go_back`; leak check (`xschemtest -d 3`). Audit `clear_schematic`/load-new-file frees `hier_slot[]`. | leak log clean; suite GREEN |
+| **11** | GUI eyeball (`src/xschem --script src/cadence_style_rc`): context-descend on clean file (no prompt) and on edited parent (no prompt, edit intact on return); close-with-unsaved still prompts. | manual pass |
+
+Each step keeps the build compiling and every previously-green test green; RED
+steps (1, and the S2 add in 7) are written before the implementing change.
 
 ## Alternative considered (rejected)
 
