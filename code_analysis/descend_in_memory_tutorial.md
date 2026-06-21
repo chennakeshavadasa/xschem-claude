@@ -15,10 +15,10 @@ Companion docs:
 - Design/plan: `specs/descend_hierarchy_in_memory.md`
 - Progress + resume state: `specs/descend_handoff.md`
 
-Covered so far: **Parts 1–9 (Steps 0–6, the design pivot, B1–B4 of the
+Covered so far: **Parts 1–10 (Steps 0–6, the design pivot, B1–B4 of the
 backing-file autosave, B5 — removing the descend save prompt, B6 — extending
-autosave to symbols + the descend_symbol no-prompt path, and B7 — hiding the `~`
-backups from cell listings).**
+autosave to symbols + the descend_symbol no-prompt path, B7 — hiding the `~`
+backups from cell listings, and B8 — lifecycle + crash recovery).**
 
 ---
 
@@ -749,6 +749,67 @@ still perfectly loadable by its real name (which is exactly what go_back does wi
 *enumerate choices* or *resolve a known name*? Hide in the first, never in the
 second. The same filename can be correctly invisible to a picker and fully reachable
 by the loader at the same time.
+
+---
+
+## Part 10 — Closing the lifecycle: the artifact must mean something
+
+### Lesson 31 — The second consumer is when the duplicated code finally earns extraction
+
+B3 wrote, inline in `go_back`, the "load the `~` content but keep the cell's
+identity" dance — load the backup file, then overwrite `sch[currsch]`,
+`current_name`, `current_dirname`, `time_last_modify`, and `set_modify(1)`. Inlining
+it was *correct then*: one caller, and premature extraction is its own guess. B8
+introduced the **second** caller (crash recovery on open needs exactly the same
+content/identity split). That's the signal — not "this looks reusable," but "a
+second site now needs the identical thing." Extracting `load_backup_as()` removed
+sixteen lines from `go_back`, gave recovery a one-line call, and — because the
+existing descend round-trip tests still pass — proved the extraction was
+behavior-neutral on the spot.
+
+**Takeaway:** "don't repeat yourself" triggers on the *second* occurrence, not the
+first. The first inline copy is a hypothesis; the second consumer confirms it and
+tells you the exact shape to factor out. Extract then, with the original site's tests
+as your safety net.
+
+### Lesson 32 — An artifact is only useful if its presence is unambiguous
+
+The `~` backup is meant to mean "unsaved edits survived a crash." But that meaning
+only holds if the file is *absent* in every non-crash ending. A real save already
+removed it (B2). The gap was the *intentional discard*: clear / new-file / "don't
+save on close" left the `~` behind, so the next open would offer to "recover" edits
+the user had deliberately thrown away — crying wolf until nobody trusts the prompt.
+Adding `remove_backup()` to the discard path closes that: now a surviving `~` means
+exactly one thing — the session ended *without* a clean exit. The recovery offer is
+trustworthy precisely because every clean path cleans up after itself.
+
+The same "unambiguous" instinct drove the mtime check: a `~` *older* than its cell
+can't be live unsaved work (the cell was saved afterward), so it's stale junk —
+deleted silently, never offered. Only a backup newer than the cell is a real
+recovery candidate.
+
+**Takeaway:** a recovery/lock/temp artifact is only as useful as the guarantee that
+it exists *only* in the state it's supposed to signal. Enumerate every way the
+program can end — save, discard, new-file, crash — and make all the non-target
+endings remove it. An artifact that lingers after a normal exit trains the user to
+dismiss the very prompt it powers.
+
+### Lesson 33 — Make the dangerous part inert in the contexts that can't consent
+
+Crash recovery *replaces the buffer the user just opened* with different content —
+exactly the kind of action you never want firing unbidden in a script, a replay, or
+a headless test. So the auto-offer is gated `if(!force && has_x)`: it runs only on an
+interactive GUI open (`-gui`), never on programmatic `xschem load`, replay lines, or
+`--nogui`. The *mechanism* (`load_backup`, `xschem_recover_backup`) stays fully
+testable in isolation — the test calls the primitive and the proc directly with a
+stubbed dialog — but the *automatic* trigger is inert everywhere a human isn't
+present to answer the prompt. That split (testable mechanism, context-gated trigger)
+is the same one from Lesson 20, applied to a destructive action instead of a crash.
+
+**Takeaway:** when an automatic behavior is destructive or interactive, gate the
+*trigger* on the context that can actually consent (GUI + interactive), and keep the
+*mechanism* callable on its own so tests exercise it without the trigger. Don't make
+a feature untestable to make it safe, and don't make it unsafe to make it testable.
 
 ---
 
