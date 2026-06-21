@@ -4,10 +4,10 @@
 
 > Continue the in-memory descend/go_back work on branch `fluid-editing`. Read
 > `specs/descend_hierarchy_in_memory.md` (plan) and `specs/descend_handoff.md`
-> (this file) first. Steps 1–5 are DONE and committed; resume at **Step 6**
-> (validate restore fidelity), following the RED-first plan, building + running
-> the test suites after each step and committing per step. Tasks are tracked;
-> refresh this handoff after each step.
+> (this file) first. Steps 1–6 are DONE and committed; resume at **Step 7**
+> (RED-first: remove the descend save block so S2 flips GREEN), building +
+> running the test suites after each step and committing per step. Tasks are
+> tracked; refresh this handoff after each step.
 
 ## Where things stand (2026-06-20)
 
@@ -27,11 +27,19 @@ serializer) on descend; restore from it on go_back.
 - `d38074c` Step 5: descend snapshots parent (`mem_snapshot_hier`), go_back
   overlays it (`mem_restore_hier`) after the disk load_schematic. Flag
   `descend_keep_in_memory` (default 1). **S1 GREEN.**
+- `12bae6d` Step 6: fidelity test `test_descend_fidelity.tcl` (+ richer fixture
+  `descend_fid_parent.sch`). Found that net resolution (even `select`) bakes
+  derived `lab=` into wire props; the snapshot captured it so a clean parent
+  came back non-identical to disk. **Fix:** go_back overlays the snapshot ONLY
+  when the parent had unsaved edits (`hier_slot_modified`); a clean parent uses
+  the authoritative disk reload → byte-identical. Snapshot also moved before
+  descend's `prepare_netlist_structs`.
 
 ### Acceptance test status
 `env -u DISPLAY ./src/xschem --nogui --pipe -q --nolog --script tests/headless/test_descend_preserve.tcl`
 - S1 (no data loss): **PASS**
 - S2 (no prompt): **RED** — flips at Step 7 (remove descend save block).
+Fidelity: `tests/headless/test_descend_fidelity.tcl` → ALL PASS.
 
 ### Suites (all green)
 - `bash tests/headless/wireedit/run_wireedit.sh` → 18/18
@@ -48,9 +56,10 @@ serializer) on descend; restore from it on go_back.
   `actions.c` ~2672. go_back overlays after `currsch--` + load_schematic,
   `actions.c` ~2773.
 - go_back **overlay** approach: keep disk `load_schematic` (file identity/title/
-  netlist-dir bookkeeping), then `mem_restore_hier` swaps in preserved geometry +
-  `set_modify(parent_modified?1:0)`. Costs one disk read on go_back — can be
-  optimized later (Step 6+ may revisit).
+  netlist-dir bookkeeping), then `mem_restore_hier` swaps in preserved geometry
+  ONLY when `hier_slot_modified[currsch]` is set (parent had unsaved edits);
+  otherwise free the slot and keep the clean disk reload. Confines net-name
+  baking to already-dirty parents and keeps clean parents byte-identical.
 - Embedded-symbol returns (`.xschem_embedded_`) deliberately still use the disk
   path; go_back just frees the slot. That's Step 8.
 
