@@ -15,8 +15,8 @@ Companion docs:
 - Design/plan: `specs/descend_hierarchy_in_memory.md`
 - Progress + resume state: `specs/descend_handoff.md`
 
-Covered so far: **Parts 1–6 (Steps 0–6, the design pivot, and B1–B3 of the
-backing-file autosave).**
+Covered so far: **Parts 1–7 (Steps 0–6, the design pivot, B1–B4 of the
+backing-file autosave, and B5 — removing the descend save prompt).**
 
 ---
 
@@ -572,6 +572,71 @@ its own tests guard it).
 
 ---
 
+## Part 7 — Removing the guard, last (and proving the suite isn't lying)
+
+### Lesson 24 — Remove a safety prompt only after its replacement is green, not before
+
+The whole arc started with "why does descend prompt to save?" — yet the prompt was
+the *last* thing removed, in B5, not the first. The order was deliberate. The
+`if(xctx->modified) save(1,0)` block was the **only** thing preventing silent data
+loss on a descend/return round trip (Lesson 6 proved the loss empirically). You do
+not delete a guard until the thing that makes it unnecessary is built *and proven*:
+
+- the autosave hook persists every edit to `cellName~.sch` (B2),
+- `go_back` reloads that backup, restoring edits *and* the modified flag (B3),
+- the acceptance test S1 (no data loss) and the fidelity test are both green.
+
+Only then is removing the prompt a one-block deletion that flips S2 RED→GREEN with
+S1 staying green. The diff is tiny; the precondition for the diff was five prior
+steps. Sequencing — symptom fix, then mechanism, then *finally* retire the guard —
+is what kept every intermediate commit safe to ship.
+
+One detail worth noting: the old block also did `if(ret==0) clear_all_hilights()`
+— it cleared highlights when the user *declined* to save, because the on-disk file
+would then be stale and cross-level hilight propagation would be inconsistent. That
+concern evaporates with the backing file: `go_back` reloads `cellName~.sch`, which
+*is* the current edited content, so there is no stale-disk inconsistency to defend
+against. When you remove a guard, account for its side effects too — and confirm the
+new design makes each one moot rather than silently dropping it.
+
+**Takeaway:** the reported symptom is often the right thing to fix *last*. Retire a
+guard only once the mechanism that made it redundant is built and its tests are
+green — and check that every side effect of the guard (here, the hilight clear) is
+genuinely unnecessary under the new design, not just forgotten.
+
+### Lesson 25 — A passing suite that never ran the code is the most dangerous kind
+
+After B5 the headless tests went green and the regression run reported no
+FAIL/GOLD/FATAL. That looked like done. It wasn't — the regression cases had
+**FATAL'd on every case**: `couldn't execute "xschem": no such file or directory`.
+The summary was clean only because the per-case `.log` files were never produced, so
+the FAIL/GOLD/FATAL grep matched nothing. Absence of failure markers was being read
+as success when the real meaning was "nothing ran."
+
+Two reads of the same artifact tell different stories, so look past the summary line:
+
+```
+results.log:            (no FAIL/GOLD/FATAL)        <- looks green
+create_save_output.txt: FATAL: couldn't execute "xschem" (×N)  <- actually ran nothing
+```
+
+The fix was environmental — the `tests/` cases invoke a bare `xschem`, so the built
+binary has to be on `PATH` (`PATH=$REPO/src:$PATH`) on top of the
+`XSCHEM_SHAREDIR=$REPO/src` the harness already needed. Re-run: `FATAL=0`, cases
+genuinely executed. (The classic create_save/open_close/netlisting cases still have
+no `gold/` folder in this checkout, so they generate results without a golden
+comparison — a pre-existing property of the tree, and one B5 doesn't touch since it
+changes no netlisting path. The real coverage for this change is the headless
+descend suite.)
+
+**Takeaway:** "no failures reported" and "the code under test ran" are different
+claims — the green-but-hollow trap. Verify execution happened (a nonzero count of
+cases that actually invoked the binary, `FATAL=0`), not just that the failure grep
+came back empty. A summary that reads a log that was never written is silence
+wearing a green coat.
+
+---
+
 ## Appendix — the toolbox used here
 
 - **Headless repro:** `src/xschem --no_x|--nogui -q --nolog --script f.tcl`
@@ -589,6 +654,8 @@ its own tests guard it).
 - **Guard rails:** `wireedit/run_wireedit.sh`, `tests/run_regression.tcl`, run
   after every step; commit refactors and behavior changes separately.
 
-*Next parts will cover B2 (hooking autosave into the edit funnel), go_back reading
-the `~` file, removing the in-memory machinery and the save prompt, symbols, and
-the file-listing/lifecycle work — added as those steps land.*
+*Next parts will cover B6 (symbol backing files `cellName~.sym` and the
+descend-into-symbol path), B7 (hiding `~` files from the file dialog / library
+browser / directory scans), B8 (lifecycle + crash recovery: clean `~` on
+save/close, offer to restore a stale `~` on open), and B9 (tabs, deep hierarchy,
+leak audit, GUI eyeball) — added as those steps land.*

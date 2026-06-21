@@ -5,24 +5,30 @@
 > Continue the descend autosave work on branch `fluid-editing`. The design PIVOTED
 > from an in-memory snapshot to an editor-style `cellName~.sch` backing file — read
 > the "DESIGN PIVOT" section of `specs/descend_hierarchy_in_memory.md` (plan) and
-> this file first. Steps 1–6 (in-memory, now superseded) and B1–B3 (backing file)
-> are DONE and committed; resume at **B5** (remove the descend save prompt so S2 flips GREEN; the in-memory machinery was removed in B4:
-> hier_slot[], mem_*_hier, descend_keep_in_memory, `get hier_slots`). Build + run
+> this file first. Steps 1–6 (in-memory, now superseded) and B1–B5 (backing file)
+> are DONE and committed; resume at **B6** (symbols: write `cellName~.sym` for
+> edited symbols and handle the descend-into-symbol path). The in-memory machinery
+> was removed in B4 (hier_slot[], mem_*_hier, descend_keep_in_memory,
+> `get hier_slots`); B5 removed the descend save prompt (S2 now GREEN). Build + run
 > the suites after each step, commit per step, and EXTEND the living tutorial
 > `code_analysis/descend_in_memory_tutorial.md` with each step's lesson(s).
 >
 > Backing-file model: a genuine edit (`set_modify(1)`) writes `cellName~.sch`
 > (`write_backup`, save.c); a real `save_schematic` removes it; `load_schematic`
 > guards itself with `xctx->no_autosave`; `go_back` loads the `~` if present
-> (identity restored to cellName). autosave_backup flag (default 1). `*~.sch/.sym`
-> gitignored. Tests: test_backup_file, test_autosave_hook, test_descend_preserve
-> (S1 green / S2 red until B5), test_descend_efficiency, test_descend_fidelity.
+> (identity restored to cellName); `descend_schematic` no longer prompts to save.
+> autosave_backup flag (default 1). `*~.sch/.sym` gitignored. Tests: test_backup_file,
+> test_autosave_hook, test_descend_preserve (S1+S2 GREEN), test_descend_efficiency,
+> test_descend_fidelity. ⚠ regression harness: the `tests/` cases invoke a bare
+> `xschem`, so run with `PATH=$REPO/src:$PATH XSCHEM_SHAREDIR=$REPO/src` or every
+> case FATALs silently (results.log still reads "clean" — green-but-hollow).
 
 > ⚠ **Everything below this line describes the SUPERSEDED in-memory design**
 > (Steps 1–6) and is kept only for history. The authoritative current state is the
 > RESUME PROMPT above + the "DESIGN PIVOT" section of the spec. Backing-file
 > commits: B1 `c408fe3`, B2 `a9ca3cf`, B3 `7a30ff8`, B4 `b4bbfa4` (removed the
-> in-memory machinery). Next: B5 (remove descend save prompt → S2 green).
+> in-memory machinery), B5 `f9fda05` (removed descend save prompt → S2 green).
+> Next: B6 (symbol backing files `cellName~.sym`).
 
 ## (HISTORY — superseded) Where things stood with the in-memory design
 
