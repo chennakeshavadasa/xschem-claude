@@ -4484,13 +4484,28 @@ proc file_dialog_set_home {dir} {
   }
 }
 
+# Autosave "~" backups (cellName~.sch / cellName~.sym, written by write_backup in
+# save.c) are internal crash-recovery artifacts, not cells. They must never be
+# listed as cells in the file dialog, the library browser, or directory scans.
+# (Symbol->schematic resolution never looks for a "~" name, so hiding them here is
+# both safe and complete.) specs/descend_hierarchy_in_memory.md (B7)
+proc is_backup_file {name} {
+  set t [file tail $name]
+  return [expr {[string match {*~.sch} $t] || [string match {*~.sym} $t]}]
+}
+proc filter_backup_files {names} {
+  set out {}
+  foreach n $names { if {![is_backup_file $n]} { lappend out $n } }
+  return $out
+}
+
 proc setglob {dir} {
       global file_dialog_globfilter file_dialog_files2 OS
       # puts "setglob: $dir, filter=$file_dialog_globfilter"
       set file_dialog_files2 [lsort [glob -nocomplain -directory $dir -tails -type d .* *]]
       if { $file_dialog_globfilter eq {*}} {
-        set file_dialog_files2 ${file_dialog_files2}\ [lsort [
-           glob -nocomplain -directory $dir -tails -type {f} .* $file_dialog_globfilter]]
+        set file_dialog_files2 ${file_dialog_files2}\ [lsort [filter_backup_files [
+           glob -nocomplain -directory $dir -tails -type {f} .* $file_dialog_globfilter]]]
       } else {
         if {$OS == "Windows"} {
           regsub {:} $file_dialog_globfilter {\:} file_dialog_globfilter
@@ -4501,7 +4516,7 @@ proc setglob {dir} {
         } else {
           set flist [glob -nocomplain -directory $dir -tails -type {f} {*}]
         }
-        set file_dialog_files2 ${file_dialog_files2}\ [lsort $flist]
+        set file_dialog_files2 ${file_dialog_files2}\ [lsort [filter_backup_files $flist]]
       }
 }
 
@@ -5314,6 +5329,7 @@ proc get_list_of_dirs_with_files {{paths {}} {levels -1} \
     set there_are_symbols 0
     if {$incl_base_levels == 0 || $level > 0} {
       foreach f $filelist {
+        if {[is_backup_file $f]} { continue } ;# ~ backups don't make a dir "have cells"
         if {[regexp $ext $f]} {
           # puts "match: $f"
           set there_are_symbols 1
@@ -8742,6 +8758,7 @@ proc sub_match_file { f {paths {}} {maxdepth -1} {first 0} {fullpath 1}} {
         }
       }
       if {$skip} { continue }
+      if {[is_backup_file $j]} { continue } ;# never list ~ autosave backups as cells
 
       if {[file isdirectory $j] && [file readable $j]} {
         if { $maxdepth == -1 || $match_file_level < $maxdepth} {
