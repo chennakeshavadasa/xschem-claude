@@ -386,7 +386,6 @@ static void free_xschem_data()
 {
   int i;
   xctx->delete_undo();
-  mem_free_hier_slots(); /* per-level descend/go_back snapshots (always in-memory) */
   free_simdata();
 
   my_free(_ALLOC_ID_, &xctx->node_table);
