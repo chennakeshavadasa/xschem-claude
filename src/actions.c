@@ -2669,6 +2669,13 @@ int descend_schematic(int instnumber, int fallback, int alert, int set_title)
    dbg(1, "descend_schematic(): current path: %s\n", xctx->sch_path[xctx->currsch+1]);
    dbg(1, "descend_schematic(): inst_number=%d\n", inst_number);
 
+   /* Preserve the parent schematic in memory (at its own level index, before the
+    * currsch++) so go_back() can restore it -- including any unsaved edits -- without
+    * a disk reload. specs/descend_hierarchy_in_memory.md. */
+   if(tclgetboolvar("descend_keep_in_memory")) {
+     mem_snapshot_hier(xctx->currsch);
+     xctx->hier_slot_modified[xctx->currsch] = xctx->modified;
+   }
    xctx->previous_instance[xctx->currsch]=n;
    xctx->zoom_array[xctx->currsch].x=xctx->xorigin;
    xctx->zoom_array[xctx->currsch].y=xctx->yorigin;
@@ -2764,6 +2771,20 @@ void go_back(int what)
 
   my_strncpy(filename, xctx->sch[xctx->currsch], S(filename));
   load_schematic(1, filename, set_title, 1);
+  /* Overlay the in-memory parent snapshot taken at descend: load_schematic above
+   * restored file identity/title/netlist-dir from disk; now swap in the preserved
+   * geometry (incl. unsaved edits) and the parent's modified flag, so descending
+   * neither loses edits nor required a save. specs/descend_hierarchy_in_memory.md.
+   * Embedded-symbol returns keep the disk path for now (Step 8). */
+  if(xctx->hier_slot_valid[xctx->currsch] && tclgetboolvar("descend_keep_in_memory")) {
+    if(!from_embedded_sym) {
+      int parent_modified = xctx->hier_slot_modified[xctx->currsch];
+      mem_restore_hier(xctx->currsch);
+      set_modify(parent_modified ? 1 : 0);
+    } else {
+      mem_free_hier_slot(xctx->currsch);
+    }
+  }
   /* if we are returning from a symbol created from a generator don't set modified flag on parent
    * as these symbols can not be edited / saved as embedded
    * xctx->sch_inst_number[xctx->currsch + 1] == -1 --> we came from an inst with no embed flag set */

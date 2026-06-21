@@ -12061,6 +12061,10 @@ set_ne intuitive_interface 1
 set_ne use_cursor_for_selection 0
 set_ne autotrim_wires 0
 set_ne auto_set_wire_bus 0
+# descend keeps the parent schematic in memory so go_back restores it (incl. unsaved
+# edits) without a disk reload; descend then never needs to save. Off => legacy
+# disk-reload behavior (specs/descend_hierarchy_in_memory.md).
+set_ne descend_keep_in_memory 1
 set_ne cadence_compat 0
 set_ne infix_interface 1
 # autostart the Library Manager window at launch (specs/library_manager_launch.md)

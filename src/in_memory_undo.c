@@ -323,6 +323,28 @@ void mem_free_hier_slots(void)
   for(lvl = 0; lvl < CADMAXHIER; lvl++) mem_free_hier_slot(lvl);
 }
 
+/* snapshot the current schematic drawing into hier_slot[lvl]: called on descend so
+ * the parent is preserved in memory. Unlike mem_push_undo this ignores xctx->no_undo
+ * (the snapshot exists for data safety on navigation, not undo history). */
+void mem_snapshot_hier(int lvl)
+{
+  if(lvl < 0 || lvl >= CADMAXHIER) return;
+  mem_init_hier_slot(lvl);                      /* allocate meta arrays if needed */
+  mem_serialize_slot(&xctx->hier_slot[lvl]);    /* deep-copy current drawing */
+}
+
+/* rebuild the current schematic from snapshot hier_slot[lvl] and consume it; returns
+ * 1 if a snapshot was present (and restored), 0 otherwise (caller falls back to a
+ * disk reload). Does NOT touch the modified flag -- caller restores it. */
+int mem_restore_hier(int lvl)
+{
+  if(lvl < 0 || lvl >= CADMAXHIER) return 0;
+  if(!xctx->hier_slot_valid[lvl]) return 0;
+  mem_restore_slot(&xctx->hier_slot[lvl], 0);
+  mem_free_hier_slot(lvl);
+  return 1;
+}
+
 /* Deep-copy the current schematic drawing state (wires, instances, symbols,
  * texts, rects/lines/polys/arcs and all prop strings) into undo slot *s. The
  * slot's per-layer count/pointer arrays must already be allocated by
