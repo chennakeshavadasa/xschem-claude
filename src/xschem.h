@@ -1659,6 +1659,8 @@ extern void delete_undo(void);
 extern void clear_undo(void);
 extern void mem_push_undo(void);
 extern void mem_pop_undo(int redo, int set_modify_status);
+extern void mem_serialize_slot(Undo_slot *s);
+extern void mem_restore_slot(Undo_slot *s, int set_modify_status);
 extern void mem_delete_undo(void);
 extern void mem_clear_undo(void);
 extern int load_schematic(int load_symbol, const char *fname, int reset_undo, int alert);
