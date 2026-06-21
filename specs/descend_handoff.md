@@ -7,7 +7,9 @@
 > (this file) first. Steps 1–6 are DONE and committed; resume at **Step 7**
 > (RED-first: remove the descend save block so S2 flips GREEN), building +
 > running the test suites after each step and committing per step. Tasks are
-> tracked; refresh this handoff after each step.
+> tracked; refresh this handoff after each step. ALSO extend the living tutorial
+> `code_analysis/descend_in_memory_tutorial.md` with each step's new lesson(s)
+> (concept + concrete example from the work).
 
 ## Where things stand (2026-06-20)
 
