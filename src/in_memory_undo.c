@@ -260,6 +260,69 @@ void mem_delete_undo(void)
   xctx->mem_undo_initialized = 0;
 }
 
+/* --- per-hierarchy-level schematic snapshots (descend/go_back, in memory) ------
+ * hier_slot[lvl] holds a full snapshot of the schematic at hierarchy level lvl,
+ * serialized with mem_serialize_slot() / restored with mem_restore_slot() -- the
+ * same machinery the undo stack uses, but in its own store so it never touches
+ * undo history. Lazily allocated at snapshot time (mem_snapshot_hier()); freed
+ * here. See specs/descend_hierarchy_in_memory.md. */
+
+/* allocate the per-layer count/pointer arrays of a hierarchy slot (mirrors the
+ * per-slot init inside mem_init_undo) */
+void mem_init_hier_slot(int lvl)
+{
+  Undo_slot *s = &xctx->hier_slot[lvl];
+  if(xctx->hier_slot_valid[lvl]) return; /* already allocated */
+  s->lines    = my_calloc(_ALLOC_ID_, cadlayers, sizeof(int));
+  s->rects    = my_calloc(_ALLOC_ID_, cadlayers, sizeof(int));
+  s->arcs     = my_calloc(_ALLOC_ID_, cadlayers, sizeof(int));
+  s->polygons = my_calloc(_ALLOC_ID_, cadlayers, sizeof(int));
+  s->lptr = my_calloc(_ALLOC_ID_, cadlayers, sizeof(xLine *));
+  s->bptr = my_calloc(_ALLOC_ID_, cadlayers, sizeof(xRect *));
+  s->aptr = my_calloc(_ALLOC_ID_, cadlayers, sizeof(xArc *));
+  s->pptr = my_calloc(_ALLOC_ID_, cadlayers, sizeof(xPoly *));
+  xctx->hier_slot_valid[lvl] = 1;
+}
+
+/* free one hierarchy snapshot (slot contents + per-layer meta arrays) if present */
+void mem_free_hier_slot(int lvl)
+{
+  Undo_slot *s;
+  if(lvl < 0 || lvl >= CADMAXHIER) return;
+  if(!xctx->hier_slot_valid[lvl]) return;
+  s = &xctx->hier_slot[lvl];
+  free_undo_lines(s);
+  free_undo_rects(s);
+  free_undo_polygons(s);
+  free_undo_arcs(s);
+  free_undo_wires(s);
+  free_undo_texts(s);
+  free_undo_instances(s);
+  free_undo_symbols(s);
+  my_free(_ALLOC_ID_, &s->gptr);
+  my_free(_ALLOC_ID_, &s->vptr);
+  my_free(_ALLOC_ID_, &s->sptr);
+  my_free(_ALLOC_ID_, &s->fptr);
+  my_free(_ALLOC_ID_, &s->kptr);
+  my_free(_ALLOC_ID_, &s->eptr);
+  my_free(_ALLOC_ID_, &s->lines);
+  my_free(_ALLOC_ID_, &s->rects);
+  my_free(_ALLOC_ID_, &s->arcs);
+  my_free(_ALLOC_ID_, &s->polygons);
+  my_free(_ALLOC_ID_, &s->lptr);
+  my_free(_ALLOC_ID_, &s->bptr);
+  my_free(_ALLOC_ID_, &s->aptr);
+  my_free(_ALLOC_ID_, &s->pptr);
+  xctx->hier_slot_valid[lvl] = 0;
+}
+
+/* free every hierarchy snapshot of the current context (teardown) */
+void mem_free_hier_slots(void)
+{
+  int lvl;
+  for(lvl = 0; lvl < CADMAXHIER; lvl++) mem_free_hier_slot(lvl);
+}
+
 /* Deep-copy the current schematic drawing state (wires, instances, symbols,
  * texts, rects/lines/polys/arcs and all prop strings) into undo slot *s. The
  * slot's per-layer count/pointer arrays must already be allocated by

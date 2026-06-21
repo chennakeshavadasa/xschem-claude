@@ -1168,6 +1168,12 @@ typedef struct {
   Undo_slot uslot[MAX_UNDO];
   int undo_initialized;
   int mem_undo_initialized;
+  /* per-hierarchy-level schematic snapshot: lets descend preserve the parent in
+   * memory and go_back restore it without a disk reload, so descend never has to
+   * save or risk losing edits (specs/descend_hierarchy_in_memory.md).
+   * hier_slot_valid[lvl] != 0 marks a populated snapshot at that level. */
+  Undo_slot hier_slot[CADMAXHIER];
+  int hier_slot_valid[CADMAXHIER];
   /* graph context struct */
   Graph_ctx graph_struct;
 
@@ -1661,6 +1667,9 @@ extern void mem_push_undo(void);
 extern void mem_pop_undo(int redo, int set_modify_status);
 extern void mem_serialize_slot(Undo_slot *s);
 extern void mem_restore_slot(Undo_slot *s, int set_modify_status);
+extern void mem_init_hier_slot(int lvl);
+extern void mem_free_hier_slot(int lvl);
+extern void mem_free_hier_slots(void);
 extern void mem_delete_undo(void);
 extern void mem_clear_undo(void);
 extern int load_schematic(int load_symbol, const char *fname, int reset_undo, int alert);
