@@ -4499,6 +4499,31 @@ proc filter_backup_files {names} {
   return $out
 }
 
+# Crash recovery (B8): called after interactively opening $cellfile. If an autosave
+# backup (cellName~.sch / cellName~.sym, written by write_backup on every edit and
+# removed by a real save or a clean discard) is still present, the previous session
+# ended without committing -- i.e. a crash. Offer to restore it. A backup OLDER than
+# the on-disk cell is stale junk (the cell was saved more recently) and is removed
+# without asking. Returns 1 if the backup was restored, 0 otherwise.
+# specs/descend_hierarchy_in_memory.md
+proc xschem_recover_backup {cellfile} {
+  set bak [xschem backup name]
+  if {$bak eq {} || ![file exists $bak]} { return 0 }
+  # cell at least as new as the backup -> backup is stale: drop it silently
+  if {[file exists $cellfile] && [file mtime $cellfile] >= [file mtime $bak]} {
+    catch {file delete -force $bak}
+    return 0
+  }
+  set ans [tk_messageBox -type yesno -icon question -title {Recover unsaved changes?} \
+    -message "Unsaved changes from a previous session were found for:\n\n$cellfile\n\nRecover them? (choosing No discards the backup.)"]
+  if {$ans eq {yes}} {
+    return [xschem load_backup $cellfile]
+  } else {
+    catch {file delete -force $bak}
+    return 0
+  }
+}
+
 proc setglob {dir} {
       global file_dialog_globfilter file_dialog_files2 OS
       # puts "setglob: $dir, filter=$file_dialog_globfilter"

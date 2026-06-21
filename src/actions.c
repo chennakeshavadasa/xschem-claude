@@ -2713,9 +2713,6 @@ void go_back(int what)
  int from_embedded_sym;
  int save_modified;
  char filename[PATH_MAX];
- char bak[PATH_MAX];
- char msg[PATH_MAX+100];
- struct stat sb;
  int prev_sch_type;
  int confirm = what & 1;
  int set_title = !(what & 2);
@@ -2769,19 +2766,10 @@ void go_back(int what)
   /* If the parent has unsaved edits persisted in its cellName~.sch backup, load
    * those instead of the on-disk cellName.sch -- the buffer's logical identity
    * stays cellName and it returns flagged modified, so descending neither lost
-   * edits nor required a save. A clean parent (no ~) loads normally. Embedded-symbol
-   * returns keep the plain disk path (Step 8). specs/descend_hierarchy_in_memory.md */
-  if(!from_embedded_sym && tclgetboolvar("autosave_backup") &&
-     backup_file_name(bak, S(bak), filename) && !stat(bak, &sb)) {
-    load_schematic(1, bak, set_title, 1);
-    /* restore the logical identity: this buffer IS cellName, not cellName~ */
-    my_strdup2(_ALLOC_ID_, &xctx->sch[xctx->currsch], filename);
-    my_strncpy(xctx->current_name, rel_sym_path(filename), S(xctx->current_name));
-    my_snprintf(msg, S(msg), "get_directory {%s}", filename);
-    my_strncpy(xctx->current_dirname, tcleval(msg), S(xctx->current_dirname));
-    if(!stat(filename, &sb)) xctx->time_last_modify = sb.st_mtime;
-    set_modify(1); /* unsaved relative to cellName (also refreshes the title) */
-  } else {
+   * edits nor required a save (load_backup_as does the content/identity split). A
+   * clean parent (no ~) loads normally. Embedded-symbol returns keep the plain disk
+   * path (deferred). specs/descend_hierarchy_in_memory.md */
+  if(from_embedded_sym || !load_backup_as(filename, set_title)) {
     load_schematic(1, filename, set_title, 1);
   }
   /* if we are returning from a symbol created from a generator don't set modified flag on parent
@@ -2813,6 +2801,11 @@ void clear_schematic(int cancel, int symbol)
         char name[PATH_MAX];
         struct stat buf;
         int i;
+        /* The current buffer is being discarded (saved above, or the user declined
+         * to save). Drop its cellName~.sch autosave backup so a leftover ~ on the
+         * next open unambiguously means a crash, not an intentional discard. (A real
+         * save already removed it; this no-ops then.) specs/...in_memory.md (B8) */
+        remove_backup();
         xctx->currsch = 0;
         unselect_all(1);
         remove_symbols();

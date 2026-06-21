@@ -3616,11 +3616,38 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
               if(nofullzoom) {
                 if(!nodraw) draw();
               } else zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97);
+              /* Crash recovery: an interactive open (-gui) of a cell that still has a
+               * cellName~.sch autosave backup means the previous session ended without
+               * saving (a clean discard/save removes the ~). Offer to restore it. Only
+               * in GUI + interactive mode -- never on scripted/replay loads or headless.
+               * specs/descend_hierarchy_in_memory.md (B8) */
+              if(!force && has_x) {
+                tclvareval("xschem_recover_backup {", xctx->sch[xctx->currsch], "}", NULL);
+              }
             }
           }
         }
       }
       Tcl_SetResult(interp, xctx->sch[xctx->currsch], TCL_STATIC);
+    }
+
+    /* load_backup <cellfile> [notitle]
+     *   Load <cellfile>'s "~" autosave backup as the current buffer's content while
+     *   keeping the buffer's logical identity = <cellfile> (flagged modified). Used
+     *   by crash recovery on open (xschem_recover_backup). Returns 1 if a backup
+     *   existed and was loaded, 0 otherwise. */
+    else if(!strcmp(argv[1], "load_backup"))
+    {
+      int ret = 0, set_title = 1;
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc < 3) {
+        Tcl_SetResult(interp, "xschem load_backup needs a cell filename", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      if(argc > 3) set_title = atoi(argv[3]);
+      ret = load_backup_as(argv[2], set_title);
+      if(ret) draw();
+      Tcl_SetResult(interp, dtoa(ret), TCL_VOLATILE);
     }
 
     /* load_new_window [-lastclosed | -lastopened] [f]

@@ -3496,6 +3496,33 @@ void remove_backup(void)
   xunlink(bak);
 }
 
+/* Load cellfile's "~" backup as the current buffer's CONTENT while keeping the
+ * buffer's logical identity = cellfile (name, title, dir, mtime), flagged modified.
+ * Reuses the full load_schematic() (symbol linking, prep flags, viewport) and then
+ * re-asserts identity -- the editor "buffer name vs backing file" distinction. Used
+ * both by go_back (return to a parent with unsaved edits) and by crash recovery on
+ * open. Returns 1 if a backup existed and was loaded, 0 otherwise (the caller should
+ * then load cellfile normally). specs/descend_hierarchy_in_memory.md (B3/B8) */
+int load_backup_as(const char *cellfile, int set_title)
+{
+  char bak[PATH_MAX];
+  char msg[PATH_MAX+100];
+  struct stat sb;
+  if(!cellfile || !cellfile[0]) return 0;
+  if(!tclgetboolvar("autosave_backup")) return 0;
+  if(!backup_file_name(bak, S(bak), cellfile)) return 0;
+  if(stat(bak, &sb)) return 0; /* no backup present */
+  load_schematic(1, bak, set_title, 1);             /* content from the ~ file   */
+  /* restore the logical identity: this buffer IS cellfile, not cellfile~ */
+  my_strdup2(_ALLOC_ID_, &xctx->sch[xctx->currsch], cellfile);
+  my_strncpy(xctx->current_name, rel_sym_path(cellfile), S(xctx->current_name));
+  my_snprintf(msg, S(msg), "get_directory {%s}", cellfile);
+  my_strncpy(xctx->current_dirname, tcleval(msg), S(xctx->current_dirname));
+  if(!stat(cellfile, &sb)) xctx->time_last_modify = sb.st_mtime;
+  set_modify(1);                                     /* unsaved vs cellfile        */
+  return 1;
+}
+
 int save_schematic(const char *schname, int fast) /* 20171020 added return value */
 {
   FILE *fd;

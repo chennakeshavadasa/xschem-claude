@@ -1656,6 +1656,7 @@ extern int save_schematic(const char *, int fast); /*  20171020 added return val
 extern int backup_file_name(char *dest, int destsize, const char *src);
 extern void write_backup(void);
 extern void remove_backup(void);
+extern int load_backup_as(const char *cellfile, int set_title);
 extern void copy_symbol(xSymbol *dest_sym, xSymbol *src_sym);
 extern void push_undo(void);
 extern void pop_undo(int redo, int set_modify_status);
