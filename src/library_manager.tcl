@@ -56,13 +56,19 @@ proc libmgr::refocus {w} {
   if {[winfo exists $w]} { catch {focus -force $w.pw.lib.lb} }
 }
 
-proc libmgr::open {} {
+# The optional argument is a list: a single element is a library name; a
+# {lib cell} or {lib cell view} list pre-selects and scrolls to that entry
+# (e.g. `xschem library_manager [xschem get_inst_lcv]`). With no arg this is the
+# plain open/raise.
+proc libmgr::open {{lcv {}}} {
+  lassign $lcv lib cell view
   set w .libmgr
   if {[winfo exists $w]} {
     # single window: bring the existing one forward and focus it rather than
     # building a second one. See specs/library_manager_launch.md.
     libmgr::raise_to_front
     libmgr::refresh
+    if {$lib ne ""} { libmgr::locate $lib $cell $view }
     return
   }
   toplevel $w
@@ -115,6 +121,29 @@ proc libmgr::open {} {
   # a freshly created window should also come up focused, even if another
   # toplevel (the CIW, the main window) was active when it was launched.
   libmgr::raise_to_front
+  if {$lib ne ""} { libmgr::locate $lib $cell $view }
+}
+
+# Pre-select and scroll to lib/cell/view across the three panes (cell/view
+# optional). Reuses refresh_after for the actual selection wiring, then scrolls
+# each chosen row into view; reports the first missing piece on the status bar.
+proc libmgr::locate {lib {cell {}} {view {}}} {
+  if {![winfo exists .libmgr]} return
+  libmgr::refresh_after $lib $cell $view
+  set ll .libmgr.pw.lib.lb
+  set i [lsearch -exact [$ll get 0 end] $lib]
+  if {$i < 0} { libmgr::status "library not found: $lib"; return }
+  $ll see $i
+  if {$cell eq ""} return
+  set cl .libmgr.pw.cell.lb
+  set j [lsearch -exact [$cl get 0 end] $cell]
+  if {$j < 0} { libmgr::status "cell not found: $lib / $cell"; return }
+  $cl see $j
+  if {$view eq ""} return
+  set vl .libmgr.pw.view.lb
+  set k [lsearch -exact [$vl get 0 end] $view]
+  if {$k < 0} { libmgr::status "view not found: $lib / $cell / $view"; return }
+  $vl see $k
 }
 
 # Per-column right-click menus, built once and re-targeted on each click.

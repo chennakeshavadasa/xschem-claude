@@ -34,6 +34,41 @@ internal callers; the menu is repointed at `xschem library_manager`.
 bind .drw <Key-F9> {xschem library_manager}
 ```
 
+**Locating a cell.** The command takes one optional argument: a Tcl **list**.
+A single element is a library name; a `{lib cell}` or `{lib cell view}` list
+descends further (always library first, then cell, then view):
+
+```
+xschem library_manager libName                  ;# select that library
+xschem library_manager {libName cellName}        ;# select lib + cell
+xschem library_manager {libName cellName view}   ;# select down to the view
+```
+
+Because the argument is a single list, the result of `xschem get_inst_lcv`
+(itself a `{lib cell view}` list) feeds straight in, with no `{*}` expansion —
+this is the canonical "find the selected instance's cell" gesture:
+
+```tcl
+xschem library_manager [xschem get_inst_lcv]
+```
+
+Each given piece is selected and scrolled into view across the three panes
+(reusing `libmgr::refresh_after` + listbox `see`), so a similarly named cell is
+easy to find. A missing library/cell/view stops at the first miss and reports it
+on the status bar. Implemented as a single list arg on `libmgr::open` (which
+`lassign`s it into lib/cell/view), dispatched from `scheduler.c` (which
+brace-quotes the list into `libmgr::open {lcv}`). Passing the list as one
+argument keeps a library name that contains spaces unambiguous.
+
+**`xschem get_inst_lcv`** returns the `{lib cell view}` list for the single
+selected instance, or errors. It reports only instances whose symbol lives in a
+library defined in a loaded `library.defs` (`library_defs_registry`) and laid
+out in the Cadence structure `<libpath>/<cell>/<view>/<cell>.sym` — the view is
+the actual view-directory name (type always a `.sym` symbol, but the name is
+arbitrary). A symbol that is flat/legacy, or only present via a search-path
+directory with no `library.defs` entry, is not reported. Backend:
+`library_inst_lcv` in `library_defs.tcl`.
+
 ## 2. An rc setting to autostart it
 
 **Change.** A mirrored Tcl config flag:

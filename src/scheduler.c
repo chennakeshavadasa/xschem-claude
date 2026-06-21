@@ -2100,6 +2100,38 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
         Tcl_SetResult(interp, (char *)get_cell_w_ext(argv[2], atoi(argv[3])), TCL_VOLATILE);
       }
     }
+
+    /* get_inst_lcv
+     *   Return the Cadence library/cell/view of the single selected instance as
+     *   a 3-element Tcl list {lib cell view}. Errors out unless exactly one
+     *   object is selected and it is an instance. The 'view' is the actual
+     *   view-directory name the symbol lives in -- the type is always a symbol
+     *   (.sym) view, but the name is arbitrary. Only the Cadence library layout
+     *   (<libpath>/<cell>/<view>/<cell>.sym) is supported; an instance whose
+     *   symbol is not in a registered library in that layout is an error.
+     *   The registry reverse-map lives in Tcl (library_inst_lcv,
+     *   library_defs.tcl); this branch validates the selection and delegates,
+     *   matching the library/lib_cells/cell_views commands. */
+    else if(!strcmp(argv[1], "get_inst_lcv"))
+    {
+      int n;
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      rebuild_selected_array();
+      if(xctx->lastsel != 1 || xctx->sel_array[0].type != ELEMENT) {
+        Tcl_SetResult(interp,
+          "xschem get_inst_lcv: exactly one instance must be selected", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      n = xctx->sel_array[0].n;
+      /* delegate the lib/cell/view reverse-map to Tcl, passing the instance's
+       * symbol reference (resolved to an abs path Tcl-side via abs_sym_path). */
+      tclvareval("library_inst_lcv {", xctx->inst[n].name, "}", NULL);
+      if(tclresult()[0] == '\0') {
+        Tcl_SetResult(interp,
+          "xschem get_inst_lcv: selected instance is not in a Cadence library", TCL_STATIC);
+        return TCL_ERROR;
+      }
+    }
     /************ end xschem get subcommands *************/
 
 
@@ -3809,16 +3841,23 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
       else Tcl_ResetResult(interp);
     }
 
-    /* library_manager
+    /* library_manager [lcv]
      *   Open the Library Manager window (or, if already open, raise it and move
      *   focus into it -- see libmgr::open). Logs itself so the launch is a
      *   replayable action (CIW + Xschem.log) and can be bound to a key.
-     *   See specs/library_manager_launch.md. */
+     *   The optional argument is a list: a single element is a library name; a
+     *   {lib cell} or {lib cell view} list pre-selects and scrolls to that
+     *   entry -- handy for locating a cell (e.g. `xschem library_manager
+     *   [xschem get_inst_lcv]`). See specs/library_manager_launch.md. */
     else if(!strcmp(argv[1], "library_manager"))
     {
       if(has_x) {
         log_action("xschem library_manager");
-        tcleval("libmgr::open");
+        if(argc > 2) {
+          tclvareval("libmgr::open {", argv[2], "}", NULL);
+        } else {
+          tcleval("libmgr::open");
+        }
       }
     }
     else { *cmd_found = 0;}

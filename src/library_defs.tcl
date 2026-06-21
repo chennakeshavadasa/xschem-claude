@@ -132,6 +132,25 @@ proc library_candidate_defs_files {} {
   return $out
 }
 
+# The libraries that come from a loaded library.defs file (personal +
+# discovered-on-the-path + explicit $XSCHEM_LIBRARY_DEFS), as an ordered dict
+# {name -> abs path}. EXCLUDES the search-path auto-discovery (tag/basename
+# libraries) that library_registry layers underneath. This is the Cadence notion
+# of "a library defined in a library.defs" -- `xschem get_inst_lcv` reports an
+# instance only when its symbol lives in one of these. Personal is parsed first,
+# then discovered-on-the-path, then explicit, so the last-parsed wins on a name
+# clash (explicit DEFINE beats all). A not-yet-created personal defs is skipped.
+proc library_defs_registry {} {
+  set defs [dict create]
+  set personal [library_personal_defs_file]
+  set order {}
+  if {$personal ne {}} { lappend order $personal }
+  foreach f [concat $order [library_discovered_defs_files] [library_explicit_defs_files]] {
+    if {[file isfile $f]} { library_defs_parse_file $f defs }
+  }
+  return $defs
+}
+
 # The library registry as an ordered dict {name -> abs path}. Auto-discovered
 # tags/basenames first, then defs files (so an explicit DEFINE overrides a tag).
 # Among defs files, discovered-on-the-path ones are parsed before explicit
@@ -160,16 +179,9 @@ proc library_registry {} {
     }
   }
 
-  # the defs files (higher precedence): personal (lowest of the three) first,
-  # then discovered-on-the-path, then explicit $XSCHEM_LIBRARY_DEFS, so the
-  # last-parsed wins on a name clash (explicit beats all). A not-yet-created
-  # personal defs is simply skipped by the isfile guard.
-  set personal [library_personal_defs_file]
-  set order {}
-  if {$personal ne {}} { lappend order $personal }
-  foreach f [concat $order [library_discovered_defs_files] [library_explicit_defs_files]] {
-    if {[file isfile $f]} { library_defs_parse_file $f defs }
-  }
+  # the defs-file libraries (higher precedence) layered on top, so a DEFINE
+  # overrides an auto-discovered tag/basename of the same name.
+  dict for {name path} [library_defs_registry] { dict set defs $name $path }
   return $defs
 }
 
@@ -292,6 +304,34 @@ proc lib_qualified_rel {symbol} {
         }
       }
     }
+  }
+  return $best
+}
+
+# `xschem get_inst_lcv` backend: reverse-map a selected instance's symbol
+# reference to its Cadence {library cell view} list. The reference is resolved to
+# an absolute .sym path (abs_sym_path), then matched against the libraries
+# defined in a loaded library.defs (library_defs_registry -- NOT the search-path
+# auto-discovered ones). Only the Cadence layout is accepted: the path under the
+# library must be exactly <cell>/<view>/<cell>.sym (the view dir holds a
+# <cell>.sym; the view name is arbitrary, the type is always symbol). The
+# longest-matching library wins. Returns {} (and the C caller errors) if the
+# symbol is not in such a library -- e.g. a legacy flat <cell>.sym, or a library
+# only present via the search path with no library.defs entry.
+proc library_inst_lcv {ref} {
+  set abspath [abs_sym_path $ref]
+  if {$abspath eq {}} { return {} }
+  set best {}; set bestlen -1
+  dict for {lname lpath} [library_defs_registry] {
+    regsub {/*$} $lpath {/} lpath
+    set pl [string length $lpath]
+    if {![string equal -length $pl $lpath $abspath]} { continue }
+    set parts [file split [string range $abspath $pl end]]
+    if {[llength $parts] != 3} { continue }
+    lassign $parts cell view file
+    if {[file rootname $file] ne $cell} { continue }
+    if {[file extension $file] ne ".sym"} { continue }
+    if {$pl > $bestlen} { set best [list $lname $cell $view]; set bestlen $pl }
   }
   return $best
 }
