@@ -61,14 +61,13 @@ proc libmgr::refocus {w} {
 # (e.g. `xschem library_manager [xschem get_inst_lcv]`). With no arg this is the
 # plain open/raise.
 proc libmgr::open {{lcv {}}} {
-  lassign $lcv lib cell view
   set w .libmgr
   if {[winfo exists $w]} {
     # single window: bring the existing one forward and focus it rather than
     # building a second one. See specs/library_manager_launch.md.
     libmgr::raise_to_front
     libmgr::refresh
-    if {$lib ne ""} { libmgr::locate $lib $cell $view }
+    libmgr::locate $lcv
     return
   }
   toplevel $w
@@ -121,14 +120,17 @@ proc libmgr::open {{lcv {}}} {
   # a freshly created window should also come up focused, even if another
   # toplevel (the CIW, the main window) was active when it was launched.
   libmgr::raise_to_front
-  if {$lib ne ""} { libmgr::locate $lib $cell $view }
+  libmgr::locate $lcv
 }
 
-# Pre-select and scroll to lib/cell/view across the three panes (cell/view
-# optional). Reuses refresh_after for the actual selection wiring, then scrolls
-# each chosen row into view; reports the first missing piece on the status bar.
-proc libmgr::locate {lib {cell {}} {view {}}} {
-  if {![winfo exists .libmgr]} return
+# Pre-select and scroll to a {lib cell view} entry across the three panes (a
+# single list argument, like libmgr::open: cell/view optional, e.g.
+# `libmgr::locate [libmgr::selection]`). Reuses refresh_after for the actual
+# selection wiring, then scrolls each chosen row into view; reports the first
+# missing piece on the status bar. A no-op for an empty list or no window.
+proc libmgr::locate {lcv} {
+  lassign $lcv lib cell view
+  if {![winfo exists .libmgr] || $lib eq ""} return
   libmgr::refresh_after $lib $cell $view
   set ll .libmgr.pw.lib.lb
   set i [lsearch -exact [$ll get 0 end] $lib]
@@ -265,6 +267,26 @@ proc libmgr::current_view {} {
     else { return {} }
   }
   return [list $sel_lib $sel_cell $v]
+}
+
+# Report exactly what is currently selected in the panes, as a list graded by
+# how deep the selection goes (the inverse of libmgr::locate /
+# `xschem library_manager <lcv>`):
+#   nothing selected      -> {}                        (empty)
+#   only a library        -> {libName}                 (1-element list)
+#   library + cell        -> {libName cellName}
+#   library + cell + view -> {libName cellName viewName}
+# Unlike current_view, this does NOT infer a default view -- it reports the view
+# only when one is actually selected. Returns {} if the window is not open.
+proc libmgr::selection {} {
+  variable sel_lib; variable sel_cell
+  if {![winfo exists .libmgr] || $sel_lib eq ""} { return {} }
+  set out [list $sel_lib]
+  if {$sel_cell eq ""} { return $out }
+  lappend out $sel_cell
+  set view [libmgr::cursel .libmgr.pw.view.lb]
+  if {$view ne ""} { lappend out $view }
+  return $out
 }
 
 # open the selected view in its editor (schematic OR symbol), in a new window or

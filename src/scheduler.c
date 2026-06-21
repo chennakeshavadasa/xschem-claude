@@ -593,16 +593,24 @@ static int xschem_cmds_c(Tcl_Interp *interp, int argc, const char *argv[], int *
       else Tcl_ResetResult(interp);
     }
 
-    /* create_instance
-     *   Open the Create Instance browser (Cadence-style Add Instance): a library
-     *   browser to pick a Library/Cell/symbol-View and place it as an instance.
-     *   Logs itself so the launch is replayable (CIW + Xschem.log) and bindable.
+    /* create_instance [lcv]
+     *   Open the Create Instance form (Cadence-style Add Instance): a properties-
+     *   style dialog with Library/Cell/View/Instance-name fields + a Browse button
+     *   (which opens the Library Browser). Valid fields arm a live placement
+     *   preview; click the canvas to drop. The optional argument is a
+     *   {lib cell view [instname]} list that pre-fills the form (e.g.
+     *   `xschem create_instance [libmgr::selection]`). Logs itself so the launch
+     *   is replayable (CIW + Xschem.log) and bindable.
      *   See specs/cadence_create_instance.md. */
     else if(!strcmp(argv[1], "create_instance"))
     {
       if(has_x) {
         log_action("xschem create_instance");
-        tcleval("mkinst::open");
+        if(argc > 2) {
+          tclvareval("ciform::open {", argv[2], "}", NULL);
+        } else {
+          tcleval("ciform::open");
+        }
       }
     }
 

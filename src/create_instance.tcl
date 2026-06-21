@@ -1,27 +1,252 @@
-# create_instance.tcl — Cadence-style "Create Instance" library browser.
+# create_instance.tcl — Cadence-style "Create Instance".
 #
-# A modeless three-column Library / Cell / View browser (like the Library Manager)
-# whose View column is restricted to SYMBOL views. It is a *selector that arms a
-# live preview*, not a click-Create dialog: picking a cell + symbol view arms the
-# symbol for placement (xschem place_symbol) so the preview follows the cursor on
-# the canvas; xschem's native place loop keeps it armed for repeated drops. Esc
-# both ends placement and dismisses the form. Re-launching restores the last
-# selection and re-arms it. A "Legacy Xschem" button drops to the classic flat
-# symbol-picker dialog. Window is a singleton, opened via `xschem create_instance`
-# (logged / bindable). See specs/cadence_create_instance.md.
+# Two cooperating pieces (see specs/cadence_create_instance.md):
+#
+#   ciform::  the Create Instance FORM — a properties-form-style dialog with
+#             Library Name / Cell Name / View Name / Instance Name entry fields
+#             and a Browse button. It owns the placement lifecycle: whenever the
+#             fields resolve to a real symbol (.sym) view -- and the cell is not
+#             recursive -- the symbol is armed for placement so the preview
+#             follows the cursor; click the canvas to drop, repeatedly, until
+#             Esc. There is NO Place button: placement is a canvas click. With no
+#             View there is no preview and nothing to place. `xschem
+#             create_instance` opens it (logged / bindable / singleton).
+#
+#   mkinst::  the Library BROWSER the form's Browse button opens: the 3-column
+#             Library / Cell / (symbol) View selector, with OK / Apply / Cancel.
+#             Apply sends the selection to the form and keeps the browser open;
+#             OK sends and closes; Cancel just closes. It is a pure selector now
+#             -- it no longer arms placement itself.
 
+# ===========================================================================
+# ciform — the Create Instance form (owns the fields + the live preview)
+# ===========================================================================
+namespace eval ciform {
+  variable lib      ""
+  variable cell     ""
+  variable view     ""
+  variable instname ""
+  # keep-placing: a valid symbol is armed; after each drop it re-arms so the user
+  # can place copies until Esc. xschem's place_symbol is one-shot (the drop clears
+  # PLACE_SYMBOL), so we re-issue it on the canvas ButtonRelease.
+  variable armed         0
+  variable hook_installed 0
+}
+
+proc ciform::status {msg} { catch {.ciform.status configure -text $msg} }
+
+proc ciform::placing {} { return [expr {[xschem get ui_state] & 8192}] }
+proc ciform::abort_if_placing {} { if {[ciform::placing]} { catch {xschem abort_operation} } }
+
+# Bring the (existing) form to the front with keyboard focus (same withdraw/
+# deiconify trick the Library Manager uses to defeat focus-stealing prevention,
+# specs/library_manager_launch.md).
+proc ciform::raise_to_front {} {
+  set w .ciform
+  if {![winfo exists $w]} return
+  if {[winfo ismapped $w]} {
+    set geo [wm geometry $w]; wm withdraw $w; wm deiconify $w; catch {wm geometry $w $geo}
+  } else {
+    catch {wm deiconify $w}
+  }
+  raise $w
+  catch {focus -force $w.f.elib}
+  after idle [list ciform::refocus $w]
+}
+proc ciform::refocus {w} { if {[winfo exists $w]} { catch {focus -force $w.f.elib} } }
+
+# Re-arm the same symbol after each canvas drop, so placement continues until Esc.
+# Appended (+) to the canvas ButtonRelease binding so it runs AFTER xschem has
+# handled the drop; a no-op unless a symbol is armed and a drop just completed.
+proc ciform::install_drop_hook {} {
+  if {$ciform::hook_installed} return
+  if {![winfo exists .drw]} return
+  bind .drw <ButtonRelease> {+ciform::after_drop %b}
+  set ciform::hook_installed 1
+}
+proc ciform::after_drop {b} {
+  if {$b != 1} return
+  if {!$ciform::armed} return
+  if {![winfo exists .ciform]} { set ciform::armed 0; return }
+  if {[ciform::placing]} return   ;# preview still attached -> no drop happened
+  ciform::arm                     ;# a drop completed -> re-arm the same symbol
+}
+
+# Set the Library/Cell/View (and optionally Instance Name) fields from a list,
+# like `xschem library_manager` (e.g. `xschem create_instance [libmgr::selection]`
+# or `[xschem get_inst_lcv]`). A 4th element, if present, sets the Instance Name;
+# otherwise it is left untouched.
+proc ciform::set_fields {lcv} {
+  variable lib; variable cell; variable view; variable instname
+  set lib  [lindex $lcv 0]
+  set cell [lindex $lcv 1]
+  set view [lindex $lcv 2]
+  if {[llength $lcv] >= 4} { set instname [lindex $lcv 3] }
+}
+
+# The optional argument is a {lib cell view [instname]} list: when given it
+# pre-fills the form (overwriting the current fields) and re-arms. With no arg the
+# singleton keeps whatever it last held.
+proc ciform::open {{lcv {}}} {
+  set w .ciform
+  ciform::install_drop_hook
+  set have [expr {[llength $lcv] > 0}]
+  if {[winfo exists $w]} {
+    # singleton: optionally re-fill from the list, then raise and re-arm.
+    if {$have} { ciform::set_fields $lcv }
+    ciform::raise_to_front
+    ciform::arm
+    return
+  }
+  catch {slickprop::init_fonts}   ;# reuse the slick property-form fonts for the look
+
+  toplevel $w
+  wm title $w "Create Instance"
+
+  ttk::frame $w.f -padding 8
+  pack $w.f -side top -fill both -expand 1
+  set row 0
+  foreach {key label} {lib "Library Name" cell "Cell Name" view "View Name" \
+                       instname "Instance Name"} {
+    ttk::label $w.f.l$key -text $label -anchor w
+    ttk::entry $w.f.e$key -textvariable ciform::$key -width 34
+    catch {$w.f.l$key configure -font slickPropLabel}
+    catch {$w.f.e$key configure -font slickPropValue}
+    grid $w.f.l$key -row $row -column 0 -sticky w  -padx {0 10} -pady 3
+    grid $w.f.e$key -row $row -column 1 -sticky we -pady 3
+    # editing any field re-evaluates the selection and re-arms the preview
+    bind $w.f.e$key <KeyRelease> {+ciform::on_change}
+    incr row
+  }
+  grid columnconfigure $w.f 1 -weight 1
+  ttk::button $w.f.browse -text "Browse…" -command ciform::browse
+  grid $w.f.browse -row $row -column 1 -sticky e -pady {8 0}
+
+  ttk::label $w.status -anchor w -relief sunken -padding {4 2} \
+    -text "type a Library / Cell / View or Browse — a valid symbol arms for placement; Esc finishes"
+  pack $w.status -side bottom -fill x
+
+  ttk::frame $w.b
+  ttk::button $w.b.legacy -text "Legacy Xschem" -command ciform::legacy
+  ttk::button $w.b.close  -text "Close"         -command "destroy $w"
+  pack $w.b.legacy -side left  -padx 4 -pady 4
+  pack $w.b.close  -side right -padx 4 -pady 4
+  pack $w.b -side bottom -fill x
+
+  # Esc ends placement AND dismisses the form (and the browser), whether the
+  # canvas or the form has focus. `break` on the canvas pre-empts the generic
+  # <KeyPress> -> C dispatcher.
+  bind .drw <Key-Escape> {ciform::escape; break}
+  bind $w   <Key-Escape> {ciform::escape}
+  bind $w   <Destroy>    {if {{%W} eq {.ciform}} {ciform::on_destroy}}
+
+  if {$have} { ciform::set_fields $lcv }
+  ciform::raise_to_front
+  ciform::arm   ;# pre-filled (or a reopened singleton) -> arm immediately
+}
+
+proc ciform::on_change {} { ciform::arm }
+
+# Browse: open the Library Browser, which sends its selection back via set_lcv.
+proc ciform::browse {} { mkinst::open }
+
+# Called by the Library Browser (Apply / OK): fill the lib/cell/view fields and
+# re-arm. The Instance Name field is left untouched (it is the user's to set).
+proc ciform::set_lcv {l c v} {
+  variable lib; variable cell; variable view
+  set lib $l; set cell $c; set view $v
+  ciform::arm
+}
+
+# The .sym datafile for the current fields, or "" when the fields do not name a
+# real symbol view (the requirement: no view -> no preview -> cannot place).
+proc ciform::resolve {} {
+  variable lib; variable cell; variable view
+  if {$lib eq "" || $cell eq "" || $view eq ""} { return "" }
+  set f [xschem cellview_path "$lib/$cell" $view]
+  if {$f eq "" || ![string match {*.sym} $f]} { return "" }
+  return $f
+}
+
+# A circuit is physical: a cell may not contain itself, directly OR through an
+# ancestor. A selection is recursive when its schematic view is ANY schematic in
+# the current hierarchy stack (the open schematic and every parent descended
+# through) -- instantiating it there would close a loop.
+proc ciform::is_recursive {lib cell} {
+  set sch [xschem cellview_path "$lib/$cell" schematic]
+  if {$sch eq {}} { return 0 }
+  set sch [file normalize $sch]
+  set top [xschem get currsch]
+  for {set n 0} {$n <= $top} {incr n} {
+    set anc [xschem get schname $n]
+    if {$anc ne {} && [file normalize $anc] eq $sch} { return 1 }
+  }
+  return 0
+}
+
+# Arm the current fields' symbol for placement (preview attaches to the cursor on
+# the canvas). Re-arming aborts the previous, undropped preview first. A no-op
+# (with an explanatory status) when the fields are incomplete, name no symbol
+# view, or would recurse. The Instance Name, if set, becomes the instance's
+# name= attribute.
+proc ciform::arm {} {
+  variable lib; variable cell; variable view; variable instname
+  if {![winfo exists .ciform]} { set ciform::armed 0; return }
+  set f [ciform::resolve]
+  if {$f eq ""} {
+    set ciform::armed 0
+    ciform::abort_if_placing
+    if {$lib eq "" || $cell eq "" || $view eq ""} {
+      ciform::status "specify Library, Cell and View to place an instance"
+    } else {
+      ciform::status "no symbol view for $lib/$cell ($view)"
+    }
+    return
+  }
+  if {[ciform::is_recursive $lib $cell]} {
+    set ciform::armed 0
+    ciform::abort_if_placing
+    ciform::status "cannot instantiate $cell here — it is in the current hierarchy (recursion)"
+    return
+  }
+  ciform::abort_if_placing
+  if {$instname ne ""} {
+    xschem place_symbol $f "name=$instname"
+  } else {
+    xschem place_symbol $f
+  }
+  set ciform::armed 1
+  ciform::status "placing $lib/$cell ($view) — click the canvas to place; Esc to finish"
+}
+
+# Esc / close: end placement, dismiss the browser AND the form.
+proc ciform::escape {} {
+  set ciform::armed 0
+  ciform::abort_if_placing
+  catch {destroy .mkinst}
+  catch {destroy .ciform}
+}
+# Form destroyed by any means: abort an armed placement, restore default Esc,
+# and take the browser down with it.
+proc ciform::on_destroy {} {
+  set ciform::armed 0
+  catch {bind .drw <Key-Escape> {}}
+  ciform::abort_if_placing
+  catch {destroy .mkinst}
+}
+
+# Drop to the classic flat symbol-picker dialog (unchanged behavior).
+proc ciform::legacy {} { xschem place_symbol }
+
+
+# ===========================================================================
+# mkinst — the Library Browser (a pure selector: OK / Apply / Cancel)
+# ===========================================================================
 namespace eval mkinst {
   variable sel_lib  ""
   variable sel_cell ""
-  # most recently armed selection, restored on reopen
-  variable last_lib  ""
-  variable last_cell ""
-  variable last_view ""
-  # keep-placing mode: a valid symbol is armed; after each drop it re-arms so the
-  # user can place copies until Esc. xschem's place_symbol is one-shot (the drop
-  # clears PLACE_SYMBOL), so we re-issue it on the canvas ButtonRelease.
-  variable armed 0
-  variable hook_installed 0
+  # set while restore_from_form repositions the panes, to mute the live push
+  variable suppress_push 0
 }
 
 proc mkinst::cursel {lb} {
@@ -32,20 +257,11 @@ proc mkinst::cursel {lb} {
 
 proc mkinst::status {msg} { catch {.mkinst.status configure -text $msg} }
 
-proc mkinst::placing {} { return [expr {[xschem get ui_state] & 8192}] }
-proc mkinst::abort_if_placing {} { if {[mkinst::placing]} { catch {xschem abort_operation} } }
-
-# Bring the (existing) window to the front with keyboard focus; re-map to defeat
-# focus-stealing prevention (same pattern as libmgr::raise_to_front,
-# specs/library_manager_launch.md).
 proc mkinst::raise_to_front {} {
   set w .mkinst
   if {![winfo exists $w]} return
   if {[winfo ismapped $w]} {
-    set geo [wm geometry $w]
-    wm withdraw $w
-    wm deiconify $w
-    catch {wm geometry $w $geo}
+    set geo [wm geometry $w]; wm withdraw $w; wm deiconify $w; catch {wm geometry $w $geo}
   } else {
     catch {wm deiconify $w}
   }
@@ -53,38 +269,18 @@ proc mkinst::raise_to_front {} {
   catch {focus -force $w.pw.lib.lb}
   after idle [list mkinst::refocus $w]
 }
-proc mkinst::refocus {w} {
-  if {[winfo exists $w]} { catch {focus -force $w.pw.lib.lb} }
-}
-
-# Re-arm the same symbol after each canvas drop, so placement continues until Esc.
-# Appended (+) to the canvas ButtonRelease binding so it runs AFTER xschem has
-# handled the drop; a no-op unless a symbol is armed and a drop just completed.
-proc mkinst::install_drop_hook {} {
-  if {$mkinst::hook_installed} return
-  if {![winfo exists .drw]} return
-  bind .drw <ButtonRelease> {+mkinst::after_drop %b}
-  set mkinst::hook_installed 1
-}
-proc mkinst::after_drop {b} {
-  if {$b != 1} return
-  if {!$mkinst::armed} return
-  if {![winfo exists .mkinst]} { set mkinst::armed 0; return }
-  if {[mkinst::placing]} return   ;# preview still attached -> no drop happened
-  mkinst::arm                     ;# a drop completed -> re-arm the same symbol
-}
+proc mkinst::refocus {w} { if {[winfo exists $w]} { catch {focus -force $w.pw.lib.lb} } }
 
 proc mkinst::open {} {
   set w .mkinst
-  mkinst::install_drop_hook
   if {[winfo exists $w]} {
     mkinst::raise_to_front
     mkinst::populate_libs
-    mkinst::restore_last
+    mkinst::restore_from_form
     return
   }
   toplevel $w
-  wm title $w "Create Instance"
+  wm title $w "Library Browser"
   wm geometry $w 640x420
 
   ttk::panedwindow $w.pw -orient horizontal
@@ -104,42 +300,35 @@ proc mkinst::open {} {
   }
 
   ttk::label $w.status -anchor w -relief sunken -padding {4 2} \
-    -text "pick a symbol - it arms for placement; Esc finishes"
+    -text "pick a Library / Cell / symbol View — choices fill the form live; Esc or Cancel to close"
   pack $w.status -side bottom -fill x
 
+  # No OK/Apply: every selection is applied to the form immediately (see
+  # mkinst::push). Only Cancel remains; Esc dismisses too.
   ttk::frame $w.b
-  ttk::button $w.b.legacy -text "Legacy Xschem" -command mkinst::legacy
-  ttk::button $w.b.close  -text "Close"         -command "destroy $w"
-  pack $w.b.legacy -side left -padx 4 -pady 4
-  pack $w.b.close -side right -padx 4 -pady 4
+  ttk::button $w.b.cancel -text "Cancel" -command mkinst::cancel
+  pack $w.b.cancel -side right -padx 4 -pady 4
   pack $w.b -side bottom -fill x
 
   bind $w.pw.lib.lb  <<ListboxSelect>> mkinst::on_lib
   bind $w.pw.cell.lb <<ListboxSelect>> mkinst::on_cell
   bind $w.pw.view.lb <<ListboxSelect>> mkinst::on_view
-
-  # Esc ends placement AND dismisses the form, whether the canvas or the form has
-  # focus. `break` on the canvas pre-empts the generic <KeyPress> -> C dispatcher.
-  bind .drw <Key-Escape> {mkinst::escape; break}
-  bind $w   <Key-Escape> {mkinst::escape}
-  bind $w   <Destroy>    {if {{%W} eq {.mkinst}} {mkinst::on_destroy}}
+  bind $w <Key-Escape> {mkinst::cancel; break}
 
   mkinst::populate_libs
   mkinst::raise_to_front
-  mkinst::restore_last
+  mkinst::restore_from_form
 }
 
-# Esc / close: abort any armed placement and remove the canvas Esc binding so the
-# default Esc behavior is restored.
-proc mkinst::escape {} {
-  set mkinst::armed 0
-  mkinst::abort_if_placing
-  catch {destroy .mkinst}
-}
-proc mkinst::on_destroy {} {
-  set mkinst::armed 0
-  catch {bind .drw <Key-Escape> {}}
-  mkinst::abort_if_placing
+# Dismiss the browser (Esc / Cancel). The form keeps whatever was applied live.
+proc mkinst::cancel {} { catch {destroy .mkinst} }
+
+# Apply the browser's current selection to the Create Instance form (every
+# selection change calls this). Suppressed while restore_from_form is positioning
+# the panes, so reopening does not clobber the form with transient partial state.
+proc mkinst::push {} {
+  if {$mkinst::suppress_push} return
+  ciform::set_lcv $mkinst::sel_lib $mkinst::sel_cell [mkinst::cursel .mkinst.pw.view.lb]
 }
 
 proc mkinst::populate_libs {} {
@@ -155,14 +344,18 @@ proc mkinst::populate_libs {} {
   set mkinst::sel_cell ""
 }
 
+# Library chosen -> fill the Cell column, clear Cell/View, push {lib "" ""} so the
+# form tracks the (now incomplete) selection.
 proc mkinst::on_lib {} {
   set mkinst::sel_lib [mkinst::cursel .mkinst.pw.lib.lb]
   set mkinst::sel_cell ""
   set cl .mkinst.pw.cell.lb
   $cl delete 0 end
   .mkinst.pw.view.lb delete 0 end
-  if {$mkinst::sel_lib eq {}} return
-  foreach c [xschem lib_cells $mkinst::sel_lib] { $cl insert end $c }
+  if {$mkinst::sel_lib ne {}} {
+    foreach c [xschem lib_cells $mkinst::sel_lib] { $cl insert end $c }
+  }
+  mkinst::push
 }
 
 # symbol views of <lib/cell>: those whose datafile resolves to a .sym
@@ -174,94 +367,58 @@ proc mkinst::symbol_views {lib cell} {
   return $out
 }
 
+# Cell chosen -> list its symbol views. If the cell has EXACTLY ONE symbol view,
+# select it so clicking the cell also fills the form's View field; with several,
+# leave the View unselected (the user picks one) and the form's View stays empty.
 proc mkinst::on_cell {} {
   set mkinst::sel_cell [mkinst::cursel .mkinst.pw.cell.lb]
   set vl .mkinst.pw.view.lb
   $vl delete 0 end
-  if {$mkinst::sel_lib eq {} || $mkinst::sel_cell eq {}} return
+  if {$mkinst::sel_lib eq {} || $mkinst::sel_cell eq {}} { mkinst::push; return }
   set sv [mkinst::symbol_views $mkinst::sel_lib $mkinst::sel_cell]
   foreach v $sv { $vl insert end $v }
-  if {[llength $sv] > 0} {
-    set i [lsearch -exact $sv symbol]
-    if {$i < 0} { set i 0 }
-    $vl selection set $i; $vl activate $i
-    mkinst::arm
+  if {[llength $sv] == 1} {
+    $vl selection set 0; $vl activate 0
+    mkinst::status "$mkinst::sel_lib/$mkinst::sel_cell ([lindex $sv 0])"
+  } elseif {[llength $sv] == 0} {
+    mkinst::status "no symbol view for $mkinst::sel_lib/$mkinst::sel_cell"
   } else {
-    set mkinst::armed 0
-    mkinst::abort_if_placing
-    mkinst::status "no symbol view for $mkinst::sel_lib/$mkinst::sel_cell"
+    mkinst::status "$mkinst::sel_lib/$mkinst::sel_cell — choose a symbol View"
   }
+  mkinst::push
 }
 
-proc mkinst::on_view {} { mkinst::arm }
-
-# A circuit is physical: a cell may not contain itself, directly OR through an
-# ancestor. A selection is recursive when its schematic view is ANY schematic in
-# the current hierarchy stack (the open schematic and every parent descended
-# through) -- instantiating it there would close a loop.
-proc mkinst::is_recursive {lib cell} {
-  set sch [xschem cellview_path "$lib/$cell" schematic]
-  if {$sch eq {}} { return 0 }
-  set sch [file normalize $sch]
-  set top [xschem get currsch]
-  for {set n 0} {$n <= $top} {incr n} {
-    set anc [xschem get schname $n]
-    if {$anc ne {} && [file normalize $anc] eq $sch} { return 1 }
-  }
-  return 0
-}
-
-# Arm the selected symbol view for placement (preview attaches to the cursor on the
-# canvas). Re-arming aborts the previous, undropped preview first. Records the
-# selection so reopening can resume it.
-proc mkinst::arm {} {
-  if {$mkinst::sel_lib eq {} || $mkinst::sel_cell eq {}} return
+proc mkinst::on_view {} {
   set v [mkinst::cursel .mkinst.pw.view.lb]
-  if {$v eq {}} return
-  set f [xschem cellview_path "$mkinst::sel_lib/$mkinst::sel_cell" $v]
-  if {$f eq {} || ![string match {*.sym} $f]} {
-    set mkinst::armed 0
-    mkinst::abort_if_placing
-    mkinst::status "no symbol view for $mkinst::sel_lib/$mkinst::sel_cell"
-    return
-  }
-  if {[mkinst::is_recursive $mkinst::sel_lib $mkinst::sel_cell]} {
-    set mkinst::armed 0
-    mkinst::abort_if_placing
-    mkinst::status "cannot instantiate $mkinst::sel_cell here - it is in the current hierarchy (recursion)"
-    return
-  }
-  mkinst::abort_if_placing
-  xschem place_symbol $f
-  set mkinst::armed 1
-  set mkinst::last_lib  $mkinst::sel_lib
-  set mkinst::last_cell $mkinst::sel_cell
-  set mkinst::last_view $v
-  mkinst::status "placing $mkinst::sel_lib/$mkinst::sel_cell ($v) - click to place repeatedly; Esc to finish"
+  if {$v ne {}} { mkinst::status "$mkinst::sel_lib/$mkinst::sel_cell ($v)" }
+  mkinst::push
 }
 
-# Restore the most recently armed selection (on reopen) and re-arm its preview.
-proc mkinst::restore_last {} {
-  if {$mkinst::last_lib eq {}} return
+# On (re)open, highlight whatever the form currently holds, so the browser comes
+# up positioned on the form's Library / Cell / View.
+proc mkinst::restore_from_form {} {
+  set lib  $ciform::lib
+  set cell $ciform::cell
+  set view $ciform::view
+  if {$lib eq {}} return
+  set mkinst::suppress_push 1   ;# positioning only — do not echo back to the form
+  mkinst::restore_path $lib $cell $view
+  set mkinst::suppress_push 0
+}
+proc mkinst::restore_path {lib cell view} {
   set ll .mkinst.pw.lib.lb
-  set i [lsearch -exact [$ll get 0 end] $mkinst::last_lib]
+  set i [lsearch -exact [$ll get 0 end] $lib]
   if {$i < 0} return
-  $ll selection clear 0 end; $ll selection set $i; $ll activate $i
+  $ll selection clear 0 end; $ll selection set $i; $ll activate $i; $ll see $i
   mkinst::on_lib
+  if {$cell eq {}} return
   set cl .mkinst.pw.cell.lb
-  set i [lsearch -exact [$cl get 0 end] $mkinst::last_cell]
+  set i [lsearch -exact [$cl get 0 end] $cell]
   if {$i < 0} return
-  $cl selection clear 0 end; $cl selection set $i; $cl activate $i
+  $cl selection clear 0 end; $cl selection set $i; $cl activate $i; $cl see $i
   mkinst::on_cell
+  if {$view eq {}} return
   set vl .mkinst.pw.view.lb
-  set i [lsearch -exact [$vl get 0 end] $mkinst::last_view]
-  if {$i >= 0} {
-    $vl selection clear 0 end; $vl selection set $i; $vl activate $i
-    mkinst::on_view
-  }
-}
-
-# Drop to the classic flat symbol-picker dialog (unchanged behavior).
-proc mkinst::legacy {} {
-  xschem place_symbol
+  set i [lsearch -exact [$vl get 0 end] $view]
+  if {$i >= 0} { $vl selection clear 0 end; $vl selection set $i; $vl activate $i; $vl see $i; mkinst::on_view }
 }

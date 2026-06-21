@@ -1,6 +1,13 @@
 # Cadence-like instantiation: the "Create Instance" library browser
 
 Status: **implemented** (branch `fluid-editing`).
+**Revised** to a two-dialog design — a properties-style **form** that owns the
+fields + the live preview, plus the **Library Browser** it launches. See
+**§6 (current design)** below; §3.2/§3.4 describe the original single-browser
+form and are kept for history (the placement *mechanics* — fluid arming, the
+keep-placing loop, the .sym guard, the recursion guard, Esc-ends-everything —
+are unchanged; only the entry-point UI moved).
+
 Related: `specs/library_manager_launch.md` (the launch-command / single-window-focus
 pattern this reuses), `code_analysis/library_manager_design.md` (the lib/cell/view
 model), `src/library_manager.tcl` (the browser widgetry to draw on),
@@ -125,23 +132,34 @@ The form is a *selector that arms a live preview*, not a click-Create dialog:
 ## 5. Acceptance / tests
 
 Discriminating, automatable checks (GUI, needs X) — `tests/headless/test_create_instance.tcl`,
-CI1–CI6 (the `.sym` guard CI4 sabotage-verified):
+CI1–CI12 (updated for the §6 two-dialog design):
 
-- CI1 `xschem create_instance` opens `.mkinst`; `Edit ▸ Create Instance` is wired to
-  it; `Tools ▸ Insert symbol` is gone.
-- CI2 single window: a second `xschem create_instance` reuses the same window
-  (stable X id), not a second one.
-- CI3 the browser populates libraries; selecting a library fills cells; the View
-  column shows only symbol views.
-- CI4 the `.sym` guard: a cell **with** a symbol view enables Create and
-  `cellview_path … symbol` is non-empty; a cell **without** one disables Create and
-  resolves empty.
-- CI5 Create starts interactive placement (`ui_state` has the `PLACE_SYMBOL` bit
-  `8192`), the form stays open, abort clears it, and it can place again.
-- CI6 the Legacy button is wired to `mkinst::legacy`, which calls no-arg
-  `place_symbol` (asserted structurally — the legacy dialog is modal, not invoked).
-- CI7 (= AL11 in `test_action_log_libmgr.tcl`, run with `--logdir`): launching logs
-  a replayable `xschem create_instance` line.
+- CI1 `xschem create_instance` opens the **`.ciform` form** with four entry fields
+  (`elib`/`ecell`/`eview`/`einstname`) + a Browse button and **no** Place button;
+  `Edit ▸ Create Instance` is wired to it; `Tools ▸ Insert symbol` is gone.
+- CI2 single window: a second `xschem create_instance` reuses `.ciform` (stable X id).
+- CI3 typed fields that resolve to a real `.sym` arm the preview (`ui_state` has the
+  `PLACE_SYMBOL` bit `8192`); a blank View arms nothing; a schematic-only view does
+  not arm — each with an explanatory status (the `.sym` guard).
+- CI4 the Instance Name field becomes the placed instance's `name=` (`name=M7` →
+  an instance `M7` exists after a drop).
+- CI5 Browse opens the `.mkinst` Library Browser with a **Cancel** button and **no
+  OK / Apply** (selections apply live).
+- CI6 every selection applies to the form live: a Library click fills Library (and
+  clears Cell/View), a Cell click with a single symbol view also fills View and
+  arms, a multi-symbol-view cell leaves View empty (no auto-fill) until a View is
+  clicked; the View column lists only symbol views.
+- CI7 Esc and the Cancel button both dismiss the browser via `mkinst::cancel`; the
+  form survives and keeps the last live selection.
+- CI8 keep-placing: each canvas drop re-arms the same symbol (continuous placement).
+- CI9 Esc clears the placement and dismisses **both** the form and the browser.
+- CI10 reopening restores the form's fields and re-arms.
+- CI11 the Legacy button is wired to `ciform::legacy` = no-arg `place_symbol`
+  (asserted structurally — the legacy dialog is modal, not invoked).
+- CI12 recursion guard: a cell may not be placed in its own schematic, nor an
+  ancestor in a descendant; a cell not in the stack still arms.
+- (= AL11 in `test_action_log_libmgr.tcl`, run with `--logdir`): launching logs a
+  replayable `xschem create_instance` line.
 
 **Manual eyeball (per the focus lessons):** that the floating form does not steal
 the placement clicks, and that cross-window focus on launch behaves — WM-arbitrated,
@@ -163,3 +181,62 @@ not reliably assertable headless.
 
 Each phase builds and the suite stays green; ported to `library-manager` by
 cherry-pick once signed off (mirrors the current branch arrangement).
+
+## 7. Revision: the Create Instance FORM + the Library Browser (current design)
+
+The entry point is no longer the bare 3-column browser; it is a **properties-style
+form**, with the browser demoted to a Browse target. `src/create_instance.tcl` now
+holds two cooperating namespaces.
+
+### 7.1 `ciform::` — the Create Instance form (`.ciform`)
+- A compact toplevel with four entry fields — **Library Name**, **Cell Name**,
+  **View Name**, **Instance Name** — styled with the slick property-form fonts
+  (`slickprop::init_fonts` → `slickPropLabel`/`slickPropValue`), plus a **Browse…**
+  button and a **Legacy Xschem** / **Close** button row. `xschem create_instance`
+  opens it (logged, singleton, `raise_to_front`).
+- **It owns the placement lifecycle.** There is **no Place button** — placement is a
+  canvas click. Whenever the fields resolve to a real symbol view, the symbol is
+  armed for a live preview (`ciform::arm` → `xschem place_symbol <sym> [name=…]`):
+  - resolution = `xschem cellview_path <lib/cell> <view>` and the result must be a
+    `*.sym` (`ciform::resolve`). **A blank/missing View ⇒ no preview ⇒ nothing to
+    place** (the explicit requirement); the status line says what's missing.
+  - the **recursion guard** (own-schematic or any ancestor in the hierarchy stack)
+    and the **keep-placing** drop-hook loop are unchanged, just moved here.
+  - the **Instance Name**, when set, is passed as the `name=` attribute of the
+    placed instance; empty ⇒ xschem auto-names.
+- Editing any field (`<KeyRelease>` → `ciform::on_change`) re-arms. Esc (canvas or
+  form) ends placement and dismisses the form **and** the browser.
+- **`xschem create_instance [lcv]`** takes the same list contract as
+  `xschem library_manager`: an optional `{lib cell view [instname]}` list that
+  pre-fills the form (overwriting the current fields, even when the singleton is
+  already open) and re-arms. So `xschem create_instance [libmgr::selection]` /
+  `[xschem get_inst_lcv]` drops a chosen cell straight onto the cursor. A 4th
+  element sets the Instance Name; a bare `xschem create_instance` keeps whatever
+  the form last held (`ciform::set_fields`).
+
+### 7.2 `mkinst::` — the Library Browser (`.mkinst`), a LIVE picker
+- The same 3-column Library / Cell / (symbol-only) View browser. It does not arm
+  placement itself; instead **every selection is applied to the form immediately**
+  (`mkinst::push` → `ciform::set_lcv <lib> <cell> <view>`, which re-arms the form's
+  preview). Because each selection *is* an Apply, there is **no OK and no Apply
+  button** — only **Cancel**, and **Esc** (`bind .mkinst <Key-Escape>` →
+  `mkinst::cancel`) also dismisses the browser. Dismissing the browser leaves the
+  form holding the last applied selection; the form is unaffected.
+  - **Library click** (`on_lib`) → fills the form's Library field and clears Cell /
+    View (the form tracks the now-incomplete selection: `{lib "" ""}`).
+  - **Cell click** (`on_cell`) → lists the cell's symbol views. **If the cell has
+    exactly one symbol view, it is selected so the cell click also fills the form's
+    View field**; with several symbol views the View is left unselected (the form's
+    View stays empty until the user clicks one); with none the status says so.
+  - **View click** (`on_view`) → fills the form's View field.
+- On open it highlights whatever the form currently holds (`restore_from_form` →
+  `restore_path`), with the live push muted (`suppress_push`) so positioning the
+  panes does not echo transient partial state back to the form.
+- The form still owns the `.sym` guard, the recursion guard and the arming — the
+  browser only pushes the chosen lib/cell/view.
+
+### 7.3 What did not change
+The launch command/logging (§3.1, §3.3), the `.sym` guard, the recursion guard
+(§3.4), the fluid keep-placing loop, the Legacy fall-back, and Esc semantics are all
+preserved — they moved from `mkinst::` to `ciform::`. The toolbar button and
+right-click "Insert symbol" entry remain legacy (still a noted follow-up).

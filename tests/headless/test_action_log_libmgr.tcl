@@ -112,7 +112,7 @@ check "AL10 launch logs replayable 'xschem library_manager'" \
 xschem create_instance
 check "AL11 launch logs replayable 'xschem create_instance'" \
   [expr {[regexp -all -line {^xschem create_instance$} [logtext]] >= 1}] {}
-catch {destroy .mkinst}
+catch {ciform::escape}   ;# tear down the Create Instance form (.ciform) + browser
 
 destroy .ins
 destroy .libmgr
