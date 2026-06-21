@@ -164,6 +164,13 @@ The commands compose into one-key gestures. Bind them on the drawing canvas
 > collide with xschem's single-letter commands. If you bind a plain letter, append
 > `; break` so xschem's own handler for that key does not also fire.
 
+> **Printing feedback to the CIW.** Inside a key binding, `puts` writes to the
+> process's **stdout** (the terminal that launched xschem) — *not* the CIW log
+> pane, so you will not see it there. To show a message in the CIW log pane use
+> **`ciw_echo "<message>" error`** (the `error` tag styles it as an error; omit it
+> for a plain line). `ciw_echo` is a safe no-op when the CIW is not open. The
+> examples below use it.
+
 ### 5.1 Select an instance → locate its cell in the Library Manager
 
 Click an instance, press the key, and the Library Manager opens with that
@@ -173,7 +180,7 @@ finding a similarly named cell nearby.
 ```tcl
 proc locate_selected_in_libmgr {} {
   if {[catch {xschem get_inst_lcv} lcv]} {
-    puts "select exactly one instance first ($lcv)"
+    ciw_echo "select exactly one instance first ($lcv)" error
     return
   }
   xschem library_manager $lcv
@@ -193,11 +200,11 @@ opening the Create Instance form or making any selection there**.
 ```tcl
 proc place_libmgr_selection {} {
   set sel [libmgr::selection]
-  if {[llength $sel] < 2} { puts "select at least a cell in the Library Manager"; return }
+  if {[llength $sel] < 2} { ciw_echo "select at least a cell in the Library Manager" error; return }
   lassign $sel lib cell view
   if {$view eq ""} { set view symbol }      ;# default to the symbol view
   set f [xschem cellview_path "$lib/$cell" $view]
-  if {$f eq "" || ![string match *.sym $f]} { puts "no symbol view for $lib/$cell"; return }
+  if {$f eq "" || ![string match *.sym $f]} { ciw_echo "no symbol view for $lib/$cell" error; return }
   xschem place_symbol $f                      ;# cursor preview; click to drop
 }
 bind .drw <Key-F3> {place_libmgr_selection; break}
