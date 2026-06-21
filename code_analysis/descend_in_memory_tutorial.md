@@ -15,8 +15,8 @@ Companion docs:
 - Design/plan: `specs/descend_hierarchy_in_memory.md`
 - Progress + resume state: `specs/descend_handoff.md`
 
-Covered so far: **Parts 1–5 (Steps 0–6, the design pivot, and B1 backing-file
-helpers).**
+Covered so far: **Parts 1–6 (Steps 0–6, the design pivot, and B1–B3 of the
+backing-file autosave).**
 
 ---
 
@@ -491,6 +491,64 @@ automatic trigger — a crash on an explicit call is a five-minute fix; the same
 crash inside an event handler is an afternoon. And a project's wrapper around a
 libc function (`my_snprintf`, custom `strdup`, …) may implement only a subset —
 don't assume full `printf` semantics.
+
+---
+
+## Part 6 — Wiring the autosave (and what a central funnel does and doesn't catch)
+
+### Lesson 21 — Hook the funnel, but guard the funnel's non-user callers
+
+The backing file should be written "on every edit." XSCHEM already has the perfect
+single funnel: `set_modify(1)` is called once at the end of each edit operation. So
+the hook is one line — `if(mod == 1) write_backup();`. But a funnel catches
+*everything* that flows through it, not just what you pictured:
+
+- **Load also flows through it.** In cadence mode, opening a file runs
+  `trim_wires`, which calls `set_modify(1)` — so a naive hook writes a `~` while
+  merely *opening* a file. Fix: `load_schematic` brackets itself with a new
+  `xctx->no_autosave` flag (saved/restored around both return paths) and
+  `write_backup` early-outs on it. Opening a file is not an edit.
+- **Removal does NOT belong on the symmetric event.** The tempting symmetry is
+  "write on `set_modify(1)`, remove on `set_modify(0)`." But *every load ends with
+  `set_modify(0)`* — so removing there would **delete a crash-recovery backup on
+  every open**. Removal instead hangs off a *real save* (`save_schematic`). The
+  events that create and destroy a resource are often not the mirror image you
+  expect.
+
+And the part that made the whole design viable: highlight/select/pan/zoom and net
+resolution **don't** call `set_modify(1)` (verified before the pivot), so the
+funnel hook excludes them for free — no special-casing "a highlight is not an edit."
+
+**Takeaway:** a single choke point is the right place to hook cross-cutting
+behavior, but enumerate *every* caller that flows through it — especially the
+non-user ones (load, internal normalization) — and guard them. And don't assume
+the teardown belongs on the inverse event; trace when the resource must actually
+die.
+
+### Lesson 22 — Identity vs content: reuse the loader, then restore the name
+
+`go_back` must load `cellName~.sch` (the edited content) but the buffer must still
+*be* `cellName` — its title, hierarchy path, and save target. Reusing the full
+`load_schematic(cellName~.sch)` gets all the heavy lifting (symbol linking, prep
+flags, viewport) right, but it also stamps the buffer's identity as `cellName~`.
+So we load by content, then re-assert identity:
+
+```c
+load_schematic(1, bak, set_title, 1);                 /* content from the ~ file   */
+my_strdup2(_ALLOC_ID_, &xctx->sch[currsch], filename);/* identity is cellName      */
+my_strncpy(xctx->current_name, rel_sym_path(filename), ...);
+... current_dirname, time_last_modify from the REAL cellName ...
+set_modify(1);                                        /* unsaved vs cellName        */
+```
+
+This is the editor's "buffer name vs backing file" distinction made explicit: the
+content lives in one file, the identity points at another. Conflating them would
+make Save write to `cellName~.sch` and the title lie.
+
+**Takeaway:** when you load content from a stand-in file, separate *content* from
+*identity* deliberately. Reuse the real loader for the hard parts, then fix up the
+few identity fields — don't hand-roll a parallel loader, and don't let the
+stand-in's name leak into the buffer.
 
 ---
 

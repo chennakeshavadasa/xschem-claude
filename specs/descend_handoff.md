@@ -2,14 +2,21 @@
 
 ## RESUME PROMPT (paste after /clear)
 
-> Continue the in-memory descend/go_back work on branch `fluid-editing`. Read
-> `specs/descend_hierarchy_in_memory.md` (plan) and `specs/descend_handoff.md`
-> (this file) first. Steps 1–6 are DONE and committed; resume at **Step 7**
-> (RED-first: remove the descend save block so S2 flips GREEN), building +
-> running the test suites after each step and committing per step. Tasks are
-> tracked; refresh this handoff after each step. ALSO extend the living tutorial
-> `code_analysis/descend_in_memory_tutorial.md` with each step's new lesson(s)
-> (concept + concrete example from the work).
+> Continue the descend autosave work on branch `fluid-editing`. The design PIVOTED
+> from an in-memory snapshot to an editor-style `cellName~.sch` backing file — read
+> the "DESIGN PIVOT" section of `specs/descend_hierarchy_in_memory.md` (plan) and
+> this file first. Steps 1–6 (in-memory, now superseded) and B1–B3 (backing file)
+> are DONE and committed; resume at **B4** (remove the dead in-memory machinery:
+> hier_slot[], mem_*_hier, descend_keep_in_memory, `get hier_slots`). Build + run
+> the suites after each step, commit per step, and EXTEND the living tutorial
+> `code_analysis/descend_in_memory_tutorial.md` with each step's lesson(s).
+>
+> Backing-file model: a genuine edit (`set_modify(1)`) writes `cellName~.sch`
+> (`write_backup`, save.c); a real `save_schematic` removes it; `load_schematic`
+> guards itself with `xctx->no_autosave`; `go_back` loads the `~` if present
+> (identity restored to cellName). autosave_backup flag (default 1). `*~.sch/.sym`
+> gitignored. Tests: test_backup_file, test_autosave_hook, test_descend_preserve
+> (S1 green / S2 red until B5), test_descend_efficiency, test_descend_fidelity.
 
 ## Where things stand (2026-06-20)
 
