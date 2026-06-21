@@ -42,8 +42,13 @@
 > in-memory machinery), B5 `f9fda05` (removed descend save prompt → S2 green),
 > B6 `6d9d8a3` (symbol autosave + descend_symbol no-prompt, embedded guard kept),
 > B7 `1d1bf75` (hide `~` backups from cell listings), B8 `58e053a` (lifecycle +
-> crash recovery: load_backup_as / discard-cleanup / xschem_recover_backup).
-> Next: B9 (tabs / deep hierarchy / leak + edge audit; GUI eyeball).
+> crash recovery: load_backup_as / discard-cleanup / xschem_recover_backup),
+> B9-partial `3306d76` (deep-close fix: `xschem exit` prompts when an ANCESTOR
+> level is unsaved, via `hierarchy_modified()` — found by GUI eyeball: descend 2
+> levels then Ctrl-W closed with no prompt).
+> Next: finish B9 (tabs interaction, leak audit `xschemtest -d 3`, remaining GUI
+> eyeball per the recipe). Possible polish: the deep-close tk_messageBox names the
+> current (child) cell, not the dirty ancestor — wording could be made generic.
 
 ## (HISTORY — superseded) Where things stood with the in-memory design
 

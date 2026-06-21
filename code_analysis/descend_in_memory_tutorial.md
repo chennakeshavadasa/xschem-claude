@@ -15,10 +15,11 @@ Companion docs:
 - Design/plan: `specs/descend_hierarchy_in_memory.md`
 - Progress + resume state: `specs/descend_handoff.md`
 
-Covered so far: **Parts 1–10 (Steps 0–6, the design pivot, B1–B4 of the
+Covered so far: **Parts 1–11 (Steps 0–6, the design pivot, B1–B4 of the
 backing-file autosave, B5 — removing the descend save prompt, B6 — extending
 autosave to symbols + the descend_symbol no-prompt path, B7 — hiding the `~`
-backups from cell listings, and B8 — lifecycle + crash recovery).**
+backups from cell listings, B8 — lifecycle + crash recovery, and the start of the
+B9 deep-hierarchy audit — close/quit prompting across the descend stack).**
 
 ---
 
@@ -810,6 +811,54 @@ is the same one from Lesson 20, applied to a destructive action instead of a cra
 *trigger* on the context that can actually consent (GUI + interactive), and keep the
 *mechanism* callable on its own so tests exercise it without the trigger. Don't make
 a feature untestable to make it safe, and don't make it unsafe to make it testable.
+
+---
+
+## Part 11 — The audit finds the guard-shift's *third* victim
+
+### Lesson 34 — Removing one guard can under-protect several distant paths; an invariant has many readers
+
+Lesson 28 caught the embedded-symbol path breaking when B5/B6 removed the descend
+save prompt. The B9 deep-hierarchy audit — prompted by the user actually *driving*
+the GUI: descend two levels, `Ctrl-W` — found a **third** victim of the *same*
+removal. Closing or quitting (`Ctrl-W`, `Ctrl-Q`, the window's X) all funnel through
+`xschem exit`, which guarded on `xctx->modified`. That was correct for years because
+of an invariant the old descend save *maintained*: **whenever you were deep in a
+hierarchy, every ancestor was already saved to disk** (descend forced it). So the
+current level's modified flag was a faithful proxy for "is anything unsaved?"
+
+B5 removed that save. Now you can descend past an unsaved parent (its edits live in
+`cellName~.sch`), so one level down `xctx->modified` is 0 while the parent is dirty —
+and `exit` closed the window with no prompt. The edits weren't *lost* (the `~`
+survived for recovery), but the warning the user expects simply didn't fire. One
+removed guard had quietly weakened **three** separate consumers of the same
+invariant: go_back (fixed by B3's reload), embedded-symbol descent (fixed by B6's
+gate), and now close/quit.
+
+The fix is a predicate that asks the real question — `hierarchy_modified()`: current
+level modified, *or* any ancestor on the descend stack still has a `~` backup —
+substituted into all four `exit` guards (tabbed/non-tabbed × window-count). The `~`
+trail that B2–B8 built *is* the per-level dirty record, so the detector just reads it.
+
+**Takeaway:** when you delete a guard, you haven't found all the fallout until you've
+listed every place that read the *invariant the guard maintained*, not just the
+guard's call site. "All ancestors are saved when deep" had at least three readers;
+each needed its own repair. An audit that drives the real UI (descend, then close)
+surfaces the readers a unit test aimed at the changed function never visits.
+
+### Lesson 35 — Make "is this dirty?" answer for the whole unit of work, not one frame
+
+The deep-frame bug is really a category error: the program tracked "is the *current
+schematic frame* modified?" when the question the user is asking at quit is "does my
+*design* have unsaved work?" A hierarchical edit session is one logical document
+spread across stacked frames; `xctx->modified` describes the top frame of the stack.
+The autosave `~` files turned each frame's dirtiness into a durable, queryable fact,
+so "is the document dirty?" became answerable — sum the frames, don't read the top.
+
+**Takeaway:** when state lives in a stack of contexts, a boolean on the *active*
+context rarely answers a question about the *whole* stack. Decide which unit the
+user's question is really about (the document, not the frame) and compute the answer
+across the whole unit — ideally from a record you already maintain.
 
 ---
 
