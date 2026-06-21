@@ -550,6 +550,26 @@ make Save write to `cellName~.sch` and the title lie.
 few identity fields — don't hand-roll a parallel loader, and don't let the
 stand-in's name leak into the buffer.
 
+### Lesson 23 — After a pivot, delete the superseded mechanism promptly — but keep the shared parts
+
+Once the backing file replaced the in-memory snapshot, the `hier_slot[]` store and
+its five `mem_*_hier` functions, the `descend_keep_in_memory` flag, and the
+`xschem get hier_slots` probe were all dead. We removed them in one focused commit
+the moment the new path was green — not "later." Dead code that "might be reused"
+isn't an asset; it's a maintenance tax and a comprehension trap (the next reader
+can't tell it's unused).
+
+The discipline that made this safe: a single `grep` for every identifier confirmed
+the references were confined and inter-dependent, so removal couldn't leave a
+dangling call. And the cut was *surgical* — the genuinely shared extraction from
+Lesson 9 (`mem_serialize_slot`/`mem_restore_slot`, still used by undo) stayed. The
+undo test passing after the deletion proved the line was drawn correctly.
+
+**Takeaway:** delete superseded code as soon as its replacement is proven, in its
+own commit, after a reference sweep — but distinguish "scaffolding for the old
+design" (delete) from "a reusable piece you happened to factor out" (keep, and let
+its own tests guard it).
+
 ---
 
 ## Appendix — the toolbox used here

@@ -6,7 +6,7 @@
 > from an in-memory snapshot to an editor-style `cellName~.sch` backing file — read
 > the "DESIGN PIVOT" section of `specs/descend_hierarchy_in_memory.md` (plan) and
 > this file first. Steps 1–6 (in-memory, now superseded) and B1–B3 (backing file)
-> are DONE and committed; resume at **B4** (remove the dead in-memory machinery:
+> are DONE and committed; resume at **B5** (remove the descend save prompt so S2 flips GREEN; the in-memory machinery was removed in B4:
 > hier_slot[], mem_*_hier, descend_keep_in_memory, `get hier_slots`). Build + run
 > the suites after each step, commit per step, and EXTEND the living tutorial
 > `code_analysis/descend_in_memory_tutorial.md` with each step's lesson(s).
@@ -18,7 +18,13 @@
 > gitignored. Tests: test_backup_file, test_autosave_hook, test_descend_preserve
 > (S1 green / S2 red until B5), test_descend_efficiency, test_descend_fidelity.
 
-## Where things stand (2026-06-20)
+> ⚠ **Everything below this line describes the SUPERSEDED in-memory design**
+> (Steps 1–6) and is kept only for history. The authoritative current state is the
+> RESUME PROMPT above + the "DESIGN PIVOT" section of the spec. Backing-file
+> commits: B1 `c408fe3`, B2 `a9ca3cf`, B3 `7a30ff8`, B4 `b4bbfa4` (removed the
+> in-memory machinery). Next: B5 (remove descend save prompt → S2 green).
+
+## (HISTORY — superseded) Where things stood with the in-memory design
 
 Branch `fluid-editing`. Goal: descending into a sub-schematic must never prompt
 to save and never lose unsaved parent edits; prompts only at window-close and
