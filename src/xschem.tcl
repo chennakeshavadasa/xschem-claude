@@ -7488,21 +7488,22 @@ proc ask_save { {ask {save file?}} {cancel 1}} {
   if { $wm_fix } { tkwait visibility .dialog }
 
   wm geometry .dialog "+$X+$Y"
-  label .dialog.l1  -text $ask
-  frame .dialog.f1
-  button .dialog.f1.b1 -text {Yes} -command\
+  wm minsize .dialog 360 110
+  label .dialog.l1  -text $ask -wraplength 420 -justify left -padx 20 -pady 16 -anchor w
+  frame .dialog.f1 -pady 8
+  button .dialog.f1.b1 -text {Yes} -width 10 -padx 8 -pady 4 -command\
   {
    set tctx::rcode {yes}
    destroy .dialog
   }
   if {$cancel} {
-    button .dialog.f1.b2 -text {Cancel} -command\
+    button .dialog.f1.b2 -text {Cancel} -width 10 -padx 8 -pady 4 -command\
     {
      set tctx::rcode {}
      destroy .dialog
     }
   }
-  button .dialog.f1.b3 -text {No} -command\
+  button .dialog.f1.b3 -text {No} -width 10 -padx 8 -pady 4 -command\
   {
    set tctx::rcode {no}
    destroy .dialog
@@ -10296,9 +10297,48 @@ proc get_lastopened {} {
   return $f
 }
 
+# Cadence-style hierarchy close: when closing/quitting while descended, walk UP the
+# descend stack of the current window from the bottom, prompting per cell that needs
+# attention (go_back's own per-level Save/No/Cancel dialog), then handle the top
+# level. $action is "close" or "quit" (only affects wording). Returns 1 if the caller
+# should proceed with the actual teardown, 0 if the user cancelled (abort, stay put).
+# specs/descend_hierarchy_in_memory.md
+proc hierarchy_close {action} {
+  # Walk up: each dirty intermediate level gets go_back's Save/No/Cancel prompt,
+  # which saves (removes ~) or discards (removes ~) that cell, then ascends. A clean
+  # level just ascends with no prompt. Cancel leaves currsch unchanged -> abort.
+  while {[xschem get currsch] > 0} {
+    set before [xschem get currsch]
+    xschem go_back 1
+    if {[xschem get currsch] >= $before} { return 0 } ;# user cancelled at this level
+  }
+  # Top level: the last cell that may need attention. Offer Save / No / Cancel.
+  if {[xschem get modified]} {
+    set cell [get_cell [xschem get schname] 0]
+    set verb [expr {$action eq {quit} ? {quitting} : {closing}}]
+    set ans [ask_save "Schematic \"$cell\" has unsaved changes.\n\nSave changes before $verb?"]
+    if {$ans eq {}} { return 0 }                       ;# Cancel -> abort
+    if {$ans eq {yes}} { xschem save } else { xschem backup remove } ;# discard -> drop ~
+  }
+  return 1
+}
+
+# Ctrl-W: close the current schematic window/tab, walking up the hierarchy first.
+proc close_schematic_window {} {
+  if {![hierarchy_close close]} return
+  xschem exit force   ;# prompts already handled above -> force skips the generic one
+}
+
 proc quit_xschem { {force {}}} {
   global tabbed_interface
 
+  # Interactive quit (force not preset): walk up the current window's hierarchy with
+  # per-cell prompts first. Only force the teardown when this is the sole window, so
+  # any OTHER open windows still get their own unsaved-data prompt via destroy_all.
+  if {$force eq {}} {
+    if {![hierarchy_close quit]} return
+    if {[xschem new_schematic ntabs] == 0} { set force force }
+  }
   xschem new_schematic destroy_all $force
   xschem new_schematic switch .drw
   if {[winfo exists .ins]} { .ins.bottom.dismiss invoke }

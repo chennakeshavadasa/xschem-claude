@@ -4583,7 +4583,10 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         int save_sem;
         if(xctx->semaphore >= 2) break;
         save_sem = xctx->semaphore;
-        tcleval("xschem exit");
+        /* must be 0 so the go_back walk-up in close_schematic_window can proceed
+         * (mirrors the Ctrl-Q / quit_xschem path) */
+        xctx->semaphore = 0;
+        tcleval("close_schematic_window");
         xctx->semaphore = save_sem;
       }
       break;

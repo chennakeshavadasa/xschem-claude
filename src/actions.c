@@ -2726,9 +2726,14 @@ void go_back(int what)
   if(xctx->modified)
   {
     if(confirm) {
-      tcleval("ask_save");
+      char as[PATH_MAX+100];
+      /* name the cell being left, so the user knows which level this is about */
+      my_snprintf(as, S(as), "ask_save {Schematic \"%s\" has unsaved changes.\n\nSave changes to this cell before returning to the upper level?}",
+                  get_cell(xctx->sch[xctx->currsch], 0));
+      tcleval(as);
       if(!strcmp(tclresult(), "yes") ) save_ok = save_schematic(xctx->sch[xctx->currsch], 0);
       else if(!strcmp(tclresult(), "") ) return;
+      else remove_backup(); /* "No": discard this level's edits -> drop its cellName~ backup */
     }
     /* do not automatically save if confirm==0. Script developers should take care of this */
     /*
