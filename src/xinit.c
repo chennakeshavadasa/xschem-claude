@@ -1931,7 +1931,7 @@ static void destroy_window(int *window_count, const char *win_path)
       dbg(0, "destroy_window(): no window path given\n");
       return;
     }
-    if(xctx->modified && has_x) {
+    if(hierarchy_modified() && has_x) { /* current level OR a dirty ancestor (deep-close guard) */
       tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
               "[get_cell [xschem get schname] 0]"
               ": UNSAVED data: want to exit?\"");
@@ -2004,7 +2004,7 @@ static void destroy_tab(int *window_count, const char *win_path)
       dbg(0, "new_schematic(\"destroy_tab\", %s): must be in this tab to destroy\n", win_path);
       return;
     }
-    if(xctx->modified && has_x) {
+    if(hierarchy_modified() && has_x) { /* current level OR a dirty ancestor (deep-close guard) */
       tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
               "[get_cell [xschem get schname] 0]"
               ": UNSAVED data: want to exit?\"");
@@ -2082,7 +2082,7 @@ static void destroy_all_windows(int *window_count, int force)
           xctx->semaphore++; /* to avoid context switches when dialog below is shown */
           /* reset old focused window so callback() will force repaint on expose events */
           dbg(1, "destroy_all_windows(): top_path=%s\n", xctx->top_path);
-          if(!force && xctx->modified && has_x) {
+          if(!force && hierarchy_modified() && has_x) { /* current level OR a dirty ancestor */
             tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
                     "[get_cell [xschem get schname] 0]"
                     ": UNSAVED data: want to exit?\"");
@@ -2142,7 +2142,7 @@ static void destroy_all_tabs(int *window_count, int force)
         xctx = save_xctx[i];
         close = 0;
         /* reset old focused window so callback() will force repaint on expose events */
-        if(!force && xctx->modified && has_x) {
+        if(!force && hierarchy_modified() && has_x) { /* current level OR a dirty ancestor */
           tcleval("tk_messageBox -type okcancel  -parent [xschem get topwindow] -message \""
                   "[get_cell [xschem get schname] 0]"
                   ": UNSAVED data: want to exit?\"");
