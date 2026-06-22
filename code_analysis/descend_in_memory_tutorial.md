@@ -860,6 +860,54 @@ context rarely answers a question about the *whole* stack. Decide which unit the
 user's question is really about (the document, not the frame) and compute the answer
 across the whole unit — ideally from a record you already maintain.
 
+### Lesson 36 — One concept, many call sites: fix the *predicate*, not the first site you find
+
+The deep-close fix (Lesson 34) substituted `hierarchy_modified()` into `xschem
+exit`, shipped green, and *still didn't work in the GUI*. The user re-tested in their
+real mode and it closed with no prompt anyway. The cause: "close this schematic" is
+not one function. `xschem exit` handles the main non-tabbed window; the **tabbed
+interface** closes through four *other* paths in `xinit.c` — `destroy_tab`
+(Ctrl-W on a tab), `destroy_all_tabs` (Ctrl-Q), `destroy_window`,
+`destroy_all_windows` — each with its own copy of `if(xctx->modified && has_x)`. I
+fixed one of five sites and declared victory. The concept "is there unsaved work to
+warn about?" had five implementations, and the user's mode happened to use the four I
+hadn't touched.
+
+The find was *only* possible by instrumenting and reading the actual branch taken:
+the debug showed `tabbed=1` and that `hierarchy_modified()` was **never called**
+during the close — which immediately said "the close isn't going through the code I
+changed." Grepping `xctx->modified` across the *windowing* file, not just the exit
+command, surfaced all five.
+
+**Takeaway:** before you fix "the" guard, grep the *predicate* across the whole tree
+and count its implementations. A user-facing concept ("close", "save", "is dirty")
+is often spread across per-mode call sites that each re-derive it. Fixing one and
+seeing your own test go green proves nothing if the user's path runs one of the
+others. The green test that "passed" was testing the detector, never the four sites
+that actually fire.
+
+### Lesson 37 — If the trigger is gated on a flag your tests can't set, the wiring is untested by construction
+
+Every one of those five close-guards is `hierarchy_modified() && has_x`. The headless
+harness runs `has_x = 0`, so the prompt branch is *structurally unreachable* in a
+test — the detector is unit-tested, but whether any close path actually *consults* it
+is not, and can't be, headless. That's precisely the crack the Lesson-34 miss fell
+through: a green suite that exercises the mechanism and never the wiring reads as
+"done" while a whole class of call sites sits unverified.
+
+The honest response is twofold: (1) say so plainly — "this needs a GUI eyeball, the
+headless suite cannot reach it" — rather than letting green stand in for working; and
+(2) treat the human test as the real gate for `has_x`-gated behavior. The earlier
+Lesson-33 split (testable mechanism, context-gated trigger) is right, but it carries a
+duty: when the trigger is untestable, you must *name* that gap, not paper over it with
+the mechanism's green checkmark.
+
+**Takeaway:** when a behavior's trigger is gated on a flag your test environment
+forces off (`has_x`, `isatty`, a GUI toolkit), the wiring between detector and trigger
+is untested *by construction*. Enumerate those sites deliberately, fix them as a set,
+and route them to a human check — and never let the detector's passing test be quoted
+as evidence the trigger fires.
+
 ---
 
 ## Appendix — the toolbox used here
