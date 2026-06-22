@@ -6544,6 +6544,88 @@ proc make_symbol {name {ask {no}} {view symbol}} {
   return $symname
 }
 
+# Interactive, library-aware "Make symbol from schematic" (the Symbol menu entry).
+# Asks for the view (name + action) via the adaptive dialog, generates the symbol
+# into the proper view dir (OA symbol view, or legacy same-dir for flat), and opens
+# the new view in a new window for editing. specs/create_symbol_view.md
+proc make_symbol_dialog {schpath} {
+  if {$schpath eq {} || [string match {*untitled*} [file tail $schpath]]} {
+    catch {ciw_echo "Save the schematic to a real file before making a symbol." error}
+    return
+  }
+  set ans [ask_symbol_view $schpath]
+  if {$ans eq {}} return                       ;# user cancelled
+  lassign $ans view action
+  set sympath [symbol_view_path $schpath $view]
+  switch -- $action {
+    create -
+    replace { make_symbol $schpath yes $view } ;# dialog already confirmed -> ask=yes
+    modify  { modify_symbol_pins $schpath $sympath } ;# P3
+    default { return }
+  }
+  # open the freshly created/updated symbol view for editing in a new window
+  if {[info exists ::has_x] && $::has_x && [file exists $sympath]} {
+    xschem load_new_window $sympath
+  }
+}
+
+# Adaptive dialog for make_symbol_dialog: a "View:" entry (default "symbol") whose
+# action button reflects whether that view already exists for the cell -- "Create"
+# when absent, "Replace" when present (Modify added in P3). Returns {view action}
+# or {} on cancel. GUI only (has_x); headless tests stub this proc.
+proc ask_symbol_view {schpath} {
+  set tctx::svr {}
+  if {![info exists ::has_x] || !$::has_x} { return {} }  ;# no GUI -> nothing to ask
+  set cv [schematic_cellview $schpath]
+  set nested [expr {$cv ne {} && [lindex $cv 3] eq {nested}}]
+  set existing {}
+  if {$nested} { set existing [cell_views [lindex $cv 0] [lindex $cv 1]] }
+  catch {destroy .symview}
+  toplevel .symview -class Dialog
+  wm title .symview {Make symbol view}
+  wm transient .symview [xschem get topwindow]
+  set msg "Cell: [file rootname [file tail $schpath]]"
+  if {$nested} { append msg "   Library: [lindex $cv 0]" } \
+  else { append msg "\n(flat layout: symbol written next to the schematic)" }
+  label .symview.l -text $msg -justify left -padx 16 -pady 12 -anchor w
+  frame .symview.f -pady 6
+  label .symview.f.vl -text "View:"
+  entry .symview.f.ve -width 22
+  .symview.f.ve insert 0 symbol
+  pack .symview.f.vl .symview.f.ve -side left -padx 4
+  label .symview.hint -text {} -fg gray40 -pady 2
+  frame .symview.b -pady 8
+  # action buttons; refreshed as the view name changes
+  button .symview.b.ok -width 10 -padx 8 -pady 4
+  button .symview.b.cancel -text Cancel -width 10 -padx 8 -pady 4 \
+    -command {set tctx::svr {}; destroy .symview}
+  pack .symview.b.ok .symview.b.cancel -side left -padx 6
+  pack .symview.l .symview.f .symview.hint .symview.b -side top -fill x
+  proc symview_refresh {existing} {
+    set v [string trim [.symview.f.ve get]]
+    if {$v eq {}} { .symview.b.ok configure -state disabled; return }
+    .symview.b.ok configure -state normal
+    if {[lsearch -exact $existing $v] >= 0} {
+      .symview.hint configure -text "View \"$v\" exists — it will be replaced."
+      .symview.b.ok configure -text Replace \
+        -command "set tctx::svr \[list $v replace\]; destroy .symview"
+    } else {
+      .symview.hint configure -text "View \"$v\" will be created."
+      .symview.b.ok configure -text Create \
+        -command "set tctx::svr \[list $v create\]; destroy .symview"
+    }
+  }
+  bind .symview.f.ve <KeyRelease> [list symview_refresh $existing]
+  bind .symview <Return> {.symview.b.ok invoke}
+  bind .symview <Escape> {.symview.b.cancel invoke}
+  symview_refresh $existing
+  tkwait visibility .symview
+  focus .symview.f.ve
+  grab set .symview
+  tkwait window .symview
+  return $tctx::svr
+}
+
 proc make_symbol_lcc {name} {
   global XSCHEM_SHAREDIR
   set name [abs_sym_path $name]
@@ -11346,7 +11428,7 @@ proc build_widgets { {topwin {} } } {
         input_line "Enter Symbol width ($symbol_width)" "set symbol_width" $symbol_width
       }
   $topwin.menubar.sym add command -label "Make symbol from schematic" \
-     -command "xschem make_symbol" -accelerator A
+     -command {make_symbol_dialog [xschem get schname]} -accelerator A
   $topwin.menubar.sym add command -label "Make schematic from symbol" \
      -command "xschem make_sch" -accelerator Ctrl+L
   $topwin.menubar.sym add command -label "Make schematic and symbol from selected components" \
