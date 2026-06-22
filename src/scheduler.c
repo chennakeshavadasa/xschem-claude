@@ -3662,12 +3662,16 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
     {
       char f[PATH_MAX + 100];
       int cancel = 0;
+      int force_window = 0; /* -window: open a real top-level even in tabbed mode */
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       if(argc > 2) {
         int i;
         for(i = 2; i < argc; i++) {
 
-          if(!strcmp(argv[i], "-lastclosed")) {
+          if(!strcmp(argv[i], "-window")) {
+            force_window = 1;
+            continue;
+          } else if(!strcmp(argv[i], "-lastclosed")) {
             my_strncpy(f, tcleval("get_lastclosed"), S(f));
           } else if(!strcmp(argv[i], "-lastopened")) {
             my_strncpy(f, tcleval("get_lastopened"), S(f));
@@ -3690,10 +3694,10 @@ static int xschem_cmds_l(Tcl_Interp *interp, int argc, const char *argv[], int *
              tcleval(msg);
              if(strcmp(tclresult(), "ok")) continue;
            }
-           new_schematic("create", "noconfirm", f, 1);
+           new_schematic(force_window ? "create_window" : "create", "noconfirm", f, 1);
            tclvareval("update_recent_file {", f, "}", NULL);
           } else {
-            new_schematic("create", NULL, NULL, 1);
+            new_schematic(force_window ? "create_window" : "create", NULL, NULL, 1);
           }
         }
       } else {
@@ -7981,6 +7985,33 @@ static int xschem_cmds_w(Tcl_Interp *interp, int argc, const char *argv[], int *
     {
       if(argc > 2) {
         windowid(argv[2]);
+      }
+    }
+    /* windows
+     *   List open schematic contexts, one Tcl sublist each:
+     *     {win_path top_path group xwindow current_name}
+     *   'group' is the owning top-level ("." for the main window). Read-only
+     *   introspection seam for multi-window / detach
+     *   (specs/multi_window_detach.md). In Phase 0 group == top_path (the owning
+     *   toplevel); per-window tab grouping (Phase 1) refines it. */
+    else if(!strcmp(argv[1], "windows"))
+    {
+      int i;
+      Xschem_ctx *ctx, **save_xctx = get_save_xctx();
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      for(i = 0; i < MAX_NEW_WINDOWS; ++i) {
+        const char *wp, *tp, *nm;
+        char xwin[32];
+        ctx = save_xctx[i];
+        /* the sole schematic is not yet mirrored into save_xctx[] */
+        if(get_window_count() == 0 && i == 0) ctx = xctx;
+        if(!ctx) continue;
+        wp = (i == 0) ? ".drw" : get_window_path(i);
+        tp = (ctx->top_path && ctx->top_path[0]) ? ctx->top_path : ".";
+        nm = ctx->sch[ctx->currsch] ? ctx->sch[ctx->currsch] : "";
+        my_snprintf(xwin, S(xwin), "%lu", (unsigned long)ctx->window);
+        /* group == tp for now (Phase 0) */
+        Tcl_AppendResult(interp, "{", wp, " {", tp, "} ", tp, " ", xwin, " {", nm, "}} ", NULL);
       }
     }
     /* wire_coord n

@@ -9740,6 +9740,11 @@ proc tab_ctx_cmd {tab_but what} {
         # don't switch if we were on the tab that has been closed.
         xschem new_schematic switch $old {} 1 ;# draw
       }
+    } elseif {$what eq {detach}} {
+      # tear this tab off into its own top-level window (draggable to another
+      # monitor). specs/multi_window_detach.md
+      xschem new_schematic detach $win_path
+      xschem log_action "xschem new_schematic detach $win_path"
     } elseif {[regexp {^open } $what]} {
       set counterpart [lindex $what 1]
       set filetype  [lindex $what 2]
@@ -9843,6 +9848,12 @@ proc tab_context_menu {tab_but} {
   button .ctxmenu.b8 -text {Close tab} -padx 3 -pady 0 -anchor w -activebackground grey50 \
      -bg {#d9d9d9} -fg black -activeforeground black -image CtxmenuDelete -compound left \
     -font [subst $font] -command "set tctx::retval 8; tab_ctx_cmd $tab_but close; destroy .ctxmenu"
+  if {$win_path ne {.drw}} {
+    # the main window (.drw) is not a tab and cannot be detached
+    button .ctxmenu.b9 -text {Detach to window} -padx 3 -pady 0 -anchor w -activebackground grey50 \
+       -bg {#d9d9d9} -fg black -activeforeground black -image CtxmenuOpendir -compound left \
+      -font [subst $font] -command "set tctx::retval 9; tab_ctx_cmd $tab_but detach; destroy .ctxmenu"
+  }
 
   pack .ctxmenu.b0 -fill x -expand true
   pack .ctxmenu.b1 -fill x -expand true
@@ -9857,6 +9868,7 @@ proc tab_context_menu {tab_but} {
   }
   pack .ctxmenu.b7 -fill x -expand true
   pack .ctxmenu.b8 -fill x -expand true
+  if {$win_path ne {.drw}} { pack .ctxmenu.b9 -fill x -expand true }
   wm geometry .ctxmenu "+$x+$y"
   update
   # if window has been destroyed (by mouse pointer exiting) do nothing
@@ -10850,6 +10862,41 @@ proc show_bindkeys {} {
         bind .bk <KeyPress> {xschem preview_window destroy .bk}
         bind .bk <Expose> {xschem preview_window draw .bk }
         wm protocol .bk WM_DELETE_WINDOW {xschem preview_window destroy .bk}
+}
+
+# Replicate the user's canvas key/mouse bindings (e.g. those bound to the main
+# .drw in cadence_style_rc) onto another window's canvas, so custom shortcuts work
+# in new and detached windows too. The standard set_bindings have already run on
+# $dst; the standard binds are %W-templated so re-copying them is idempotent — the
+# user's own overrides (e.g. Control-x -> descend, with a trailing 'break') are what
+# this actually adds. specs/multi_window_detach.md
+proc clone_canvas_bindings {src dst} {
+  if {![winfo exists $src] || ![winfo exists $dst] || $src eq $dst} return
+  foreach seq [bind $src] {
+    bind $dst $seq [bind $src $seq]
+  }
+}
+
+# Keep a newly-opened schematic window to a sane size. Only acts when the window
+# comes up near-fullscreen (e.g. a stale maximized geometry restored from
+# ~/.xschem/geometry, or a window manager that maximizes new toplevels) — a window
+# already a reasonable size is left exactly as set_geom placed it. Detects the
+# actual display from $win's screen; the width is capped so the window can't span a
+# multi-monitor X screen. Tunable via ::new_window_size_frac (fraction of screen
+# width, default 0.5 = "half the display"). specs/multi_window_detach.md
+proc size_new_window {win} {
+  if {![winfo exists $win]} return
+  set frac 0.5
+  if {[info exists ::new_window_size_frac]} { set frac $::new_window_size_frac }
+  update idletasks
+  set sw [winfo screenwidth $win]
+  set sh [winfo screenheight $win]
+  # only intervene if the window is hogging (near-)the whole screen
+  if {[winfo width $win] <= int($sw * 0.9) && [winfo height $win] <= int($sh * 0.9)} return
+  set w [expr {int($sw * $frac)}]
+  if {$w > 1800} { set w 1800 }   ;# don't straddle monitors on a wide X screen
+  set h [expr {int($sh * 0.85)}]
+  wm geometry $win ${w}x${h}+60+60
 }
 
 proc set_bindings {topwin} {

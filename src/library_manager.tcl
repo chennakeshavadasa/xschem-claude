@@ -78,7 +78,11 @@ proc libmgr::open {{lcv {}}} {
   wm geometry $w 760x460
 
   ttk::panedwindow $w.pw -orient horizontal
-  pack $w.pw -side top -fill both -expand 1
+  # NOTE: $w.pw is packed LAST (after the bottom status/button bars below) — the
+  # treeview's -height 20 makes the pane request more than the 460px window, so if
+  # it were packed first with -expand it would claim the whole cavity and clip the
+  # Open/Place/Refresh/Close bar off the bottom (fixed bottom bars must be packed
+  # before the expanding central widget).
 
   # a bold font for git-tracked rows (specs/library_git.md §4.3). Derived from the
   # treeview's default font so it matches; created once.
@@ -118,6 +122,9 @@ proc libmgr::open {{lcv {}}} {
   pack $w.b.open $w.b.place $w.b.neww $w.b.ref -side left -padx 4 -pady 4
   pack $w.b.close -side right -padx 4 -pady 4
   pack $w.b -side bottom -fill x
+
+  # expanding 3-pane area fills whatever is left ABOVE the status + button bars
+  pack $w.pw -side top -fill both -expand 1
 
   bind $w.pw.lib.lb  <<TreeviewSelect>> libmgr::on_lib
   bind $w.pw.cell.lb <<TreeviewSelect>> libmgr::on_cell
@@ -440,8 +447,11 @@ proc libmgr::open_view {args} {
   # is otherwise the silent "replay form", so a Library Manager open would not be
   # logged to the CIW / Xschem.log without this).
   if {$new_window} {
-    xschem load_new_window $f
-    xschem log_action "xschem load_new_window {$f}"
+    # -window forces a real top-level OS window (draggable to another monitor),
+    # not just a tab, even when the tabbed interface is on
+    # (specs/multi_window_detach.md).
+    xschem load_new_window -window $f
+    xschem log_action "xschem load_new_window -window {$f}"
   } else {
     xschem load $f
     xschem log_action "xschem load {$f}"

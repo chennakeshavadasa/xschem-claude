@@ -5674,7 +5674,14 @@ static int handle_window_switching(int event, int tabbed_interface, const char *
   int redraw_only = 0;
   int n = get_tab_or_window_number(win_path);
   Xschem_ctx **save_xctx = get_save_xctx();
-  if(!tabbed_interface) {
+  /* A real top-level window (non-empty top_path) owns its own X canvas, so focus/
+   * expose/enter must switch xctx to it — even in tabbed mode, where windows and
+   * tabs now coexist (specs/multi_window_detach.md). Pure tabs share the main
+   * canvas and switch via the tab bar, so they stay out of this path. The switch
+   * runs when either the event window OR the current context is a real window. */
+  int win_is_real = (n > 0 && save_xctx[n] && save_xctx[n]->top_path && save_xctx[n]->top_path[0]);
+  int cur_is_real = (xctx->top_path && xctx->top_path[0]);
+  if(!tabbed_interface || win_is_real || cur_is_real) {
     if((event == FocusIn  || event == Expose || event == EnterNotify) &&
        strcmp(xctx->current_win_path, win_path) ) {
       struct stat buf;

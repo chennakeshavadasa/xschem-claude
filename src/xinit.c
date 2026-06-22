@@ -1661,7 +1661,9 @@ static int switch_tab(int *window_count, const char *win_path, int dr)
       tclsetintvar("toolbar_visible", save_toolbar_visible);
 
       if(has_x) tclvareval("reconfigure_layers_button {}", NULL);
-      xctx->window = save_xctx[0]->window;
+      /* tabs share the main canvas; a detached window (non-empty top_path) keeps
+       * its own X window (specs/multi_window_detach.md) */
+      if(!xctx->top_path || !xctx->top_path[0]) xctx->window = save_xctx[0]->window;
       if(dr) resetwin(1, 1, 1, 0, 0);
       set_modify(-1); /* sets window title */
       if(dr) draw();
@@ -1782,8 +1784,12 @@ static void create_new_window(int *window_count, const char *win_path, const cha
   load_schematic(1, fname, 1, confirm);
   if(!loaded && (dr & 1) && !(dr & 2) ) xctx->pending_fullzoom=1;
   tclvareval("set_bindings ", window_path[n], NULL);
+  /* carry the user's custom .drw bindings (e.g. cadence_style_rc) into this new
+   * window so its key/mouse shortcuts behave like the main window */
+  tclvareval("clone_canvas_bindings .drw ", window_path[n], NULL);
   if(has_x) {
     tclvareval("set_geom ", toppath, " [xschem get current_name]", NULL);
+    tclvareval("size_new_window ", toppath, NULL); /* tame fullscreen new windows */
   }
   tclvareval("set_replace_key_binding ", window_path[n], NULL);
   tclvareval("save_ctx ", window_path[n], NULL);
@@ -1795,7 +1801,26 @@ static void create_new_window(int *window_count, const char *win_path, const cha
    * new_schematic("switch", prev_window, "", 1);
    */
   tclvareval("housekeeping_ctx", NULL);
-  if(has_x) windowid(toppath);
+  if(has_x) {
+    windowid(toppath);
+    /* bring the new window to the front so it is not lost behind the launcher /
+     * on another monitor (specs/multi_window_detach.md) */
+    tclvareval("wm deiconify ", toppath, "; raise ", toppath, NULL);
+    /* paint now rather than waiting for an Expose event — some window managers
+     * (e.g. WSLg) drop the first Expose, leaving the window blank until the mouse
+     * moves over it. Mirror create_new_tab's draw. */
+    if(dr & 1) {
+      if(xctx->pending_fullzoom) {
+        zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97);
+        xctx->pending_fullzoom = 0;
+      } else {
+        draw();
+      }
+    }
+    /* focus the CANVAS (.xN.drw), not the toplevel frame — the key bindings live on
+     * the canvas, so focusing the frame would swallow CTRL-W/CTRL-Q/f etc. */
+    tclvareval("focus -force ", window_path[n], NULL);
+  }
 }
 
 /* non NULL and not empty noconfirm is used to avoid warning for duplicated filenames */
@@ -1916,6 +1941,77 @@ static void create_new_tab(int *window_count, const char *noconfirm, const char 
   }
   tcleval("tab_queue STORE");
   /* xctx->pending_fullzoom=1; */
+}
+
+/* Detach an existing TAB into its own top-level window. The context (schematic
+ * data) is kept and re-homed: a fresh toplevel + canvas widget is built, the
+ * context's X window is repointed to it, its GCs and pixmap are recreated against
+ * it, and the tab button + tab-queue entry are dropped. Done in the background
+ * (operating on the detached context, restoring the active one) so the active tab
+ * and the main strip are left untouched. specs/multi_window_detach.md. */
+static void detach_tab(int *window_count, const char *win_path)
+{
+  int n;
+  Window win_id = 0LU;
+  char toppath[WINDOW_PATH_SIZE];
+  Xschem_ctx *cur, **save_xctx = get_save_xctx();
+  char *p;
+
+  if(!win_path || !win_path[0]) { dbg(0, "detach_tab(): no window path given\n"); return; }
+  if(!has_x) { dbg(0, "detach_tab(): needs X\n"); return; }
+  if(*window_count == 0) { dbg(0, "detach_tab(): no tabs to detach\n"); return; }
+  n = get_tab_or_window_number(win_path);
+  if(n <= 0) {
+    dbg(0, "detach_tab(): main window or unknown tab cannot be detached: %s\n", win_path);
+    return;
+  }
+  if(!save_xctx[n]) { dbg(0, "detach_tab(): empty slot %d\n", n); return; }
+  if(save_xctx[n]->top_path && save_xctx[n]->top_path[0]) {
+    dbg(0, "detach_tab(): %s is already a window\n", win_path);
+    return;
+  }
+  /* ".x2.drw" -> ".x2" */
+  my_strncpy(toppath, win_path, S(toppath));
+  if((p = strstr(toppath, ".drw"))) *p = '\0';
+
+  /* drop the tab button + main-strip queue entry; the context itself is kept */
+  tclvareval("delete_tab ", win_path, NULL);
+  tclvareval("tab_queue REMOVE ", win_path, NULL);
+
+  /* re-home the detached context without disturbing the active tab */
+  cur = xctx;
+  xctx = save_xctx[n];
+
+  tclvareval("toplevel ", toppath, " -bg {} -width 400 -height 400 -takefocus 0", NULL);
+  tclvareval("build_widgets ", toppath, NULL);
+  tclvareval("pack_widgets ", toppath, NULL);
+  Tk_MakeWindowExist(Tk_NameToWindow(interp, win_path, mainwindow));
+  win_id = Tk_WindowId(Tk_NameToWindow(interp, win_path, mainwindow));
+  Tk_ChangeWindowAttributes(Tk_NameToWindow(interp, win_path, mainwindow), CWBackingStore, &winattr);
+
+  free_gc();                 /* old GCs were bound to the main window */
+  xctx->window = win_id;
+  my_strdup(_ALLOC_ID_, &xctx->top_path, toppath);  /* now its own group */
+  create_gc();
+  enable_layers();
+  build_colors(0.0, 0.0);
+  resetwin(1, 1, 1, 0, 0);   /* recreate pixmap against the new window */
+
+  tclvareval("set_bindings ", win_path, NULL);
+  tclvareval("set_replace_key_binding ", win_path, NULL);
+  /* carry the user's custom .drw bindings into the detached window too */
+  tclvareval("clone_canvas_bindings .drw ", win_path, NULL);
+  tclvareval("set_geom ", toppath, " [xschem get current_name]", NULL);
+  tclvareval("size_new_window ", toppath, NULL); /* tame fullscreen detached windows */
+  set_modify(-1);            /* set the new window's title */
+  tclvareval("save_ctx ", win_path, NULL);
+  windowid(toppath);
+  draw();
+  /* map + raise, then focus the CANVAS (not the toplevel frame) so keys reach it */
+  tclvareval("wm deiconify ", toppath, "; raise ", toppath, NULL);
+  tclvareval("focus -force ", win_path, NULL);
+
+  xctx = cur;                /* restore the active context */
 }
 
 static void destroy_window(int *window_count, const char *win_path)
@@ -2173,6 +2269,23 @@ static void destroy_all_tabs(int *window_count, int force)
   }
 }
 
+/* True if win_path resolves to a context that owns its own top-level window
+ * (non-empty top_path), as opposed to a tab that shares the main canvas. Tabs and
+ * windows now coexist regardless of the global tabbed_interface flag (Phase 0 +
+ * detach), so destroy/switch must route by the TARGET context's kind, not by the
+ * global flag — else a real window gets handled by the tab path (which deletes the
+ * context but never destroys the toplevel → a zombie window).
+ * specs/multi_window_detach.md. */
+static int is_window_context(const char *win_path)
+{
+  int n;
+  Xschem_ctx **save_xctx = get_save_xctx();
+  if(!win_path || !win_path[0]) return 0;
+  n = get_tab_or_window_number(win_path);
+  if(n <= 0) return 0;  /* slot 0 is the main window, handled by the normal paths */
+  return (save_xctx[n] && save_xctx[n]->top_path && save_xctx[n]->top_path[0]) ? 1 : 0;
+}
+
 /* top_path is the path prefix of win_path:
  *
  *  win_path    top_path
@@ -2192,8 +2305,18 @@ int new_schematic(const char *what, const char *win_path, const char *fname, int
     } else {
       create_new_tab(&window_count, win_path, fname, dr);
     }
+  } else if(!strcmp(what, "create_window")) {
+    /* force a real top-level window regardless of tabbed_interface, so a tab and a
+     * detached window can coexist (specs/multi_window_detach.md, Phase 0) */
+    create_new_window(&window_count, win_path, fname, dr);
+  } else if(!strcmp(what, "detach")) {
+    /* tear an existing tab off into its own top-level window
+     * (specs/multi_window_detach.md, detach-first reorder) */
+    detach_tab(&window_count, win_path);
   } else if(!strcmp(what, "destroy")) {
-    if(!tabbed_interface) {
+    /* a real window is always closed by destroy_window (which destroys the
+     * toplevel); only true tabs go to destroy_tab — even in tabbed mode */
+    if(!tabbed_interface || is_window_context(win_path)) {
       destroy_window(&window_count, win_path);
     } else {
       destroy_tab(&window_count, win_path);
@@ -2205,10 +2328,14 @@ int new_schematic(const char *what, const char *win_path, const char *fname, int
       destroy_all_tabs(&window_count, (win_path && win_path[0]) ? 1 : 0);
     }
   } else if(!strcmp(what, "switch")) {
-    if(tabbed_interface) return switch_tab(&window_count, win_path, dr);
+    /* a real window switches like windowed mode (keeps its own X canvas); only pure
+     * tabs use switch_tab (shared canvas). Holds even in tabbed mode so windows and
+     * tabs can coexist (specs/multi_window_detach.md) */
+    if(is_window_context(win_path)) return switch_window(&window_count, win_path, 1);
+    else if(tabbed_interface) return switch_tab(&window_count, win_path, dr);
     else return switch_window(&window_count, win_path, 1);
-  } else if(!strcmp(what, "switch_no_tcl_ctx") && !tabbed_interface) {
-    switch_window(&window_count, win_path, 0);
+  } else if(!strcmp(what, "switch_no_tcl_ctx")) {
+    if(!tabbed_interface || is_window_context(win_path)) switch_window(&window_count, win_path, 0);
   }
   return window_count;
 }
