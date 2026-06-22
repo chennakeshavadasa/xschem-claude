@@ -4374,8 +4374,10 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         if(!strcmp(xctx->sch[xctx->currsch],"") || strstr(xctx->sch[xctx->currsch], "untitled")) {
           saveas(NULL, SCHEMATIC);
         } else {
-          int confirm = !tclgetboolvar("no_ask_save");
-          save(confirm, 0);
+          /* Ctrl-S is an explicit, unambiguous save: just write the file, no
+           * "save file?" confirmation (matches the File>Save menu / `xschem save`,
+           * which already call save(0,...)). */
+          save(0, 0);
         }
       }
 
