@@ -34,18 +34,25 @@ file mkdir $testname/results
 
 set xschem_library_path "../xschem_library"
 
+set cwd [pwd]
+set workroot "$testname/results/.work"
+file mkdir $workroot
+
+# Job records, in walk order.
+# Each: {fn_debug fn_netlist output workdir status cmd}
+set jobs {}
+
 proc netlisting {dir fn} {
-  global xschem_library_path testname pathlist xschem_cmd
+  global xschem_library_path testname xschem_cmd
   if { [regexp {\.sch$} $fn ] } {
     puts "Testing ($testname) $dir/$fn"
     set output_dir $dir
     regsub -all $xschem_library_path $output_dir {} output_dir
     regsub {^/} $output_dir {} output_dir
-    # Spice Netlist
-    run_xschem_netlist vhdl $output_dir $dir $fn
-    run_xschem_netlist v $output_dir $dir $fn
-    run_xschem_netlist tdx $output_dir $dir $fn
-    run_xschem_netlist spice $output_dir $dir $fn
+    plan_xschem_netlist vhdl $output_dir $dir $fn
+    plan_xschem_netlist v $output_dir $dir $fn
+    plan_xschem_netlist tdx $output_dir $dir $fn
+    plan_xschem_netlist spice $output_dir $dir $fn
   }
 }
 
@@ -64,54 +71,63 @@ proc netlisting_dir {dir} {
   }
 }
 
-proc run_xschem_netlist {type output_dir dir fn} {
-  global testname pathlist xschem_cmd num_fatals
-  set cwd [pwd]
+# PLAN one netlist job. Each job netlists into its OWN private -o dir so concurrent
+# jobs never share an output directory (the library has duplicate .sch basenames,
+# and xschem also drops intermediate dotfiles into -o). The finished netlist is
+# moved into the shared results dir later, sequentially, in walk order.
+proc plan_xschem_netlist {type output_dir dir fn} {
+  global testname xschem_cmd cwd workroot jobs
   set fn_debug [join [list $output_dir , [regsub {\.} $fn {_}] "_${type}_debug.txt"] ""]
   regsub {./} $fn_debug {_} fn_debug
   set sch_name [regsub {\.sch} $fn {}]
   set fn_netlist [join [list $sch_name "." $type] ""]
   set output [join [list $cwd / $testname / results / $fn_debug] ""]
-  set netlist_output_dir [join [list $cwd / $testname / results ] ""]
-  puts "Output: $fn_debug"
   set opt s
   if {$type eq "vhdl"} {set opt V}
   if {$type eq "v"} {set opt w}
   if {$type eq "tdx"} {set opt t}
-  set netlist_failed 0 ;# not used here but might be used in the future.
-  set general_failure 0
-
-  cd $dir
-  set catch_status [catch {eval exec {$xschem_cmd $fn -q --nogui -r -$opt -o $netlist_output_dir -n 2> $output}} msg opt]
-  cd $cwd
-  if {$catch_status} {
-    set error_code [dict get $opt -errorcode]
-    # in case of child process error $error_code will be {CHILDSTATUS 11731 10}, second item is processID,
-    # 3rd item is child process exit code. In case of netlisting error xschem exit code is 10
-    if {[regexp {^CHILDSTATUS.* 10$} $error_code]} {
-      set netlist_failed 1
-    } elseif {$error_code ne {NONE}} {
-      set general_failure 1
-    }
-  }
-  if {$general_failure} {
-    puts "FATAL: $xschem_cmd $fn -q --nogui -r -$opt -o $netlist_output_dir -n 2> $output : $msg"
-    incr num_fatals
-  } else {
-    lappend pathlist $fn_debug
-    lappend pathlist $fn_netlist
-    cleanup_debug_file $output
-  }
+  set idx [llength $jobs]
+  set workdir "$cwd/$workroot/$idx.d"
+  set status "$cwd/$workroot/$idx.status"
+  # Private XSCHEM_TMP_DIR per job: xschem's temp/undo/web dirs are named from a
+  # rand() seeded with (16-bit) time(NULL), so processes starting in the same second
+  # generate identical names and collide in a shared /tmp -> create_tmpdir aborts
+  # (exit 1). A private parent dir makes the collision impossible. We reuse this
+  # job's private -o dir; the netlist file we extract has a distinct name.
+  set cmd "mkdir -p '$workdir' && cd '$cwd/$dir' && $xschem_cmd '$fn' -q --nogui -r -$opt -o '$workdir' -n --preinit 'set XSCHEM_TMP_DIR {$workdir}' 2> '$output'; echo \$? > '$status'"
+  lappend jobs [list $fn_debug $fn_netlist $output $workdir $status $cmd]
 }
 
 netlisting_dir $xschem_library_path
-# Intermediate netlisting name (.*) will keep changing, so delete them for easier diff
-set ff [glob -directory "$testname/results" \{.*\}]
-foreach f $ff {
-  if {$f eq "$testname/results/.." || $f eq "$testname/results/."} {
-    continue
+
+# EXECUTE: bounded parallel pool, sized to CPUs-4.
+set njobs [test_njobs]
+puts "Running [llength $jobs] netlisting jobs on $njobs parallel workers"
+set cmds {}
+foreach j $jobs { lappend cmds [lindex $j 5] }
+run_parallel_cmds $cmds $njobs
+
+# COLLATE: sequential, in walk order. Reproduce the original exit-code logic
+# (exit 10 = expected netlist error, ignored; other nonzero = FATAL) and move each
+# finished netlist into the shared results dir last-writer-wins by walk order.
+set results "$cwd/$testname/results"
+set cleanlist {}
+foreach j $jobs {
+  lassign $j fn_debug fn_netlist output workdir status cmd
+  set rc [read_job_status $status]
+  if {$rc != 0 && $rc != 10} {
+    puts "FATAL: $cmd : exit $rc"
+    incr num_fatals
+  } else {
+    if {[file exists "$workdir/$fn_netlist"]} {
+      file rename -force "$workdir/$fn_netlist" "$results/$fn_netlist"
+    }
+    lappend pathlist $fn_debug
+    lappend pathlist $fn_netlist
+    lappend cleanlist $output
   }
-  file delete $f
 }
+cleanup_debug_files $cleanlist $njobs
+file delete -force $workroot
 
 print_results $testname $pathlist $num_fatals

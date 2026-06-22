@@ -28,8 +28,18 @@ set num_fatals 0
 file delete -force $testname/results
 file mkdir $testname/results
 
-proc create_save {} {
-  global testname pathlist xschem_cmd num_fatals
+set cwd [pwd]
+set workroot "$testname/results/.work"
+file mkdir $workroot
+
+# Job records, in walk order. Each: {output fn_sch status cmd}
+# (output/fn_sch are paths relative to results_dir, for cleanup + pathlist)
+set jobs {}
+
+# PLAN: write each seed .sch (cheap, sequential) and build the xschem command.
+# These jobs use distinct file names and no `cd`, so they're trivially parallel-safe.
+proc create_save_plan {} {
+  global testname xschem_cmd cwd workroot jobs
   set results_dir ${testname}/results
   if {[file exists ${testname}/tests]} {
     set ff [lsort [glob -directory ${testname}/tests -tails \{.*,*\}]]
@@ -47,20 +57,45 @@ proc create_save {} {
           close $fd
           set filename [regsub {\.tcl$} $f {}]
           set output ${filename}_debug.txt
-          if {[catch {eval exec {$xschem_cmd ${results_dir}/$fn_sch --nogui --pipe -d 1 --script ${testname}/tests/${f} 2> ${results_dir}/$output}} msg]} {
-            puts "FATAL: $msg"
-            incr num_fatals
-          } else {
-            lappend pathlist $output
-            lappend pathlist "${filename}.sch"
-            cleanup_debug_file ${results_dir}/$output
-            cleanup_debug_file ${results_dir}/$fn_sch
-          }
+          set idx [llength $jobs]
+          set status "$cwd/$workroot/$idx.status"
+          # Private XSCHEM_TMP_DIR per job (see open_close.tcl / the design note in
+          # claude_suggs/parallel_regression_tests.md) to avoid same-second tmp-dir
+          # name collisions between sibling xschem processes.
+          set tmpdir "$cwd/$workroot/$idx.tmp"
+          set cmd "mkdir -p '$tmpdir' && $xschem_cmd '$cwd/$results_dir/$fn_sch' --nogui --pipe -d 1 --script '$cwd/$testname/tests/$f' --preinit 'set XSCHEM_TMP_DIR {$tmpdir}' 2> '$cwd/$results_dir/$output'; echo \$? > '$status'"
+          lappend jobs [list $output $fn_sch $status $cmd]
         }
       }
     }
   }
 }
 
-create_save
+create_save_plan
+
+# EXECUTE: bounded parallel pool, sized to CPUs-4.
+set njobs [test_njobs]
+puts "Running [llength $jobs] create_save jobs on $njobs parallel workers"
+set cmds {}
+foreach j $jobs { lappend cmds [lindex $j 3] }
+run_parallel_cmds $cmds $njobs
+
+# COLLATE: sequential, in walk order, reproducing the original pass/FATAL logic.
+set results_dir ${testname}/results
+set cleanlist {}
+foreach j $jobs {
+  lassign $j output fn_sch status cmd
+  set rc [read_job_status $status]
+  if {$rc != 0} {
+    puts "FATAL: $cmd : exit $rc"
+    incr num_fatals
+  } else {
+    lappend pathlist $output
+    lappend pathlist [regsub {_debug.txt$} $output {}].sch
+    lappend cleanlist ${results_dir}/$output
+    lappend cleanlist ${results_dir}/$fn_sch
+  }
+}
+cleanup_debug_files $cleanlist $njobs
+file delete -force $workroot
 print_results $testname $pathlist $num_fatals

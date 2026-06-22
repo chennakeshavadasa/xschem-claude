@@ -43,6 +43,35 @@ earlier, logically-scoped commits are cheap checkpoints.
 The git-identity prompt and sandbox push failures recurred. A new user can set up
 `settings.json` (command allowlists, env) once to smooth this.
 
+### 7. Leaked background shells from self-matching `pgrep` wait loops
+While parallelizing the regression tests, several long jobs were launched with
+`run_in_background`, then *polled* from separate background shells like
+`while pgrep -f "tclsh open_close.tcl" >/dev/null; do sleep 2; done`. Three of those
+watcher shells were still alive long after the work finished — spinning forever,
+waking every 1–3 s to `sleep` again. A first "any zombies / lingering processes?"
+check missed them because they were neither zombies (state `S`, sleeping) nor matched
+by an `xschem|tclsh|xargs` filter — the *real* tclsh/xschem had exited; only the
+*watchers* remained.
+
+Two compounding mistakes, both worth internalizing:
+
+- **A `pgrep -f <pattern>` wait loop matches itself.** Each watcher shell's own
+  command line literally contains the string `tclsh open_close.tcl`, so `pgrep` kept
+  finding a "match" (itself and its sibling watchers) and the loop condition never went
+  false. Same shape as the bug we'd just fixed in the tests (a process racing on a
+  shared namespace). Fix: exclude self (`pgrep -f pat | grep -v $$`), match on a PID,
+  or — best — `wait` on a known child PID instead of pattern-polling.
+- **The polling was unnecessary in the first place.** The harness already fires a
+  `<task-notification>` when a tracked background task completes; hand-rolled
+  busy-wait shells are redundant *and* leak-prone. Don't poll for harness-tracked work
+  — let the completion event re-invoke you.
+
+The cleanup: `kill` the three watcher PIDs (they died with SIGTERM, exit 144). Verify
+with a *positive* check afterwards (`ps -p <pids>` shows "all gone"), not just a
+filtered `pgrep`. **Generalize:** when you spawn background helpers, you own their
+teardown — audit `ps` for your own leaked shells at the end of a session, and prefer
+event-driven waits over pattern-matching `pgrep`/`sleep` loops.
+
 ## What was done right (so the feedback is calibrated)
 - **Insisted on verification** — accepted "prove it" over "trust me" from the
   start. The single most important habit.
@@ -65,4 +94,7 @@ a warm-up.
 - [ ] Commit small and early; don't accumulate untracked piles.
 - [ ] Pause on irreversible/public actions; reconcile them with stated constraints.
 - [ ] Configure `settings.json` once to kill recurring friction.
+- [ ] Don't pattern-poll for background work — rely on the harness completion event;
+      if you must wait, `wait` on a PID and never let a `pgrep` loop match itself.
+- [ ] Audit `ps` for your own leaked background shells before ending a session.
 - [ ] Keep verification and decision-capture (already strong — keep doing it).

@@ -34,29 +34,35 @@ file mkdir $testname/results
 
 set xschem_library_path "../xschem_library"
 
+set cwd [pwd]
+set workroot "$testname/results/.work"
+file mkdir $workroot
+
+# Job records, in walk order. Each: {fn_debug output_path status cmd}
+set jobs {}
+
+# PLAN: walk the library exactly as before and build a self-contained shell
+# command per file. The command does its own `cd` (isolated to the child sh) and
+# records its exit code, so nothing here mutates the interpreter's cwd.
 proc open_close {dir fn} {
-  global xschem_library_path testname pathlist xschem_cmd
-  set fpath "$dir/$fn"
+  global xschem_library_path testname xschem_cmd cwd workroot jobs
   if { [regexp {\.(sym|sch)$} $fn ] } {
-    puts "Testing (open_close) $fpath"
+    puts "Testing (open_close) $dir/$fn"
     set output_dir $dir
     regsub -all $xschem_library_path $output_dir {} output_dir
     regsub {^/} $output_dir {} output_dir
     regsub {/} $output_dir {,} output_dir
     set fn_debug [join [list $output_dir , [regsub {\.} $fn {_}] "_debug.txt"] ""]
     set output [join [list $testname / results / $fn_debug] ""]
-    puts "Output: $fn_debug"
-    set cwd [pwd]
-    cd $dir
-    set catch_status [catch {eval exec {$xschem_cmd $fn -q --nogui -r -d 1 2> $cwd/$output}} msg]
-    cd $cwd
-    if {$catch_status} {
-      puts "FATAL: $xschem_cmd $fn -q --nogui -r -d 1 2> $cwd/$output : $msg"
-      incr num_fatals
-    } else {
-      lappend pathlist $fn_debug
-      cleanup_debug_file $output
-    }
+    set idx [llength $jobs]
+    set status "$cwd/$workroot/$idx.status"
+    # Private XSCHEM_TMP_DIR per job: xschem creates a temp/undo dir on load whose
+    # name comes from rand() seeded with 16-bit time(NULL); same-second sibling
+    # processes generate the same name and collide in a shared /tmp. A private parent
+    # dir makes that impossible. See claude_suggs/parallel_regression_tests.md.
+    set tmpdir "$cwd/$workroot/$idx.tmp"
+    set cmd "mkdir -p '$tmpdir' && cd '$cwd/$dir' && $xschem_cmd '$fn' -q --nogui -r -d 1 --preinit 'set XSCHEM_TMP_DIR {$tmpdir}' 2> '$cwd/$output'; echo \$? > '$status'"
+    lappend jobs [list $fn_debug "$cwd/$output" $status $cmd]
   }
 }
 
@@ -76,4 +82,28 @@ proc open_close_dir {dir} {
 }
 
 open_close_dir $xschem_library_path
+
+# EXECUTE: bounded parallel pool, sized to CPUs-4.
+set njobs [test_njobs]
+puts "Running [llength $jobs] open_close jobs on $njobs parallel workers"
+set cmds {}
+foreach j $jobs { lappend cmds [lindex $j 3] }
+run_parallel_cmds $cmds $njobs
+
+# COLLATE: sequential, in walk order, reproducing the original pass/FATAL logic.
+# Defer the awk cleanup into one batched-parallel pass (see cleanup_debug_files).
+set cleanlist {}
+foreach j $jobs {
+  lassign $j fn_debug output status cmd
+  set rc [read_job_status $status]
+  if {$rc != 0} {
+    puts "FATAL: $cmd : exit $rc"
+    incr num_fatals
+  } else {
+    lappend pathlist $fn_debug
+    lappend cleanlist $output
+  }
+}
+cleanup_debug_files $cleanlist $njobs
+file delete -force $workroot
 print_results $testname $pathlist $num_fatals
