@@ -6595,24 +6595,34 @@ proc ask_symbol_view {schpath} {
   pack .symview.f.vl .symview.f.ve -side left -padx 4
   label .symview.hint -text {} -fg gray40 -pady 2
   frame .symview.b -pady 8
-  # action buttons; refreshed as the view name changes
+  # action buttons; refreshed as the view name changes. When the view exists the
+  # primary button becomes Replace and a Modify button (add missing pins, keep
+  # artwork) is enabled; otherwise the primary button is Create and Modify is off.
   button .symview.b.ok -width 10 -padx 8 -pady 4
+  button .symview.b.modify -text Modify -width 10 -padx 8 -pady 4
   button .symview.b.cancel -text Cancel -width 10 -padx 8 -pady 4 \
     -command {set tctx::svr {}; destroy .symview}
-  pack .symview.b.ok .symview.b.cancel -side left -padx 6
+  pack .symview.b.ok .symview.b.modify .symview.b.cancel -side left -padx 6
   pack .symview.l .symview.f .symview.hint .symview.b -side top -fill x
   proc symview_refresh {existing} {
     set v [string trim [.symview.f.ve get]]
-    if {$v eq {}} { .symview.b.ok configure -state disabled; return }
+    if {$v eq {}} {
+      .symview.b.ok configure -state disabled
+      .symview.b.modify configure -state disabled
+      return
+    }
     .symview.b.ok configure -state normal
     if {[lsearch -exact $existing $v] >= 0} {
-      .symview.hint configure -text "View \"$v\" exists — it will be replaced."
+      .symview.hint configure -text "View \"$v\" exists — Replace regenerates it; Modify adds only missing pins."
       .symview.b.ok configure -text Replace \
         -command "set tctx::svr \[list $v replace\]; destroy .symview"
+      .symview.b.modify configure -state normal \
+        -command "set tctx::svr \[list $v modify\]; destroy .symview"
     } else {
       .symview.hint configure -text "View \"$v\" will be created."
       .symview.b.ok configure -text Create \
         -command "set tctx::svr \[list $v create\]; destroy .symview"
+      .symview.b.modify configure -state disabled
     }
   }
   bind .symview.f.ve <KeyRelease> [list symview_refresh $existing]
@@ -6624,6 +6634,69 @@ proc ask_symbol_view {schpath} {
   grab set .symview
   tkwait window .symview
   return $tctx::svr
+}
+
+# Modify mode: add to the EXISTING symbol $sympath ONLY the pins present in $schpath
+# but missing from the symbol. Existing artwork and pins are left untouched (records
+# are appended, never rewritten); new inputs go on the left column, new outputs/inouts
+# on the right, stacked below the existing pins. The symbol box is NOT resized -- a
+# new pin may sit below it, by design. specs/create_symbol_view.md
+proc modify_symbol_pins {schpath sympath} {
+  global XSCHEM_SHAREDIR symbol_width
+  if {![file exists $sympath]} { return [make_symbol $schpath yes] } ;# nothing to merge into
+
+  # 1. existing pins (names) + column x per side + bottommost pin y
+  set fp [open $sympath r]; set symtext [read $fp]; close $fp
+  array set have {}
+  set lx -150; set rx 150; set maxy {}
+  foreach ln [split $symtext \n] {
+    if {[regexp {^B 5 +([-0-9.]+) +([-0-9.]+) +([-0-9.]+) +([-0-9.]+) +\{(.*)\}$} $ln -> x1 y1 x2 y2 props]} {
+      if {![regexp {name=([^ \}]+)} $props -> pname]} continue
+      if {![regexp {dir=([^ \}]+)} $props -> pdir]}  continue
+      set have($pname) 1
+      set cx [expr {($x1+$x2)/2.0}]; set cy [expr {($y1+$y2)/2.0}]
+      if {$pdir eq {in}} { set lx $cx } else { set rx $cx }
+      if {$maxy eq {} || $cy > $maxy} { set maxy $cy }
+    }
+  }
+  if {$maxy eq {}} { set maxy 0 }
+
+  # 2. the full pin set, in schematic order, from a throwaway temp symbol
+  set tmp [file join [file dirname $sympath] ".__modtmp__[pid].sym"]
+  catch {file delete -force $tmp}
+  eval exec {awk -v outsym=$tmp -f ${XSCHEM_SHAREDIR}/make_sym.awk $symbol_width [abs_sym_path $schpath]}
+  set order {}
+  set fp [open $tmp r]
+  foreach ln [split [read $fp] \n] {
+    if {[regexp {^B 5 .*name=([^ \}]+) +[^\}]*dir=([^ \}]+)} $ln -> pname pdir]} {
+      lappend order [list $pname $pdir]
+    }
+  }
+  close $fp
+  catch {file delete -force $tmp}
+
+  # 3. append the missing pins (B box + L stub + T label), matching the canonical style
+  set ni 0; set no 0; set add {}
+  foreach pd $order {
+    lassign $pd pname pdir
+    if {[info exists have($pname)]} continue
+    if {$pdir eq {in}} {
+      set x $lx; incr ni; set y [expr {$maxy + 20*$ni}]
+      lappend add [format {B 5 %g %g %g %g {name=%s dir=%s}} [expr {$x-2.5}] [expr {$y-2.5}] [expr {$x+2.5}] [expr {$y+2.5}] $pname $pdir]
+      lappend add [format {L 4 %g %g %g %g {}} $x $y [expr {$x+20}] $y]
+      lappend add [format "T {%s} %g %g 0 0 0.2 0.2 {}" $pname [expr {$x+25}] [expr {$y-4}]]
+    } else {
+      set x $rx; incr no; set y [expr {$maxy + 20*$no}]
+      lappend add [format {B 5 %g %g %g %g {name=%s dir=%s}} [expr {$x-2.5}] [expr {$y-2.5}] [expr {$x+2.5}] [expr {$y+2.5}] $pname $pdir]
+      lappend add [format {L 4 %g %g %g %g {}} [expr {$x-20}] $y $x $y]
+      lappend add [format "T {%s} %g %g 0 1 0.2 0.2 {}" $pname [expr {$x-25}] [expr {$y-4}]]
+    }
+  }
+  if {[llength $add] == 0} { return $sympath } ;# nothing missing -> symbol untouched
+  set fp [open $sympath a]
+  foreach rec $add { puts $fp $rec }
+  close $fp
+  return $sympath
 }
 
 proc make_symbol_lcc {name} {

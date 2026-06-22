@@ -57,4 +57,14 @@ set ::sv_return {}
 make_symbol_dialog $work/nlib/amp2/schematic/amp2.sch
 check "cancel: no symbol created" [expr {![file exists $work/nlib/amp2/symbol/amp2.sym]}]
 
+# --- modify routing: schematic gains a pin; {view modify} adds only it ---
+# amp/symbol/amp.sym already exists (2 pins). Add a 3rd pin to the schematic.
+set fp [open $work/nlib/amp/schematic/amp.sch a]
+puts $fp "C {ipin.sym} 0 40 0 0 {name=p3 lab=EN}"
+close $fp
+proc sym_pins {f} { set n 0; set fp [open $f]; foreach l [split [read $fp] \n] { if {[regexp {^B 5 .*dir=} $l]} {incr n} }; close $fp; return $n }
+set ::sv_return {symbol modify}
+make_symbol_dialog $work/nlib/amp/schematic/amp.sch
+check "modify: routed to add the new pin EN (3 pins now)" [expr {[sym_pins $work/nlib/amp/symbol/amp.sym] == 3}]
+
 result
