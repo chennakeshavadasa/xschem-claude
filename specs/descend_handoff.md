@@ -52,9 +52,18 @@
 > Ctrl-W=`close_schematic_window`, Ctrl-Q=`quit_xschem` (force only if sole window).
 > Logic tested headless (test_hier_walkup); DIALOG APPEARANCE + live GUI close are
 > has_x-gated → NEED USER EYEBALL.
-> Next: finish B9 (USER eyeball of the close/quit walk-up + dialog sizing; tabs
-> interaction; leak audit `xschemtest -d 3`). Possible polish: multi-window quit
-> only walks up the CURRENT window (others get a single hierarchy_modified prompt).
+> B9 status: close/quit walk-up + dialog sizing USER-EYEBALLED & APPROVED ("perfect").
+> Leak/edge audit DONE: 60-iter stress loop of descend/edit/go_back-walk-up/recovery
+> ran clean (no crash/double-free/corruption); differential -d3 alloc check shows
+> load_backup_as allocates/frees like a normal load (no new leak); hierarchy_modified
+> allocates nothing; go_back refactor removed code. Deep 3-level hierarchy covered by
+> test_hier_walkup + the stress loop. The full backing-file descend feature (B1-B9)
+> is FUNCTIONALLY COMPLETE.
+> Remaining (optional / out of scope of this feature): deeper multi-window/tab eyeball
+> (single-window approved; multi-window quit only walks up the CURRENT window, others
+> get a single hierarchy_modified prompt); a PRE-EXISTING ~25-alloc/load net growth
+> (seen in bare `xschem load` too, not introduced here) deserves a separate look with
+> valgrind (not installed in this env).
 
 ## (HISTORY — superseded) Where things stood with the in-memory design
 
