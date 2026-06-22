@@ -6515,19 +6515,33 @@ proc create_symbol {name {in {}} {out {}} {inout {}}} {
   return 1
 }
 
-proc make_symbol {name {ask {no}} } {
+# Target .sym path for a schematic's symbol view. In an OA/nested library the symbol
+# is the cell's <view> view: <libpath>/<cell>/<view>/<cell>.sym (view defaults to
+# "symbol"). In a flat/unregistered layout it is the legacy same-dir <cell>.sym.
+# specs/create_symbol_view.md
+proc symbol_view_path {schpath {view symbol}} {
+  set cv [schematic_cellview $schpath]
+  if {$cv ne {} && [lindex $cv 3] eq {nested}} {
+    set lib [lindex $cv 0]; set cell [lindex $cv 1]
+    return [file join [library_resolve $lib] $cell $view "$cell.sym"]
+  }
+  return [file rootname $schpath].sym
+}
+
+proc make_symbol {name {ask {no}} {view symbol}} {
   global XSCHEM_SHAREDIR symbol_width
   set name [abs_sym_path $name ]
-  set symname [abs_sym_path $name .sym]
+  set symname [symbol_view_path $name $view]
   if { $ask eq {no} && [file exists $symname] } {
     set answer [tk_messageBox -message "Warning: symbol $symname already exists. Overwrite?" \
         -icon warning -parent [xschem get topwindow] -type okcancel]
     if {$answer ne {ok}} { return {}}
 
   }
-  # puts "make_symbol{}, executing: ${XSCHEM_SHAREDIR}/make_sym.awk $symbol_width ${name}"
-  eval exec {awk -f ${XSCHEM_SHAREDIR}/make_sym.awk $symbol_width $name}
-  return {}
+  file mkdir [file dirname $symname]   ;# ensure the (possibly new) view dir exists
+  # puts "make_symbol{}, executing: ${XSCHEM_SHAREDIR}/make_sym.awk $symbol_width ${name} -> $symname"
+  eval exec {awk -v outsym=$symname -f ${XSCHEM_SHAREDIR}/make_sym.awk $symbol_width $name}
+  return $symname
 }
 
 proc make_symbol_lcc {name} {
