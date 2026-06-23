@@ -2635,6 +2635,47 @@ static int act_toggle_show_netlist(const ActionEvent *e) { (void)e; toggle_show_
 static int act_toggle_orthogonal_wiring(const ActionEvent *e) { (void)e; toggle_orthogonal_wiring_cmd(); return 1; }
 static int act_toggle_draw_pixmap(const ActionEvent *e) { (void)e; toggle_draw_pixmap_cmd(); return 1; }
 
+/* "Highlight net and send to waveform viewer" — verbatim body of the old Alt-g
+ * (EQUAL_MODMASK) branch of the hardcoded case 'g' (specs/keybind_snap_grid_actions.md).
+ * No-op while busy: returns 0 so the dispatch falls through exactly as the old `break`. */
+static int act_highlight_send_waveform(const ActionEvent *e)
+{
+  char str[PATH_MAX + 100];
+  int tool = 0;
+  int exists = 0;
+  char *tool_name = NULL;
+  (void)e;
+
+  if(xctx->semaphore >= 2) return 0;
+  tcleval("winfo exists .graphdialog");
+  if(tclresult()[0] == '1') tool = XSCHEM_GRAPH;
+  else if(xctx->graph_lastsel >=0 &&
+      xctx->rects[GRIDLAYER] > xctx->graph_lastsel &&
+      xctx->rect[GRIDLAYER][xctx->graph_lastsel].flags & 1) {
+    tool = XSCHEM_GRAPH;
+  }
+  tcleval("info exists sim");
+  if(tclresult()[0] == '1') exists = 1;
+  xctx->enable_drill = 0;
+  if(exists) {
+    if(!tool) {
+      tool = tclgetintvar("sim(spicewave,default)");
+      my_snprintf(str, S(str), "sim(spicewave,%d,name)", tool);
+      my_strdup(_ALLOC_ID_, &tool_name, tclgetvar(str));
+      dbg(1,"act_highlight_send_waveform(): tool_name=%s\n", tool_name);
+      if(strstr(tool_name, "Gaw")) tool=GAW;
+      else if(strstr(tool_name, "Bespice")) tool=BESPICE;
+      my_free(_ALLOC_ID_, &tool_name);
+    }
+  }
+  if(tool) {
+    hilight_net(tool);
+    redraw_hilights(0);
+  }
+  Tcl_ResetResult(interp);
+  return 1;
+}
+
 /* --- action registry: stable id -> behavior --- */
 /* An action is backed by EITHER a C function (fn) OR a Tcl command (tcl); exactly
  * one is non-NULL. Tcl-backing (Phase 3d) lets the ~60 tcleval keysym branches
@@ -2711,6 +2752,16 @@ static ActionDef action_registry[] = {
   { "sym.list.print_list_of_highlight_nets",    NULL, "xschem print_hilight_net 1", "Print list of highlight nets" },
   { "sym.list.create_pins_from_highlight_nets", NULL, "xschem print_hilight_net 0", "Create pins from highlight nets" },
   { "sym.list.create_labels_from_highlight_nets", NULL, "xschem print_hilight_net 4", "Create labels from highlight nets" },
+  /* keybind_snap_grid_actions: snap / grid / highlight ops made bindable; they ship
+   * UNBOUND (no default chord) — the user binds them via `xschem bind` / their rc.
+   * Two Tcl-backed (reuse the View/Options menu commands), one C-backed (sim-tool
+   * detection). specs/keybind_snap_grid_actions.md. */
+  { "view.set_snap_value", NULL,
+    "input_line {Enter snap value (float):} {xschem set cadsnap} $cadsnap", "Set snap value (dialog)" },
+  { "view.toggle_draw_grid", NULL,
+    "set draw_grid [expr {!$draw_grid}]; xschem redraw", "Toggle grid display" },
+  { "hilight.send_to_waveform", act_highlight_send_waveform, NULL,
+    "Highlight net and send to waveform viewer" },
 };
 static const int num_action_defs = (int)(sizeof(action_registry)/sizeof(action_registry[0]));
 
