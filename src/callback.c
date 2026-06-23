@@ -2332,7 +2332,8 @@ static const char *ctxmenu_log_cmd[] = {
   "xschem delete",               /* 18  delete selection                   */
   NULL,                          /* 19  place arc         -> Layer C       */
   NULL,                          /* 20  place circle      -> Layer C       */
-  NULL                           /* 21  abort (no replayable effect)       */
+  NULL,                          /* 21  abort (no replayable effect)       */
+  "# context-menu: descend to schematic (edit) (not replayable: needs object reference, issue 0005)" /* 22 */
 };
 
 static void context_menu_action(double mx, double my)
@@ -2413,6 +2414,12 @@ static void context_menu_action(double mx, double my)
       break;
     case 12:
       descend_schematic(0, 1, 1, 1);
+      break;
+    case 22: /* descend schematic, then force editable (overrides descend_readonly) */
+      if(descend_schematic(0, 1, 1, 1)) {
+        xctx->readonly = 0;
+        set_modify(-1); /* refresh title: clear the read-only marker */
+      }
       break;
     case 13:
       descend_symbol();

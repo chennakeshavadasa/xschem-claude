@@ -54,9 +54,35 @@ proc cadence::open_inst_sch_readonly {} {
 }
 
 # Ctrl-X: descend into selected instance's schematic; no-op if no instance selected.
+# With descend_readonly set (the cadence default) this opens the child read-only.
 proc cadence::descend_into_inst {} {
   if {![cadence::one_instance_selected]} { return }
   xschem descend
+}
+
+# "Descend schematic (edit)": descend, then force the child editable regardless of
+# the read-only-by-default. Used by the canvas context menu and bindable to a key.
+proc cadence::descend_into_inst_edit {} {
+  if {![cadence::one_instance_selected]} { return }
+  xschem descend
+  cadence::make_editable
+}
+
+# Ctrl-2 / Ctrl-Shift-2: flip the CURRENT view's edit mode (Cadence "Make Editable"
+# / "Make Read Only"). A read-only view becomes editable even if its file is
+# write-protected (in-memory edits; saving may still be blocked). The action is
+# logged so it replays, and echoed to the CIW.
+proc cadence::make_editable {} {
+  if {![xschem get readonly]} { ciw_echo "[xschem get current_name]: already editable" ; return }
+  xschem set readonly 0
+  xschem log_action "xschem set readonly 0"
+  ciw_echo "[xschem get current_name]: now EDITABLE"
+}
+proc cadence::make_readonly {} {
+  if {[xschem get readonly]} { ciw_echo "[xschem get current_name]: already read-only" ; return }
+  xschem set readonly 1
+  xschem log_action "xschem set readonly 1"
+  ciw_echo "[xschem get current_name]: now READ-ONLY"
 }
 
 # Alt-E: return to top (with save warnings) and remember where we were.

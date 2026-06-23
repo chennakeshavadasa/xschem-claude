@@ -9534,6 +9534,13 @@ proc context_menu { } {
     button .ctxmenu.b12 -text {Descend schematic} -padx 3 -pady 0 -anchor w -activebackground grey50 \
      -bg {#d9d9d9} -fg black -activeforeground black -image CtxmenuDown -compound left \
       -font [subst $font] -command {set tctx::retval 12; destroy .ctxmenu}
+    # "Descend schematic (edit)" descends and forces the child editable. Shown only
+    # when descend defaults to read-only (browse mode), where it is the way to edit.
+    if {[info exists ::descend_readonly] && $::descend_readonly} {
+      button .ctxmenu.b22 -text {Descend schematic (edit)} -padx 3 -pady 0 -anchor w -activebackground grey50 \
+       -bg {#d9d9d9} -fg black -activeforeground black -image CtxmenuDown -compound left \
+        -font [subst $font] -command {set tctx::retval 22; destroy .ctxmenu}
+    }
     button .ctxmenu.b13 -text {Descend symbol} -padx 3 -pady 0 -anchor w -activebackground grey50 \
      -bg {#d9d9d9} -fg black -activeforeground black -image CtxmenuDownSym -compound left \
       -font [subst $font] -command {set tctx::retval 13; destroy .ctxmenu}
@@ -9607,7 +9614,9 @@ proc context_menu { } {
   }
   pack .ctxmenu.b10 .ctxmenu.b11 -fill x -expand true
   if {$selection} {
-    pack .ctxmenu.b12 .ctxmenu.b13 .ctxmenu.b18 -fill x -expand true
+    pack .ctxmenu.b12 -fill x -expand true
+    if {[winfo exists .ctxmenu.b22]} { pack .ctxmenu.b22 -fill x -expand true }
+    pack .ctxmenu.b13 .ctxmenu.b18 -fill x -expand true
     pack .ctxmenu.b22 .ctxmenu.b23 -fill x -expand true
     pack .ctxmenu.b24 .ctxmenu.b25 -fill x -expand true
   }
@@ -12434,6 +12443,11 @@ set_ne undo_type disk
 
 ## show tab bar (tabbed interface)
 set_ne tabbed_interface 1
+
+## descend into a schematic in read-only (browse) mode by default. 0 = normal
+## editable descend (default). cadence_style_rc sets it to 1. Read in
+## descend_schematic() (actions.c).
+set_ne descend_readonly 0
 
 ## File->Open will open in a new window/tab instead of replacing content in current one
 ## if enabled.

@@ -2701,6 +2701,16 @@ int descend_schematic(int instnumber, int fallback, int alert, int set_title)
        }
      }
    }
+   /* Cadence-style browse mode: a descended schematic opens READ-ONLY by default.
+    * Off by default (descend_readonly=0 -> normal editable descend, unchanged);
+    * cadence_style_rc turns it on. Only the descended level is forced: ascending
+    * (go_back) reloads the parent via load_schematic, which restores the parent's
+    * own writability. Edit it with Ctrl-2 / View > Toggle Read Only / the
+    * "Descend schematic (edit)" context-menu item. */
+   if(descend_ok && tclgetboolvar("descend_readonly")) {
+     xctx->readonly = 1;
+     set_modify(-1); /* refresh window title to show the read-only marker */
+   }
    zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97);
  }
  return descend_ok;
