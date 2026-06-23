@@ -14,6 +14,76 @@ Newest entries on top.
 
 ---
 
+## Q17. What is CTRL-G bound to currently, and what would it take to use it to toggle grid display ON/OFF?
+
+- **Asked:** 2026-06-23
+- **Project state:** branch `fluid-editing` @ `2919e381` (just after the 8
+  code-review fixes, issues 0019–0026). The relevant substrate is the
+  action-registry binding table (`feature/action-registry`): data-driven
+  `ActionDef` table, `xschem bind/unbind/bindings`, context-aware dispatch —
+  the migration from hardcoded C `case` keys to the table is **partial**.
+
+**CTRL-G currently *sets the snap value*** — it pops an `input_line` dialog
+("Enter snap value…") and applies it via `xschem set cadsnap`. It is a
+**hardcoded C branch** (`callback.c:3884`, `case 'g':` → `if(rstate==ControlMask)`),
+**not** in the data-driven table. For context, the other `g` chords are:
+
+| Chord | Does | Where |
+|---|---|---|
+| `g` | halve snap factor | `view.snap_half` (table; `keybindings.csv:32`, `act_snap_half` `callback.c:2602`) |
+| `Shift-g` (`G`) | double snap factor | `view.snap_double` (table; `keybindings.csv:33`) |
+| `Ctrl-g` | **set snap value (dialog)** | hardcoded `callback.c:3884` |
+| `Alt-g` | highlight net → waveform viewer | hardcoded `callback.c:3890` |
+
+**Grid toggling today** flips the Tcl var `draw_grid` and redraws. It is reachable
+two ways, both hardcoded / not an action:
+- the `%` key — `callback.c:4708` `case '%'`;
+- Options menu **"Draw grid"** checkbutton (`xschem.tcl:11341`, `-variable draw_grid`,
+  `-command {xschem redraw}`, accelerator `%`).
+
+There is **no `view.toggle_draw_grid` action** in the registry yet.
+
+**Key precedence fact.** The binding table is consulted **first**: `handle_key_press`
+calls `dispatch_input_action()` at `callback.c:3601` and `return`s early on a match —
+so a table entry for Ctrl-g will *shadow* the hardcoded "set snap value" case
+automatically (that numeric-snap function then loses its Ctrl-g access; plain `g`/`G`
+snap still work). Actions can be **C-backed** (`d->fn`) or **Tcl-backed** (`d->tcl`,
+`dispatch_input_action` `callback.c:2994`), which decides whether a change needs a
+recompile.
+
+**Three tiers to make Ctrl-G toggle the grid:**
+
+**Tier A — rc one-liner, no recompile (fastest).** A more-specific Tk binding pre-empts
+the generic `<KeyPress>`→C dispatch (same trick as the command palette's
+`<Control-Shift-Key-P>`). Add to `cadence_style_rc` / xschemrc:
+```tcl
+bind .drw <Control-Key-g> {set draw_grid [expr {!$draw_grid}]; xschem redraw; break}
+```
+Propagates to new/detached windows automatically (issue 0020's `clone_canvas_bindings`
+fix). Downsides: bypasses the action log and the keybindings table.
+
+**Tier B — data-driven action, the "right" way (needs a rebuild).** Matches the
+codebase's migration direction and gives action-log + CSV-remap for free:
+1. In `callback.c`, lift the `case '%'` body into `toggle_draw_grid_cmd()` + an
+   `act_toggle_draw_grid` wrapper, and register
+   `{ "view.toggle_draw_grid", act_toggle_draw_grid, NULL, "Toggle grid display" }`
+   in the `ActionDef` table (next to `view.toggle_draw_pixmap`, `callback.c:2694`).
+2. Bind the chord — either a default in `init_input_bindings`
+   (`set_input_binding(DEV_KEY, 'g', ControlMask, ACTX_CANVAS, "view.toggle_draw_grid");`,
+   mirroring `callback.c:2848`) or a CSV row `key,103,ctrl,canvas,view.toggle_draw_grid`.
+3. Decide where "set snap value" goes: it's auto-shadowed by the table-first dispatch,
+   so either migrate it to its own action + chord, or accept dropping it.
+4. (Optional cleanup) point `%` at the same action and delete the dead `case '%'`.
+
+**Tier C — minimal C hack.** Change the `case 'g'` `ControlMask` branch body to toggle
+the grid. Quick, but fights the migration and silently drops set-snap.
+
+**Recommendation:** Tier B — ~25 lines, keeps the architecture consistent, and makes the
+chord remappable from `keybindings.csv` / `xschem bind` without further code. Tier A is
+the instant no-recompile fallback.
+
+---
+
 ## Q16. After the wire-prop-preservation fix (`06b08e61`), what difference will a user actually notice?
 
 - **Asked:** 2026-06-19
