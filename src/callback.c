@@ -26,6 +26,25 @@
 #define SET_MODMASK ( (rstate & Mod1Mask) || (rstate & Mod4Mask) )
 #define EQUAL_MODMASK ( (rstate == Mod1Mask) || (rstate == Mod4Mask) )
 
+/* Read-only guard. If the current window is marked read-only (xctx->readonly,
+ * which is per-window), warn the user with a modal dialog and return 1 so the
+ * caller aborts the edit; return 0 when editing is allowed. Only object-mutating
+ * actions call this -- navigation, zoom/pan, selection, highlight, descend,
+ * netlisting, view-attributes and exports stay allowed. Clear read-only from
+ * Edit > Make Editable (or the descend (edit) context item / Ctrl-2). */
+static int readonly_block(void)
+{
+  if(!xctx || !xctx->readonly) return 0;
+  if(has_x) {
+    tcleval("tk_messageBox -type ok -icon info -parent [xschem get topwindow] "
+            "-title {Read-only view} "
+            "-message {View is Read Only.\n\nUse Edit > Make Editable to enable editing.}");
+  } else {
+    dbg(0, "readonly_block(): view is read-only, edit ignored\n");
+  }
+  return 1;
+}
+
 static int waves_selected(int event, KeySym key, int state, int button)
 {
   int rstate; /* state without ShiftMask */
@@ -203,6 +222,7 @@ void abort_operation(void)
 
 static void start_place_symbol(void)
 {
+    if(readonly_block()) return;
     xctx->last_command = 0;
     rebuild_selected_array();
     if(xctx->lastsel && xctx->sel_array[0].type==ELEMENT) {
@@ -221,6 +241,7 @@ static void start_place_symbol(void)
 
 void start_line(double mx, double my)
 {
+    if(readonly_block()) return;
     xctx->last_command = STARTLINE;
     if(xctx->ui_state & STARTLINE) {
       if(xctx->constr_mv != 2) {
@@ -243,6 +264,7 @@ void start_wire(double mx, double my)
 {
   dbg(1, "start_wire(): ui_state=%d, ui_state2=%d last_command=%d\n",
       xctx->ui_state, xctx->ui_state2, xctx->last_command);
+  if(readonly_block()) return;
   xctx->last_command = STARTWIRE;
   if(xctx->ui_state & STARTWIRE) {
     if(tclgetboolvar("orthogonal_wiring") && !tclgetboolvar("constr_mv")){
@@ -1916,6 +1938,18 @@ static int check_menu_start_commands(int state, double c_snap, int mx, int my)
     }
     return 1;
   }
+  /* read-only backstop: any armed object-mutating command is refused here (the
+   * keyboard/context-menu sites already guard at arming time; this catches any
+   * other MENUSTART path). DESEL/ZOOM above are non-mutating and pass through. */
+  if((xctx->ui_state & MENUSTART) &&
+     (xctx->ui_state2 & (MENUSTARTWIRECUT | MENUSTARTWIRECUT2 | MENUSTARTMOVE | MENUSTARTCOPY |
+                         MENUSTARTWIRE | MENUSTARTSNAPWIRE | MENUSTARTLINE | MENUSTARTRECT |
+                         MENUSTARTPOLYGON | MENUSTARTARC | MENUSTARTCIRCLE)) &&
+     readonly_block()) {
+    xctx->ui_state &= ~MENUSTART;
+    xctx->ui_state2 = 0;
+    return 1;
+  }
   if((xctx->ui_state & MENUSTART) && (xctx->ui_state2 & MENUSTARTWIRECUT)) {
     break_wires_at_point(xctx->mousex_snap, xctx->mousey_snap, 1);
     return 1;
@@ -2347,6 +2381,16 @@ static void context_menu_action(double mx, double my)
   xctx->semaphore--;
   if(!status) return;
   ret = atoi(status);
+  /* read-only: refuse the object-mutating context-menu picks (place sym/wire/line/
+   * rect/poly/text/arc/circle, cut, paste, edit attrs, move, duplicate, delete).
+   * Navigation picks (descend/pop/load/copy-to-clipboard) fall through. */
+  switch(ret) {
+    case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8:
+    case 10: case 11: case 16: case 17: case 18: case 19: case 20:
+      if(readonly_block()) return;
+      break;
+    default: break;
+  }
   switch(ret) {
     case 1:
       start_place_symbol();
@@ -3015,6 +3059,29 @@ static int current_input_ctx(int event, KeySym key, int state, int button)
   return waves_selected(event, key, state, button) ? ACTX_OVER_GRAPH : ACTX_CANVAS;
 }
 
+/* registered (data-driven) actions that modify the current schematic/symbol; used
+ * to refuse them in a read-only window (see readonly_block). Navigation, view,
+ * highlight, netlist and make-symbol/create-schematic actions are intentionally
+ * NOT listed -- they do not change the current view's contents. */
+static int action_id_mutates(const char *id)
+{
+  static const char * const ids[] = {
+    "edit.undo", "edit.redo",
+    "prop.toggle_ignore_attribute_on_selected_instances",
+    "prop.edit_header_license_text",
+    "sym.attach_net_labels_to_component_instance",
+    "sym.create_symbol_pins_from_selected_schematic_pins",
+    "sym.list.create_pins_from_highlight_nets",
+    "sym.list.create_labels_from_highlight_nets",
+    "file.clear_schematic"
+  };
+  int i;
+  if(!id) return 0;
+  for(i = 0; i < (int)(sizeof(ids) / sizeof(ids[0])); ++i)
+    if(!strcmp(id, ids[i])) return 1;
+  return 0;
+}
+
 /* look up and run the action bound to an event signature; returns 1 if a binding
  * matched and ran, 0 otherwise. Most-specific-wins: try the event's own context,
  * then fall back to a context-independent (ACTX_GLOBAL) binding (Phase 3c). */
@@ -3028,6 +3095,9 @@ static int dispatch_input_action(const ActionEvent *e)
   if(!b) return 0;
   d = find_action_def(b->action_id);
   if(!d) return 0;
+  /* read-only window: refuse mutating data-driven actions (undo/redo, clear,
+   * attribute/pin/label edits); report consumed so the legacy switch is skipped. */
+  if(action_id_mutates(b->action_id) && readonly_block()) return 1;
   if(d->fn) {                          /* C-backed behavior */
     /* Action log Layer A slice 2: record the canonical csv command, but only
      * after the fn reports it handled the event (record-after-evaluation, as
@@ -3661,6 +3731,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case '4':
       if(state == 0) { /* toggle pin logic level */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(key == '4') logic_set(-1, 1, NULL);
         else logic_set((int)key - '0', 1, NULL);
       }
@@ -3735,6 +3806,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'b':
       if(rstate==0) { /* merge schematic */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         /* graph routing migrated (Phase 3d.1b): idle_only over_graph -> graph.forward. */
         merge_file(0, ""); /* 2nd parameter not used any more for merge 25122002 */
       }
@@ -3768,6 +3840,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       /* duplicate selection */
       if(rstate==0 && !(xctx->ui_state & (STARTMOVE | STARTCOPY))) {
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
           xctx->my_double_save=xctx->mousey_snap;
@@ -3788,6 +3861,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       /* duplicate selection */
       else if(EQUAL_MODMASK && !(xctx->ui_state & (STARTMOVE | STARTCOPY))) {
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         xctx->connect_by_kissing = 2; /* 2 will be used to reset var to 0 at end of move */
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
@@ -3803,6 +3877,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'C':
       if(/* !xctx->ui_state && */ rstate == 0) { /* place arc */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
           xctx->my_double_save=xctx->mousey_snap;
@@ -3815,6 +3890,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       else if(/* !xctx->ui_state && */ rstate == ControlMask) { /* place circle */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
           xctx->my_double_save=xctx->mousey_snap;
@@ -3895,6 +3971,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         tcleval("property_search");
       }
       else if(EQUAL_MODMASK) { /* flip objects around their anchor points 20171208 */
+        if(readonly_block()) break;
         if(xctx->ui_state & STARTMOVE) move_objects(FLIP|ROTATELOCAL,0,0,0);
         else if(xctx->ui_state & STARTCOPY) copy_objects(FLIP|ROTATELOCAL);
         else {
@@ -3910,6 +3987,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
     case 'F':
       if(rstate == 0) { /* flip */
+        if(readonly_block()) break;
         if(xctx->ui_state & STARTMOVE) move_objects(FLIP,0,0,0);
         else if(xctx->ui_state & STARTCOPY) copy_objects(FLIP);
         else {
@@ -3974,6 +4052,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         descend_symbol();
       }
       else if(rstate == ControlMask) { /* insert sym */
+        if(readonly_block()) break;
         if(tclgetboolvar("new_file_browser")) {
           tcleval("file_chooser");
         } else {
@@ -3991,6 +4070,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'I':
       if(rstate == 0) { /* insert sym */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(tclgetboolvar("new_file_browser")) {
           tcleval("file_chooser");
         } else {
@@ -4019,6 +4099,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'J':
       if(SET_MODMASK ) { /* create labels with i prefix from hilight nets */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         print_hilight_net(2);
       }
       break;
@@ -4037,6 +4118,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       if(/* !xctx->ui_state && */ rstate == 0) { /* start line */
         int prev_state = xctx->ui_state;
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(infix_interface) {
           start_line(xctx->mousex_snap, xctx->mousey_snap);
           if(prev_state == STARTLINE) {
@@ -4054,6 +4136,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         create_sch_from_sym();
       }
       else if(EQUAL_MODMASK) { /* add pin label*/
+        if(readonly_block()) break;
         place_net_label(1);
       }
       break;
@@ -4063,6 +4146,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
        * (Phase 3d.2 batch 3): key 'L' 0 canvas -> edit.toggle_orthogonal_wiring.
        * The Alt branch (add pin label) stays in C. See init_input_bindings. */
       if(EQUAL_MODMASK ) { /* add pin label*/
+        if(readonly_block()) break;
         place_net_label(0);
       }
       break;
@@ -4074,6 +4158,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
           waves_callback(event, mx, my, key, button, aux, state);
           break;
         }
+        if(readonly_block()) break;
         if(enable_stretch) select_attached_nets(); /* stretch nets that land on selected instance pins */
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
@@ -4090,6 +4175,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
           waves_callback(event, mx, my, key, button, aux, state);
           break;
         }
+        if(readonly_block()) break;
         if(!enable_stretch) select_attached_nets(); /* stretch nets that land on selected instance pins */
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
@@ -4102,6 +4188,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       /* Move selection adding wires to moved pins */
       else if(EQUAL_MODMASK && !(xctx->ui_state & (STARTMOVE | STARTCOPY))) {
+        if(readonly_block()) break;
         xctx->connect_by_kissing = 2; /* 2 will be used to reset var to 0 at end of move */
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
@@ -4118,6 +4205,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'M':
       /* Move selection adding wires to moved pins */
       if((rstate == 0) && !(xctx->ui_state & (STARTMOVE | STARTCOPY))) {
+        if(readonly_block()) break;
         xctx->connect_by_kissing = 2; /* 2 will be used to reset var to 0 at end of move */
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
@@ -4131,6 +4219,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       /* move selection, stretch attached nets, create new wires on pin-to-moved-pin connections */
       else if(rstate == ControlMask && !(xctx->ui_state & (STARTMOVE | STARTCOPY))) {
+        if(readonly_block()) break;
         if(!enable_stretch) select_attached_nets(); /* stretch nets that land on selected instance pins */
         xctx->connect_by_kissing = 2; /* 2 will be used to reset var to 0 at end of move */
         if(infix_interface) {
@@ -4192,6 +4281,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       else if(rstate == ControlMask ) { /* clear symbol */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         tcleval("xschem clear symbol");
       }
       break;
@@ -4232,6 +4322,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
     case 'p':
       if(EQUAL_MODMASK) { /* add symbol pin */
+        if(readonly_block()) break;
         xctx->push_undo();
         unselect_all(1);
         storeobject(-1, xctx->mousex_snap-2.5, xctx->mousey_snap-2.5, xctx->mousex_snap+2.5, xctx->mousey_snap+2.5,
@@ -4242,10 +4333,12 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         xctx->ui_state |= START_SYMPIN;
       }
       else if(rstate == ControlMask) {
+         if(readonly_block()) break;
          place_net_label(2);
       }
       else if( !(xctx->ui_state & STARTPOLYGON) && rstate==0) { /* start polygon */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         dbg(1, "callback(): start polygon\n");
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
@@ -4267,6 +4360,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         redraw_w_a_l_r_p_z_rubbers(1);
       }
       else if(rstate == ControlMask) {
+         if(readonly_block()) break;
          place_net_label(3);
       }
       break;
@@ -4281,6 +4375,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       else if(rstate==0) { /* edit attributes */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         edit_property(0);
       }
       else if(EQUAL_MODMASK) { /* edit .sch file (DANGER!!) */
@@ -4302,6 +4397,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'Q':
       if(rstate == 0) { /* edit attributes in editor */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         edit_property(1);
       }
       else if(rstate == ControlMask) { /* view attributes */
@@ -4313,6 +4409,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       if(/* !xctx->ui_state && */ rstate==0) { /* start rect */
         dbg(1, "callback(): start rect\n");
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(infix_interface) {
           xctx->mx_double_save=xctx->mousex_snap;
           xctx->my_double_save=xctx->mousey_snap;
@@ -4337,6 +4434,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
         }
       }
       else if(EQUAL_MODMASK) { /* rotate objects around their anchor points 20171208 */
+        if(readonly_block()) break;
         if(xctx->ui_state & STARTMOVE) move_objects(ROTATE|ROTATELOCAL,0,0,0);
         else if(xctx->ui_state & STARTCOPY) copy_objects(ROTATE|ROTATELOCAL);
         else {
@@ -4352,6 +4450,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
     case 'R':
       if(rstate == 0) { /* rotate */
+        if(readonly_block()) break;
         if(xctx->ui_state & STARTMOVE) move_objects(ROTATE,0,0,0);
         else if(xctx->ui_state & STARTCOPY) copy_objects(ROTATE);
         else {
@@ -4383,6 +4482,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       /* create wire snapping to closest instance pin (cadence keybind) */
       else if(/* !xctx->ui_state && */ (rstate == 0) && cadence_compat) {
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         snapped_wire(c_snap);
       }
       else if(rstate == ControlMask ){ /* save 20121201 */
@@ -4422,6 +4522,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'S':
       if(rstate == 0) { /* change element order */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         change_elem_order(-1);
       }
       else if(rstate == ControlMask) { /* save as schematic */
@@ -4433,6 +4534,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 't':
       if(rstate == 0) { /* place text (graph routing is data: over_graph -> graph.forward) */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         xctx->last_command = 0;
         xctx->mx_double_save = xctx->mousex_snap;
         xctx->my_double_save = xctx->mousey_snap;
@@ -4481,6 +4583,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
        * stay in C. See init_input_bindings. */
       if(EQUAL_MODMASK) { /* align to grid */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         xctx->push_undo();
         round_schematic_to_grid(c_snap);
         set_modify(1);
@@ -4524,9 +4627,11 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       else if(rstate == ControlMask) { /* paste from clipboard */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         merge_file(2,".sch");
       }
       else if(EQUAL_MODMASK) { /* vertical flip objects around their anchor points */
+        if(readonly_block()) break;
         if(xctx->ui_state & STARTMOVE) {
           move_objects(ROTATE|ROTATELOCAL,0,0,0);
           move_objects(ROTATE|ROTATELOCAL,0,0,0);
@@ -4552,6 +4657,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
     case 'V':
       if(rstate == 0) { /* vertical flip */
+        if(readonly_block()) break;
         if(xctx->ui_state & STARTMOVE) {
           move_objects(ROTATE,0,0,0);
           move_objects(ROTATE,0,0,0);
@@ -4585,6 +4691,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       if(/* !xctx->ui_state && */ rstate==0) { /* place wire. */
         int prev_state = xctx->ui_state;
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
 
         if(infix_interface) {
           start_wire(xctx->mousex_snap, xctx->mousey_snap);
@@ -4614,6 +4721,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case 'W':
       if(/* !xctx->ui_state && */ (rstate == 0) && !cadence_compat) { /* create wire snapping to closest instance pin (original keybind) */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         snapped_wire(c_snap);
       }
       break;
@@ -4632,6 +4740,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       else if(rstate == ControlMask) { /* cut selection into clipboard */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         rebuild_selected_array();
         if(xctx->lastsel) { /* 20071203 check if something selected */
           save_selection(2);
@@ -4811,6 +4920,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case XK_Delete:
       if(xctx->ui_state & SELECTION) { /* delete selection */
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         delete(1/* to_push_undo */);
       }
       break;
@@ -4944,6 +5054,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
     case XK_Insert:
       if(state == ShiftMask) { /* insert sym */
+        if(readonly_block()) break;
         if(tclgetboolvar("new_file_browser")) {
           tcleval("file_chooser");
         } else {
@@ -4952,6 +5063,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       else {
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         if(tclgetboolvar("new_file_browser")) {
           tcleval("file_chooser");
         } else {
@@ -4977,6 +5089,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
 
     case '&':                               /* check wire connectivity */
       if(xctx->semaphore >= 2) break;
+      if(readonly_block()) break;
       xctx->push_undo();
       trim_wires();
       draw();
@@ -5049,10 +5162,12 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
     case '!':
       if((state & ControlMask)) {
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         break_wires_at_pins(1);
       }
       else {
         if(xctx->semaphore >= 2) break;
+        if(readonly_block()) break;
         break_wires_at_pins(0);
       }
       break;
@@ -5186,7 +5301,7 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
      xctx->drag_elements = 0;
 
      /* start another wire or line in persistent mode */
-     if(tclgetboolvar("persistent_command") && xctx->last_command) {
+     if(!xctx->readonly && tclgetboolvar("persistent_command") && xctx->last_command) {
        if(xctx->last_command == STARTLINE)  start_line(xctx->mousex_snap, xctx->mousey_snap);
        if(xctx->last_command == STARTWIRE){
         if(tclgetboolvar("snap_cursor")
@@ -5258,7 +5373,7 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        } /*end switch */
 
        /* Clicking and drag on an instance pin -> drag a new wire */
-       if(intuitive && !already_selected) {
+       if(!xctx->readonly && intuitive && !already_selected) {
          if(add_wire_from_inst(&sel, xctx->mousex_snap, xctx->mousey_snap)) return;
        }
 
@@ -5268,13 +5383,13 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
         * wire-draw mode). Plain drag only; connected ends fall through to
         * add_wire_from_wire() below (draw a new branch wire). Gated on cadence_compat so
         * stock behavior is unchanged. Must run BEFORE add_wire_from_wire. */
-       if(cadence_compat && intuitive && !already_selected &&
+       if(!xctx->readonly && cadence_compat && intuitive && !already_selected &&
           !(state & (ControlMask | ShiftMask))) {
          if(grab_free_wire_vertex(&sel, xctx->mousex_snap, xctx->mousey_snap, state)) return;
        }
 
        /* Clicking and drag on a wire end -> drag a new wire */
-       if(intuitive && !already_selected) {
+       if(!xctx->readonly && intuitive && !already_selected) {
          if(add_wire_from_wire(&sel, xctx->mousex_snap, xctx->mousey_snap)) return;
        }
 
@@ -5289,10 +5404,10 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
 
        /* if clicking on some object endpoints or vertices set shape_point_selected
         * this information will be used in Motion events to draw the stretched vertices */
-       if(xctx->lastsel == 1 && xctx->sel_array[0].type==POLYGON) {
+       if(!xctx->readonly && xctx->lastsel == 1 && xctx->sel_array[0].type==POLYGON) {
          if(edit_polygon_point(state)) return; /* sets xctx->shape_point_selected */
        }
-       if(xctx->lastsel == 1 && intuitive) {
+       if(!xctx->readonly && xctx->lastsel == 1 && intuitive) {
          int cond = already_selected;
 
          if(cond && xctx->sel_array[0].type==xRECT) {
@@ -5310,7 +5425,7 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
        dbg(1, "shape_point_selected=%d, lastsel=%d\n", xctx->shape_point_selected, xctx->lastsel);
 
        /* intuitive interface: directly drag elements */
-       if(sel.type && intuitive && xctx->lastsel >= 1 &&
+       if(!xctx->readonly && sel.type && intuitive && xctx->lastsel >= 1 &&
           !xctx->shape_point_selected) {
          xctx->drag_elements = 1;
          if(cadence_compat) {

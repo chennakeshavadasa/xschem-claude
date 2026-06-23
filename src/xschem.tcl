@@ -10118,6 +10118,48 @@ proc toggle_readonly {} {
   xschem log_action "xschem set readonly $v"
 }
 
+# -postcommand for each window's Edit menu. Read-only is per-window, so this runs
+# every time the Edit menu is posted and reflects the CURRENT window's state:
+#  - greys out the object-mutating entries when the view is read-only (navigation,
+#    clipboard-copy and select-all stay enabled), and
+#  - flips the self-aware toggle between "Make Read Only" and "Make Editable".
+# The C engine enforces the actual block (see readonly_block() in callback.c); the
+# greying is just clear visual feedback so the disabled commands can't be invoked.
+proc edit_menu_post {topwin} {
+  set m $topwin.menubar.edit
+  if {![winfo exists $m]} return
+  set ro [xschem get readonly]
+  set st [expr {$ro ? "disabled" : "normal"}]
+  # entry labels that modify the current schematic/symbol (must match the menu)
+  set edit_labels {
+    Undo Redo Cut Paste Delete "Create Instance" "Duplicate objects"
+    "Move objects" "Move objects stretching attached wires"
+    "Move objects adding wires to connected pins"
+    "Horizontal Flip in place selected objects"
+    "Vertical Flip in place selected objects"
+    "Rotate in place selected objects"
+    "Vertical Flip selected objects"
+    "Horizontal Flip selected objects"
+    "Rotate selected objects"
+  }
+  foreach lbl $edit_labels {
+    catch {$m entryconfigure $lbl -state $st}
+  }
+  # flip the read-only toggle label (found by its -command, so position-independent)
+  set last [$m index end]
+  for {set i 0} {$i <= $last} {incr i} {
+    if {[catch {$m entrycget $i -command} cmd]} continue
+    if {$cmd eq "toggle_readonly"} {
+      # accelerators mirror cadence_style_rc: Ctrl-2 -> make editable (shown while
+      # read-only), Ctrl-Shift-2 -> make read only (shown while editable).
+      $m entryconfigure $i \
+        -label       [expr {$ro ? "Make Editable" : "Make Read Only"}] \
+        -accelerator [expr {$ro ? "Ctrl+2"        : "Ctrl+Shift+2"}]
+      break
+    }
+  }
+}
+
 proc setup_tabbed_interface {} {
   global tabbed_interface toolbar_horiz has_x
 
@@ -11231,7 +11273,7 @@ proc build_widgets { {topwin {} } } {
   $topwin.menubar add cascade -label "File" -menu $topwin.menubar.file
   menu $topwin.menubar.file -tearoff 0 -takefocus 0
   $topwin.menubar add cascade -label "Edit" -menu $topwin.menubar.edit
-  menu $topwin.menubar.edit -tearoff 0 -takefocus 0
+  menu $topwin.menubar.edit -tearoff 0 -takefocus 0 -postcommand [list edit_menu_post $topwin]
   $topwin.menubar add cascade -label "Options" -menu $topwin.menubar.option
   menu $topwin.menubar.option -tearoff 0 -takefocus 0
   $topwin.menubar add cascade -label "View" -menu $topwin.menubar.view
@@ -11442,6 +11484,11 @@ proc build_widgets { {topwin {} } } {
   $topwin.menubar.edit add command -label "Push schematic" -command "xschem descend" -accelerator E
   $topwin.menubar.edit add command -label "Push symbol" -command "xschem descend_symbol" -accelerator I
   $topwin.menubar.edit add command -label "Pop" -command "xschem go_back" -accelerator Ctrl+E
+  $topwin.menubar.edit add separator
+  # self-aware read-only toggle: edit_menu_post (the menu -postcommand) flips this
+  # label to "Make Editable" / "Make Read Only" per window and greys out the
+  # object-mutating entries above when the current view is read-only.
+  $topwin.menubar.edit add command -label "Make Read Only" -command toggle_readonly
 
   $topwin.menubar add command -label { - } -state disabled
   $topwin.menubar add command -label Netlist -background {#888888} \
@@ -11525,7 +11572,6 @@ proc build_widgets { {topwin {} } } {
        }
   $topwin.menubar.view add checkbutton -label "Tabbed interface" -variable tabbed_interface \
     -selectcolor $selectcolor -command setup_tabbed_interface
-  $topwin.menubar.view add command -label "Toggle read-only" -command toggle_readonly
 
   $topwin.menubar.view add cascade -label "Show / Hide" \
        -menu $topwin.menubar.view.show
