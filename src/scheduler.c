@@ -6236,13 +6236,15 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
       }
     }
 
-    /* schematic_in_new_window [new_process] [nodraw] [force]
+    /* schematic_in_new_window [new_process] [nodraw] [force] [window]
      *   When a symbol is selected edit corresponding schematic
      *   in a new tab/window if not already open.
      *   If nothing selected open another window of the second
      *   schematic (issues a warning).
      *   if 'new_process' is given start a new xschem process
      *   if 'nodraw' is given do not draw loaded schematic
+     *   if 'window' is given force a real top-level window even in tabbed mode
+     *     (specs/multi_window_detach.md)
      *   returns '1' if a new schematic was opened, 0 otherwise */
     else if(!strcmp(argv[1], "schematic_in_new_window"))
     {
@@ -6250,14 +6252,16 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
       int new_process = 0;
       int nodraw = 0;
       int force = 0;
+      int win = 0;
       int i;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       for(i = 2; i < argc; i++) {
         if(!strcmp(argv[i], "new_process")) new_process = 1;
         if(!strcmp(argv[i], "nodraw")) nodraw = 1;
         if(!strcmp(argv[i], "force")) force = 1;
+        if(!strcmp(argv[i], "window")) win = 1;
       }
-      res = schematic_in_new_window(new_process, !nodraw, force);
+      res = schematic_in_new_window(new_process, !nodraw, force, win);
       Tcl_SetResult(interp, my_itoa(res), TCL_VOLATILE);
     }
 

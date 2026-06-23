@@ -1404,7 +1404,7 @@ extern int floaters_from_selected_inst();
 extern void select_all(void);
 extern void change_linewidth(double w);
 extern int copy_hierarchy_data(const char *from_win_path, const char *to_win_path);
-extern int schematic_in_new_window(int new_process, int dr, int force);
+extern int schematic_in_new_window(int new_process, int dr, int force, int win);
 extern void symbol_in_new_window(int new_process);
 extern void new_xschem_process(const char *cell, int symbol);
 extern void ask_new_file(int in_new_window, char *filename);

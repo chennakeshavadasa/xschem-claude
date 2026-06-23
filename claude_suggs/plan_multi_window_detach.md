@@ -245,6 +245,15 @@ context machinery still keyed off the global flag, so a 2nd round of testing fou
   (capped 1800 so it can't span a multi-monitor X screen) × 85% height. Normal-size
   windows are left as-is (verified: a 1067-wide window is not touched).
 
+## Phase 2.7 — `schematic_in_new_window` window option  ✅ DONE
+
+CTRL-SHIFT-N (`cadence::open_inst_sch_readonly` → `schematic_in_new_window force`)
+opened a **tab**, not a window, because the function used the plain `"create"` verb
+(which respects the global flag). Added an opt-in `window` keyword →
+`schematic_in_new_window(..., win)` uses `"create_window"`. The cadence proc now
+passes `force window`; the other caller (xschem.tcl hierarchy-copy flow) is
+unchanged. Test **MWn** (plain → group `.`/tab; `window` → group `.xN`/real window).
+
 **Still open (flagged, separate subsystems — not multi-window):**
 - CTRL-ALT-S `locate_selected_in_libmgr` selects only the Library, not L/C/V — bug is
   downstream in `library_inst_lcv` (library_defs.tcl) or `libmgr::open`'s cell/view

@@ -1863,8 +1863,12 @@ int copy_hierarchy_data(const char *from_win_path, const char *to_win_path)
 
 /*  20111007 duplicate current schematic if no inst selected */
 /* if force set to 1 force opening another new schematic even if already open */
-int schematic_in_new_window(int new_process, int dr, int force)
+/* win: when set, force a real top-level window (create_window) instead of letting
+ * the global tabbed_interface decide tab-vs-window (specs/multi_window_detach.md).
+ * Used by the cadence "open instance schematic read-only in a new window" flow. */
+int schematic_in_new_window(int new_process, int dr, int force, int win)
 {
+  const char *create_verb = win ? "create_window" : "create";
   char filename[PATH_MAX];
   char win_path[WINDOW_PATH_SIZE];
   rebuild_selected_array();
@@ -1874,7 +1878,7 @@ int schematic_in_new_window(int new_process, int dr, int force)
       int gf = xctx->graph_flags;
       double c1 = xctx->graph_cursor1_x;
       double c2 = xctx->graph_cursor2_x;
-      new_schematic("create", force ? "noalert" : "", xctx->sch[xctx->currsch], dr);
+      new_schematic(create_verb, force ? "noalert" : "", xctx->sch[xctx->currsch], dr);
 
       /* propagte raw cursor info to new window */
       xctx->graph_flags = gf;
@@ -1904,7 +1908,7 @@ int schematic_in_new_window(int new_process, int dr, int force)
     get_sch_from_sym(filename, xctx->inst[xctx->sel_array[0].n].ptr+ xctx->sym, xctx->sel_array[0].n, 0);
     if(force || !check_loaded(filename, win_path)) {
       if(new_process) new_xschem_process(filename, 0);
-      else new_schematic("create", "noalert", filename, dr);
+      else new_schematic(create_verb, "noalert", filename, dr);
     }
   }
   return 1;

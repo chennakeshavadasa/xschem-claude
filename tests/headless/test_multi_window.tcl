@@ -191,6 +191,23 @@ check "MWs focus follows the window the event came from (no cross-window input)"
   [expr {$c1 eq {.x1.drw} && $c2 eq {.drw} && $c3 eq {.x2.drw}}] \
   "(.x1->$c1 .drw->$c2 .x2->$c3)"
 
+# MWn — schematic_in_new_window honors the 'window' option: plain opens a tab
+# (group .), 'window' forces a real top-level (group .xN). This is what makes the
+# cadence CTRL-SHIFT-N (open instance schematic read-only) land in a window.
+catch {xschem new_schematic destroy_all {}}
+xschem load $sch1
+set ::tabbed_interface 1
+xschem unselect_all
+xschem schematic_in_new_window force; update      ;# lastsel==0 => current sch in new tab
+set gtab [lindex [lindex [xschem windows] end] 2]
+catch {xschem new_schematic destroy_all {}}
+xschem load $sch1; xschem unselect_all
+xschem schematic_in_new_window force window; update ;# ... in a real window
+set ge [lindex [xschem windows] end]
+check "MWn schematic_in_new_window 'window' opens a real window, plain opens a tab" \
+  [expr {$gtab eq "." && [lindex $ge 2] ne "." && [winfo toplevel [lindex $ge 0]] eq [lindex $ge 2]}] \
+  "(plain group=$gtab  window entry={$ge})"
+
 # ---- Pending: Phase 3 (attach / re-home back, mode lock) ----
 pend "MW7 attach moves a detached context back into a target group"
 pend "MW8 mode lock relaxed: Tabbed-interface menu not disabled with >=2 contexts"

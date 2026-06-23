@@ -3823,7 +3823,7 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       if(EQUAL_MODMASK) { /* edit schematic in new window - new xschem process */
         int save = xctx->semaphore;
         xctx->semaphore--; /* so semaphore for current context wll be saved correctly */
-        schematic_in_new_window(1, 1, 0);
+        schematic_in_new_window(1, 1, 0, 0);
         xctx->semaphore = save;
       }
       break;

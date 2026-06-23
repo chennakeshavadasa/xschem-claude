@@ -44,8 +44,9 @@ proc cadence::open_inst_sch_readonly {} {
   if {![cadence::one_instance_selected]} {
     ciw_echo "select one instance to open its schematic (read-only)" error ; return
   }
-  # 'force' => new window/tab even if that schematic is already loaded.
-  if {[xschem schematic_in_new_window force] == 0} {
+  # 'force'  => open even if that schematic is already loaded.
+  # 'window' => a real top-level OS window (draggable to another monitor), not a tab.
+  if {[xschem schematic_in_new_window force window] == 0} {
     ciw_echo "selected instance has no schematic view" error ; return
   }
   xschem set readonly 1   ;# new window is now the current context
