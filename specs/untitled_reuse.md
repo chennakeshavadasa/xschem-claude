@@ -37,6 +37,9 @@ window as usual. Closing the last real file falls back to untitled (pre-existing
 - **UR3** the next open creates a new window (untitled is gone, both files present).
 - **UR4** a *modified* untitled is preserved — the open goes to a new window,
   leaving the scratch work intact.
+- **UR5** returning to untitled (e.g. after closing a read-only schematic) is
+  **editable** — a blank untitled has no file to protect, so `clear_schematic`
+  clears the `readonly` flag that would otherwise linger from the closed file.
 
 ## Out of scope
 

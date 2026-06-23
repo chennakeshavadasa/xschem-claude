@@ -54,6 +54,16 @@ check "UR4b modified untitled is preserved (open goes to a new window)" \
   [expr {[llength [xschem windows]] == 2 && [lsearch $names untitled.sch] >= 0}] \
   "(windows=$names)"
 
+# UR5 — returning to untitled (e.g. after closing a read-only schematic) is EDITABLE.
+# A blank untitled has no file to protect, so the read-only flag must not linger.
+catch {xschem new_schematic destroy_all {}}
+xschem load [ex nand2.sch]
+xschem set readonly 1
+xschem clear force          ;# the close-last-file -> blank untitled path (clear_schematic)
+check "UR5 returning to untitled clears read-only (editable scratch)" \
+  [expr {[string match {untitled*} [xschem get current_name]] && [xschem get readonly] == 0}] \
+  "(name=[xschem get current_name] readonly=[xschem get readonly])"
+
 catch {xschem new_schematic destroy_all {}}
 if {$fail == 0} { puts "RESULT: ALL PASS ($npass checks)"; exit 0 } \
 else { puts "RESULT: $fail FAILED ($npass passed)"; exit 1 }

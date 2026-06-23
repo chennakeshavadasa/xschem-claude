@@ -2854,6 +2854,10 @@ void clear_schematic(int cancel, int symbol)
         }
         draw();
         set_modify(0);
+        /* a fresh blank untitled buffer is always editable -- there is no file to
+         * protect, so clear the read-only flag that may linger from a closed file
+         * (e.g. returning to untitled after closing a read-only schematic) */
+        xctx->readonly = 0;
         xctx->prep_hash_inst=0;
         xctx->prep_hash_wires=0;
         xctx->prep_net_structs=0;
