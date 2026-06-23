@@ -10,7 +10,10 @@ active `CTRL-G→view.toggle_draw_grid` line is live). `test_key_graph_context.t
 updated (it asserted the old `g`/`G` snap defaults). Phase 3 (delete the dead `case 'g'` and
 `case '%'`, incl. the orphaned `dr_gr` local) done — scaffold all-green; verified that
 unbound `%`/Ctrl-g/Alt-g are now no-ops (no residual set-snap dialog) and a table-bound `%`
-still toggles grid. **Remaining: Phase 5** (blank stale menu accelerators), Phase 7 (docs/memory).
+still toggles grid. Phase 5 (blank stale menu accelerators: Half/Double Snap Threshold, Draw
+grid) done. Phase 7 done: spec → **implemented**, FAQ Q17 update + Q18, `action-registry`
+memory extended. **COMPLETE** — all phases landed; scaffold all-green; binding/key regression
+green.
 
 ## Shape of the work
 

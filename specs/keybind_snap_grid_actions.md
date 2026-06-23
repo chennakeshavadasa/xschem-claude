@@ -1,6 +1,10 @@
 # Data-driven snap / grid / highlight key actions; CTRL-G → toggle grid (user-bound)
 
-Status: **spec** (branch `fluid-editing`). Plan: `claude_suggs/plan_keybind_snap_grid_actions.md`.
+Status: **implemented** (branch `fluid-editing`). Plan: `claude_suggs/plan_keybind_snap_grid_actions.md`.
+Actions registered in `src/callback.c` (`view.snap_half`, `view.snap_double`,
+`view.set_snap_value`, `hilight.send_to_waveform`, `view.toggle_draw_grid`); the `g`/`G`
+snap defaults removed; dead `case 'g'`/`case '%'` deleted; `cadence_style_rc` binds CTRL-G →
+grid (others commented); menu accelerators blanked. Tests: `tests/headless/test_keybind_snap_grid.tcl`.
 Related: `src/callback.c` (action registry + `handle_key_press`), `src/action_registry.tcl`
 (binding-file loader), `src/keybindings.csv` (shipped defaults), `src/cadence_style_rc`,
 `src/xschem.tcl` (menus). FAQ background: `code_analysis/FAQ.md` Q17, Q1–Q4.

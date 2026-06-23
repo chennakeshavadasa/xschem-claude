@@ -64,6 +64,17 @@ full design.
   `ActionDef` table, `xschem bind/unbind/bindings`, context-aware dispatch —
   the migration from hardcoded C `case` keys to the table is **partial**.
 
+> **Update (2026-06-23, IMPLEMENTED).** This was built — but the design landed *cleaner*
+> than the "Tier B default binding" recommendation below: there is **NO built-in default**.
+> The five ops are registered actions (`view.snap_half`, `view.snap_double`,
+> `view.set_snap_value`, `hilight.send_to_waveform`, `view.toggle_draw_grid`) that ship
+> **UNBOUND**; the `g`/`G` snap defaults were removed and the hardcoded `case 'g'`/`case '%'`
+> deleted. Every chord is user-specified — `cadence_style_rc` carries the **active**
+> `xschem bind key 103 ctrl canvas view.toggle_draw_grid` (so CTRL-G toggles grid under that
+> config) plus commented recipes for the rest. See `specs/keybind_snap_grid_actions.md` and
+> Q18 (how to rebind the shortcuts that "disappeared"). The Tier A/B/C analysis below is kept
+> as the historical "what it would take" picture.
+
 **CTRL-G currently *sets the snap value*** — it pops an `input_line` dialog
 ("Enter snap value…") and applies it via `xschem set cadsnap`. It is a
 **hardcoded C branch** (`callback.c:3884`, `case 'g':` → `if(rstate==ControlMask)`),

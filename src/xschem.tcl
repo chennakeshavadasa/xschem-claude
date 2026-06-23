@@ -11338,15 +11338,18 @@ proc build_widgets { {topwin {} } } {
      }
   $topwin.menubar.option add checkbutton \
     -selectcolor $selectcolor -label "Group bus slices in Verilog instances" -variable verilog_bitblast
+  # accelerators blanked: these ops ship UNBOUND (no built-in key); they are
+  # user-bound via `xschem bind` (specs/keybind_snap_grid_actions.md). The live
+  # cheat-sheet (show_bindkeys) reflects whatever the user actually bound.
   $topwin.menubar.option add checkbutton -label "Draw grid" -variable draw_grid \
-     -selectcolor $selectcolor -accelerator {%} \
+     -selectcolor $selectcolor -accelerator {} \
      -command {
        xschem redraw
      }
-  $topwin.menubar.option add command -label "Half Snap Threshold" -accelerator G -command {
+  $topwin.menubar.option add command -label "Half Snap Threshold" -accelerator {} -command {
          xschem set cadsnap [expr {$cadsnap / 2.0} ]
        }
-  $topwin.menubar.option add command -label "Double Snap Threshold" -accelerator Shift-G -command {
+  $topwin.menubar.option add command -label "Double Snap Threshold" -accelerator {} -command {
          xschem set cadsnap [expr {$cadsnap * 2.0} ]
        }
   $topwin.menubar.option add checkbutton -label "Variable grid point size" -variable big_grid_points \
