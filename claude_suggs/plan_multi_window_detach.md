@@ -264,9 +264,15 @@ the first `update`). Fix: a `suppress_select` flag on the bound handlers, reset 
 just delegates to `refresh_after`. Test `tests/headless/test_lib_manager_locate.tcl`
 (LM-LOC2 is the discriminating after-`update` check; sabotage-verified).
 
-**Still open (flagged, separate subsystem — not multi-window):**
-- Window closes don't log to the CIW — the `destroy` dispatch never `log_action`s
-  (only final `xschem exit` does). Action-log gap.
+**Window-close logging ✅ FIXED:** single window/tab closes now `log_action("xschem
+new_schematic destroy %s", win_path)` inside `destroy_window`/`destroy_tab` (the
+common chokepoint for WM-close, CTRL-W, and File▸Close; the last-window close already
+logs via `xschem exit`). `destroy_all_*` keep their own inline logic, so no
+double-logging. Shows in the CIW + Xschem.log and replays. Test
+`test_action_log_libmgr.tcl` AL12. (Also corrected AL1/AL4 there: the libmgr open now
+logs `load_new_window -window` — a stale expectation missed in commit 1a7887fa.)
+
+All originally-flagged items are now resolved.
 
 ## Phase 4 — Regression sweep + docs
 

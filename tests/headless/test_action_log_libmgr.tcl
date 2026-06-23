@@ -42,13 +42,15 @@ proc pick {col txt} {
   $lb selection set $txt; $lb focus $txt
 }
 
-# AL1 — a Library Manager open is logged with the replayable command
+# AL1 — a Library Manager open is logged with the replayable command. With the
+# "New window" checkbox set, the open is routed through `load_new_window -window`
+# so it lands in a real top-level window (specs/multi_window_detach.md).
 pick lib tlib;  libmgr::on_lib
 pick cell foo;  libmgr::on_cell
 set libmgr::new_window 1
 libmgr::open_view
 check "AL1 Library Manager open is logged" \
-  [string match "*xschem load_new_window {*foo/schematic/foo.sch}*" [logtext]] {}
+  [string match "*xschem load_new_window -window {*foo/schematic/foo.sch}*" [logtext]] {}
 
 # AL2 — toggling edit mode is logged
 xschem set readonly 0
@@ -62,7 +64,7 @@ check "AL3 read-only toggle logged (set 0)" \
 pick cell bar; libmgr::on_cell
 libmgr::open_view_ro
 set t [logtext]
-check "AL4 read-only open logs the open" [string match "*load_new_window {*bar/schematic/bar.sch}*" $t] {}
+check "AL4 read-only open logs the open" [string match "*load_new_window -window {*bar/schematic/bar.sch}*" $t] {}
 check "AL5 read-only open logs the lock" [expr {[regexp -all {xschem set readonly 1} $t] >= 2}] {}
 
 # AL6 — the logged lines are the bare replay form (no recursion / no log_action wrapper)
@@ -111,6 +113,17 @@ check "AL10 launch logs replayable 'xschem library_manager'" \
 xschem create_instance
 check "AL11 launch logs replayable 'xschem create_instance'" \
   [expr {[regexp -all -line {^xschem create_instance$} [logtext]] >= 1}] {}
+
+# AL12 — closing a schematic window/tab is logged with a replayable command, so a
+# close shows in the CIW / Xschem.log (specs/multi_window_detach.md). Open a throwaway
+# window and close it; the destroy must appear.
+xschem new_schematic create_window .x9 {}
+update
+xschem new_schematic destroy .x9.drw {}
+update
+check "AL12 closing a schematic window is logged" \
+  [expr {[regexp -all -line {^xschem new_schematic destroy \.x9\.drw$} [logtext]] >= 1}] {}
+
 catch {ciform::escape}   ;# tear down the Create Instance form (.ciform) + browser
 
 destroy .ins

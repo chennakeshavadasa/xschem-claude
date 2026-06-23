@@ -2053,6 +2053,8 @@ static void destroy_window(int *window_count, const char *win_path)
       }
       if(tkwin && n >= 1 && n < MAX_NEW_WINDOWS) {
         char *toplevel = NULL;
+        /* record the close in the action log / CIW (replays the window close) */
+        log_action("xschem new_schematic destroy %s", win_path);
         /* delete Tcl context of deleted schematic window */
         tclvareval("delete_ctx ", win_path, NULL);
         xctx = save_xctx[n];
@@ -2125,6 +2127,8 @@ static void destroy_tab(int *window_count, const char *win_path)
       my_strncpy(new_path, tcleval("tab_queue PREVIOUS"), S(new_path));
       tcleval("tab_queue REMOVE"); /* clear current tab from queue */
       if(n >= 1 && n < MAX_NEW_WINDOWS) {
+        /* record the close in the action log / CIW (replays the tab close) */
+        log_action("xschem new_schematic destroy %s", win_path);
         tclvareval("delete_ctx ", win_path, NULL);
         tclvareval("delete_tab ", win_path, NULL);
         xctx = save_xctx[n];
