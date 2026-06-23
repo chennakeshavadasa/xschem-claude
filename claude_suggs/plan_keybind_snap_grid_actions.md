@@ -7,8 +7,10 @@ defaults) done — and it **folded in Phase 4** (the shipped `keybindings.csv` m
 `g`/`G` rows in the same change, else the startup csv replay re-binds them) **and Phase 6's
 `cadence_style_rc` recipe block** (brought forward so the FAQ can point at real lines; the
 active `CTRL-G→view.toggle_draw_grid` line is live). `test_key_graph_context.tcl` was
-updated (it asserted the old `g`/`G` snap defaults). **Remaining: Phase 3** (delete the dead
-`case 'g'`/`case '%'`), Phase 5 (blank menu accelerators), Phase 7 (docs/memory).
+updated (it asserted the old `g`/`G` snap defaults). Phase 3 (delete the dead `case 'g'` and
+`case '%'`, incl. the orphaned `dr_gr` local) done — scaffold all-green; verified that
+unbound `%`/Ctrl-g/Alt-g are now no-ops (no residual set-snap dialog) and a table-bound `%`
+still toggles grid. **Remaining: Phase 5** (blank stale menu accelerators), Phase 7 (docs/memory).
 
 ## Shape of the work
 

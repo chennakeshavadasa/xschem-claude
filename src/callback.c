@@ -3619,7 +3619,6 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
                              int cadence_compat, int wire_draw_active, int snap_cursor)
 {
   char str[PATH_MAX + 100];
-  int dr_gr;
 
   /* Phase 3c c4/c5: data-driven context routing for migrated keys, tried before
    * the switch. The gate ensures only chords we actually bound consult the
@@ -3929,51 +3928,11 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case 'g':
-      /* plain 'g' (half snap factor) is data-driven now -> view.snap_half (Phase 3d.2). */
-      if(rstate==ControlMask) { /* set snap factor 20161212 */
-        my_snprintf(str,  S(str),
-                    "input_line {Enter snap value (default: %.16g current: %.16g)}  {xschem set cadsnap} {%g} 10",
-                    CADSNAP, c_snap, c_snap);
-        tcleval(str);
-      }
-      else if(EQUAL_MODMASK) { /* highlight net and send to viewer */
-        int tool = 0;
-        int exists = 0;
-        char *tool_name = NULL;
-
-        if(xctx->semaphore >= 2) break;
-        tcleval("winfo exists .graphdialog");
-        if(tclresult()[0] == '1') tool = XSCHEM_GRAPH;
-        else if(xctx->graph_lastsel >=0 &&
-            xctx->rects[GRIDLAYER] > xctx->graph_lastsel &&
-            xctx->rect[GRIDLAYER][xctx->graph_lastsel].flags & 1) {
-          tool = XSCHEM_GRAPH;
-        }
-        tcleval("info exists sim");
-        if(tclresult()[0] == '1') exists = 1;
-        xctx->enable_drill = 0;
-        if(exists) {
-          if(!tool) {
-            tool = tclgetintvar("sim(spicewave,default)");
-            my_snprintf(str, PATH_MAX + 100, "sim(spicewave,%d,name)", tool);
-            my_strdup(_ALLOC_ID_, &tool_name, tclgetvar(str));
-            dbg(1,"callback(): tool_name=%s\n", tool_name);
-            if(strstr(tool_name, "Gaw")) tool=GAW;
-            else if(strstr(tool_name, "Bespice")) tool=BESPICE;
-            my_free(_ALLOC_ID_, &tool_name);
-          }
-        }
-        if(tool) {
-          hilight_net(tool);
-          redraw_hilights(0);
-        }
-        Tcl_ResetResult(interp);
-      }
-      break;
-
-    /* case 'G' (double snap factor) migrated to the binding table (Phase 3d.2):
-     * key 'G' 0 canvas -> view.snap_double. See init_input_bindings. */
+    /* 'g'/'G' (halve/double snap), Ctrl-g (set snap value) and Alt-g (highlight net ->
+     * waveform viewer) are fully data-driven now: registered actions view.snap_half /
+     * view.snap_double / view.set_snap_value / hilight.send_to_waveform, shipped UNBOUND
+     * and user-bound via `xschem bind` (specs/keybind_snap_grid_actions.md). The hardcoded
+     * case 'g' (incl. its Ctrl/Alt branches) and case 'G' are removed. */
 
     case 'h':
       if(rstate==ControlMask ) { /* go to http link */
@@ -4757,20 +4716,9 @@ static void handle_key_press(int event, KeySym key, int state, int rstate, int m
       }
       break;
 
-    case '%':                                           /* toggle draw grid */
-      dr_gr = tclgetboolvar("draw_grid");
-      dr_gr =!dr_gr;
-      if(dr_gr) {
-          /* tcleval("alert_ { enabling draw grid} {}"); */
-          tclsetvar("draw_grid","1");
-          draw();
-      }
-      else {
-          /* tcleval("alert_ { disabling draw grid} {}"); */
-          tclsetvar("draw_grid","0");
-          draw();
-      }
-      break;
+    /* '%' (toggle draw grid) is data-driven now: registered action view.toggle_draw_grid,
+     * shipped UNBOUND and user-bound via `xschem bind` (cadence_style_rc binds CTRL-G to
+     * it by default). specs/keybind_snap_grid_actions.md. The hardcoded case is removed. */
 
     case '$':
       /* plain '$' (toggle pixmap saving) migrated to the binding table (Phase 3d.2
