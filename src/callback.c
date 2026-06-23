@@ -2923,8 +2923,9 @@ static void init_input_bindings(void)
   set_input_binding(DEV_KEY, 'h', Mod4Mask,    ACTX_CANVAS, "sym.create_symbol_pins_from_selected_schematic_pins");
   /* Phase 3d.2 batch 2: plain-chord command keys (the cases' Ctrl/Alt branches stay in C). */
   set_input_binding(DEV_KEY, 'y', 0, ACTX_CANVAS, "edit.toggle_stretch");
-  set_input_binding(DEV_KEY, 'g', 0, ACTX_CANVAS, "view.snap_half");
-  set_input_binding(DEV_KEY, 'G', 0, ACTX_CANVAS, "view.snap_double");
+  /* snap/grid/highlight ops ship UNBOUND — no default chord; the user binds them via
+   * `xschem bind` / their rc (specs/keybind_snap_grid_actions.md). The old 'g'/'G'
+   * snap defaults were removed here (keybindings.csv regenerated to match). */
   set_input_binding(DEV_KEY, 'T', 0, ACTX_CANVAS, "prop.toggle_ignore_attribute_on_selected_instances");
   set_input_binding(DEV_KEY, 'O', 0, ACTX_CANVAS, "view.toggle_colorscheme");
   /* Phase 3d.2 batch 3: A is graph-routed (over_graph rows above at 'A'); adding its

@@ -124,3 +124,23 @@ set descend_readonly 1
 # bind .drw <Control-Alt-Shift-Key-S> {xschem saveas {} symbol; break}
 # Clear symbol (was Ctrl-Shift-N) and Draw crosshair (was Alt-X) are left as
 # menu items only (Symbol > Clear symbol; Options > Crosshair > Draw crosshair).
+
+# --- snap / grid / highlight key actions (specs/keybind_snap_grid_actions.md) --
+# These ship UNBOUND: no built-in default chord. Each is a registered action, also
+# reachable from the menus (Options / View). Map any action to any chord with
+#   xschem bind key <keysym> <mods> canvas <action>
+# Keysyms: g=103  G=71  %=37  s=115  (run `xev` for others); mods 0|ctrl|alt|shift|super.
+# GOTCHA: Shift changes the produced keysym (Shift-g -> 'G'/71), same as Ctrl-Shift-2
+# above -- the examples use the actual produced keysyms.
+
+# CTRL-G toggles grid visibility (active):
+xschem bind key 103 ctrl canvas view.toggle_draw_grid
+
+# Optional -- uncomment to give the others a key again:
+# xschem bind key 103 0   canvas view.snap_half               ;# halve snap    (old 'g')
+# xschem bind key 71  0   canvas view.snap_double             ;# double snap   (old Shift-g)
+# xschem bind key 103 alt canvas hilight.send_to_waveform idle ;# hilight->wave (old Alt-g)
+# xschem bind key 115 alt canvas view.set_snap_value          ;# set-snap dialog (old Ctrl-g
+#                                                             ;# is now grid; 115='s', pick
+#                                                             ;# any unused chord)
+# xschem bind key 37  0   canvas view.toggle_draw_grid        ;# also toggle grid with '%'

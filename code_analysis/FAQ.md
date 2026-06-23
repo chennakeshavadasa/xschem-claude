@@ -14,6 +14,47 @@ Newest entries on top.
 
 ---
 
+## Q18. Some keyboard shortcuts stopped working — `g`/`G` (snap), `Ctrl-g`, `Alt-g`, `%` (grid). Where did they go, and how do I get them back?
+
+- **Asked:** 2026-06-23
+- **Project state:** branch `fluid-editing`, plan
+  `claude_suggs/plan_keybind_snap_grid_actions.md` Phases 0–2 landed (snap defaults
+  removed, the five actions registered, `cadence_style_rc` rebind recipes added);
+  Phase 3 (delete the now-dead `case 'g'`/`case '%'`) still pending. Spec:
+  `specs/keybind_snap_grid_actions.md`. Background: Q17.
+
+**They didn't disappear — they were turned into *user-bindable actions* that now ship
+UNBOUND, so you choose the keys.** The snap / grid / net-highlight operations used to be
+hard-wired to specific keys in C. They are now entries in the action registry with **no
+built-in default chord**, so every key mapping is yours to set (the whole point: map keys
+to functions from Tcl / a loadable script, nothing soldered in C). The *functions* are
+unchanged and still on the menus (Options / View).
+
+**Where to get them back: the binding block in `src/cadence_style_rc`** (the
+`# --- snap / grid / highlight key actions ---` block, ~lines 128–146). Uncomment the
+`xschem bind` line for the shortcut you want:
+
+| Old key | Did | Action id | Recipe in cadence_style_rc |
+|---|---|---|---|
+| `g` | halve snap | `view.snap_half` | line ~140 (commented) |
+| `Shift-g` (`G`) | double snap | `view.snap_double` | line ~141 (commented) |
+| `Alt-g` | highlight net → waveform viewer | `hilight.send_to_waveform` | line ~142 (commented) |
+| `Ctrl-g` | set snap value (dialog) | `view.set_snap_value` | line ~143 (commented; old `Ctrl-g` is now grid) |
+| `%` | toggle grid | `view.toggle_draw_grid` | line ~146 (commented) |
+
+**`CTRL-G` is the one that ships active** — `cadence_style_rc` line ~137 binds it to
+`view.toggle_draw_grid`, so under the cadence config **Ctrl-G toggles grid visibility**.
+
+**The general way** (works in any rc / `--script` / the CIW):
+`xschem bind key <keysym> <mods> canvas <action>` — keysyms `g`=103, `G`=71, `%`=37,
+`s`=115 (run `xev` for others), mods `0|ctrl|alt|shift|super` joined by `+`. List what's
+live with `xschem bindings dump`; remove one with `xschem unbind`. Gotcha: Shift changes
+the produced keysym (Shift-g → `G`/71), so bind the chord by the keysym it actually emits.
+See Q17 for the binding-table internals and `specs/keybind_snap_grid_actions.md` for the
+full design.
+
+---
+
 ## Q17. What is CTRL-G bound to currently, and what would it take to use it to toggle grid display ON/OFF?
 
 - **Asked:** 2026-06-23

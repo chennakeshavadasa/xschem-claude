@@ -2,6 +2,14 @@
 
 Target branch: `fluid-editing`. Spec: `specs/keybind_snap_grid_actions.md`.
 
+**Progress:** Phase 0 (scaffold) + Phase 1 (register actions) done. Phase 2 (remove snap
+defaults) done — and it **folded in Phase 4** (the shipped `keybindings.csv` must lose the
+`g`/`G` rows in the same change, else the startup csv replay re-binds them) **and Phase 6's
+`cadence_style_rc` recipe block** (brought forward so the FAQ can point at real lines; the
+active `CTRL-G→view.toggle_draw_grid` line is live). `test_key_graph_context.tcl` was
+updated (it asserted the old `g`/`G` snap defaults). **Remaining: Phase 3** (delete the dead
+`case 'g'`/`case '%'`), Phase 5 (blank menu accelerators), Phase 7 (docs/memory).
+
 ## Shape of the work
 
 Finish migrating the last hardcoded `g`-family + grid keys off the `handle_key_press`

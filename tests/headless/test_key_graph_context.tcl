@@ -245,15 +245,17 @@ set n $::schpins_calls
 keyats $gx $gy 104 $Alt
 check "over-graph Alt-h still runs schpins (canvas-only)" [expr {$::schpins_calls == $n + 1}] "(calls=$::schpins_calls)"
 
-# ---- Phase 3d.2 batch 2: clean canvas-only command keys (y, G, g, T, O). All
-#      C-backed; verified via the Tcl vars they flip/scale. Cases y and G are gone;
-#      g/T/O keep their Ctrl branch. ----
+# ---- Phase 3d.2 batch 2: clean canvas-only command keys (y, T, O). The g/G snap
+#      defaults were REMOVED -- snap/grid/highlight ops now ship UNBOUND and are
+#      user-bound (specs/keybind_snap_grid_actions.md). They remain registered
+#      actions, tested by binding them explicitly in the round-trip below. ----
 check "batch-2 canvas rows present" [expr {
   [lsearch -exact $dump {key 121 0 canvas edit.toggle_stretch}] >= 0 &&
-  [lsearch -exact $dump {key 103 0 canvas view.snap_half}] >= 0 &&
-  [lsearch -exact $dump {key 71 0 canvas view.snap_double}] >= 0 &&
   [lsearch -exact $dump {key 84 0 canvas prop.toggle_ignore_attribute_on_selected_instances}] >= 0 &&
   [lsearch -exact $dump {key 79 0 canvas view.toggle_colorscheme}] >= 0 }] {}
+check "snap actions ship UNBOUND (no default g/G rows)" [expr {
+  [lsearch -exact $dump {key 103 0 canvas view.snap_half}] < 0 &&
+  [lsearch -exact $dump {key 71 0 canvas view.snap_double}] < 0 }] {}
 check "batch-2 keys are canvas-only (no graph rows)" [expr {
   [lsearch -glob $dump {key 121 * graph *}] < 0 && [lsearch -glob $dump {key 71 * graph *}] < 0 &&
   [lsearch -glob $dump {key 103 * graph *}] < 0 && [lsearch -glob $dump {key 84 * graph *}] < 0 &&
@@ -264,9 +266,14 @@ set b $enable_stretch; keyat $cx $cy 121
 check "y toggles enable_stretch" [expr {$enable_stretch != $b}] "($b -> $enable_stretch)"
 set b $dark_colorscheme; keyat $cx $cy 79
 check "O toggles dark_colorscheme" [expr {$dark_colorscheme != $b}] "($b -> $dark_colorscheme)"
+# snap_half/snap_double now ship UNBOUND: bind g/G explicitly, then verify the actions
+# still scale cadsnap (functionality preserved; only the default chord was removed).
+xschem bind key 71 0 canvas view.snap_double
+xschem bind key 103 0 canvas view.snap_half
 set b $cadsnap; keyat $cx $cy 71; set d $cadsnap; keyat $cx $cy 103
-check "G doubles then g halves cadsnap (round-trip)" [expr {$d == $b*2 && $cadsnap == $b}] \
+check "G doubles then g halves cadsnap (round-trip, after binding)" [expr {$d == $b*2 && $cadsnap == $b}] \
   "($b -> $d -> $cadsnap)"
+xschem unbind key 71 0 canvas; xschem unbind key 103 0 canvas
 # T (toggle_ignore) has no clean observable: assert it dispatches without error
 check "T (toggle_ignore) dispatches without error" [expr {![catch {keyat $cx $cy 84}]}] {}
 
