@@ -14,6 +14,71 @@ Newest entries on top.
 
 ---
 
+## Q19. Where are the net-highlight keys `9`/`8`/`0` defined, and how do I reassign them?
+
+- **Asked:** 2026-06-24
+- **Project state:** branch `fluid-editing` @ `0934579e`. Net-highlight-styles plan
+  (`claude_suggs/plan_net_hilight_styles.md`): Pass 1 (Phases 1–4) + Pass 1.5 (tilted
+  stripes) complete; only Pass 2 (animation) remains. Spec: `specs/net_hilight_styles.md`.
+
+**They are three plain Tk bindings in `src/cadence_style_rc` (lines 81–83), each firing one
+`xschem` subcommand:**
+
+```tcl
+bind .drw <Key-9> {xschem hilight_net_interactive;   break}   ;# highlight net(s)
+bind .drw <Key-8> {xschem unhilight_net_interactive; break}   ;# remove a specific highlight
+bind .drw <Key-0> {xschem unhilight_all;             break}   ;# remove ALL highlights
+```
+
+| Key | Command | Behavior |
+|---|---|---|
+| `9` | `xschem hilight_net_interactive` | noun-verb if a net/wire/label is selected (highlight it, advancing the style each press, selection kept); else verb-noun click-to-highlight mode, ESC to end |
+| `8` | `xschem unhilight_net_interactive` | remove highlight on the selection, or click-to-remove mode |
+| `0` | `xschem unhilight_all` | clear all net highlights |
+
+The trailing **`break` is load-bearing**: it stops the digit from also reaching the C key
+dispatcher, where bare `0` toggles pin logic level (`8`/`9` are no-ops there).
+
+**Architectural note — these are NOT in the data-driven action registry.** Unlike the
+snap/grid actions of Q17/Q18 (which are registered `ActionDef`s bound via `xschem bind key
+<keysym> …`), `9`/`8`/`0` are direct **Tk `bind .drw`** lines (the "Tier A" recipe of Q17).
+So `xschem bind` / `xschem bindings dump` / `xschem unbind` neither list nor manage them —
+you reassign them by editing the Tk binding, not the registry. (The three *commands* are
+real `xschem` subcommands in `scheduler.c`; only the key→command wiring lives in the rc.)
+
+**To reassign — edit the Tk bind in `cadence_style_rc`, your `~/.xschem/xschemrc`, or a
+`--script` file:**
+
+1. **Free the old key** (optional): delete or comment out the `bind .drw <Key-9> …` line, or
+   re-point it. (To make the old digit do nothing at all, leave a `bind .drw <Key-9> {break}`.)
+2. **Bind the new key** to the same command, keeping `break`:
+   ```tcl
+   # e.g. move "highlight net" from 9 to F5, and "clear all" from 0 to Shift-F5
+   bind .drw <Key-F5>       {xschem hilight_net_interactive; break}
+   bind .drw <Shift-Key-F5> {xschem unhilight_all;           break}
+   ```
+3. Re-source the rc (or restart). New/detached windows inherit it automatically —
+   `clone_canvas_bindings` (`xschem.tcl:10932`, issue 0020) copies `.drw` bindings to each
+   new canvas.
+
+**Gotchas.**
+- Bind by the **keysym the chord actually emits**: Shift changes it (on a US layout `Shift-9`
+  is `parenleft`, not `9`), so `bind .drw <Key-parenleft> …`, not `<Shift-Key-9>`. Run `xev`
+  (or `wish`'s `bind . <Key> {puts %K}`) to read a key's keysym.
+- The command is the stable part — you can wire `hilight_net_interactive` to **any** key,
+  or even a mouse button (`bind .drw <Button-2> {xschem hilight_net_interactive; break}`) or a
+  menu entry; only the trigger changes.
+- These bindings live in `cadence_style_rc`, so they exist only when that rc is sourced. To
+  have them everywhere, move the three lines into your `~/.xschem/xschemrc`.
+
+**If you instead want them in the remappable registry** (so they show in `bindings dump` and
+take CSV rows), that's the Q17 **Tier B** path: register `ActionDef`s wrapping the three
+commands in `callback.c`, then `xschem bind key 57 0 canvas net.hilight` (etc.). That needs a
+recompile and is only worth it if you want registry-managed remapping; for a personal key
+swap, the Tk `bind` edit above is the one-line, no-recompile answer.
+
+---
+
 ## Q18. Some keyboard shortcuts stopped working — `g`/`G` (snap), `Ctrl-g`, `Alt-g`, `%` (grid). Where did they go, and how do I get them back?
 
 - **Asked:** 2026-06-23
