@@ -1150,6 +1150,7 @@ void enable_layers(void)
       }
     }
   }
+  build_net_hilight_styles(); /* keep net hilight style table in sync with active layers */
 }
 
 

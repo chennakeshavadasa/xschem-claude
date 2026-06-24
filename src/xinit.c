@@ -257,7 +257,7 @@ static int err(Display *display, XErrorEvent *xev)
  return 0;
 }
 
-static unsigned int  find_best_color(char colorname[])
+unsigned int find_best_color(char colorname[])
 {
 #ifdef __unix__
  int i;
@@ -300,6 +300,7 @@ static unsigned int  find_best_color(char colorname[])
  Tk_Window mainwindow = Tk_MainWindow(interp);
  XColor *xc = Tk_GetColor(interp, mainwindow, colorname);
  /* if (XAllocColor(display, colormap, xc)) return(xc->pixel); */
+ if(!xc) return 0; /* Tk_GetColor() returns NULL for an invalid color name */
  return xc->pixel;
 #endif
 }
@@ -434,6 +435,7 @@ static void free_xschem_data()
   my_free(_ALLOC_ID_, &xctx->color_array);
   my_free(_ALLOC_ID_, &xctx->enable_layer);
   my_free(_ALLOC_ID_, &xctx->active_layer);
+  my_free(_ALLOC_ID_, &xctx->net_hilight_style);
   my_free(_ALLOC_ID_, &xctx->top_path);
   my_free(_ALLOC_ID_, &xctx->current_win_path);
   my_free(_ALLOC_ID_, &xctx->fill_type);
@@ -461,6 +463,9 @@ void create_gc(void)
    * style set in build_colors(). hover_type 0 = nothing currently outlined. */
   xctx->gc_hover = XCreateGC(display,xctx->window,0L,NULL);
   xctx->hover_type = 0;
+  /* dedicated scratch GC for net highlights; foreground/width/dash are set per
+   * wire at draw time from the active NetHilightStyle (see draw_hilight_wire). */
+  xctx->gc_hilight = XCreateGC(display,xctx->window,0L,NULL);
 }
 
 void free_gc()
@@ -472,6 +477,7 @@ void free_gc()
   }
   XFreeGC(display,xctx->gc_scope);
   XFreeGC(display,xctx->gc_hover);
+  XFreeGC(display,xctx->gc_hilight);
 }
 
 static void alloc_xschem_data(const char *top_path, const char *win_path)
@@ -1143,6 +1149,9 @@ void set_clip_mask(int what)
     }
     #if 1 /* set to 0 to emulate Windows that does not have this function */
     XSetClipRectangles(display, xctx->gctiled, 0,0, xctx->xrect, 1, Unsorted);
+    /* net highlight scratch GC must honor the same bbox clip as the layer GCs,
+     * else highlights smear outside a partial/bbox-bounded redraw */
+    XSetClipRectangles(display, xctx->gc_hilight, 0,0, xctx->xrect, 1, Unsorted);
     #endif
     #if HAS_CAIRO==1
     cairo_rectangle(xctx->cairo_ctx, xctx->xrect[0].x, xctx->xrect[0].y,
@@ -1159,6 +1168,7 @@ void set_clip_mask(int what)
      XSetClipMask(display, xctx->gcstipple[i], None);
     }
     XSetClipMask(display, xctx->gctiled, None);
+    XSetClipMask(display, xctx->gc_hilight, None);
     #if HAS_CAIRO==1
     cairo_reset_clip(xctx->cairo_ctx);
     cairo_reset_clip(xctx->cairo_save_ctx);

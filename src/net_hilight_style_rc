@@ -1,0 +1,34 @@
+# Example net highlight style table (Cadence display.drf-like).
+#
+# Source it from your xschemrc / cadence_style_rc, or run directly:
+#   $> xschem --script /path/to/net_hilight_style_rc
+# then (or after editing the table at runtime):
+#   xschem update_net_hilight_style
+#
+# Changing the variable alone has NO effect: styles are compiled into the C engine,
+# so you must run 'xschem update_net_hilight_style' to (re)apply the table.
+#
+# Each row is a list of columns, in order:
+#   index   style id (0-based; list rows in order)
+#   color   a layer index (0..cadlayers-1) OR an X color name / #rrggbb
+#   width   line thickness; 1 = thinnest wire (same as a normal wire)
+#   dash    on/off run lengths as a list; {} = solid, e.g. {4 4} or {8 4 2 4}
+#   angle   stripe tilt in degrees, clamped to [0,45] (renders flat until a later
+#           release adds tilted-stripe rendering; out-of-range values warn)
+#   blink   blink period in ms (reserved for animation; ignored for now)
+#   anim    none | march_fwd | march_rev (reserved for animation; ignored for now)
+#   rate    animation rate per second (reserved for animation; ignored for now)
+#
+# There is no 10-style limit; the cursor cycles back to row 0 after the last row.
+
+set net_hilight_style {
+  {0   red         1   {}          0    0   none        0 }
+  {1   "#00ff00"   2   {6 6}       0    0   none        0 }
+  {2   yellow      3   {12 6}      0    0   none        0 }
+  {3   "#0099cc"   4   {16 8 4 8}  30   0   none        0 }
+  {4   magenta     2   {}          0    0   none        0 }
+  {5   12          1   {4 4}       0    0   none        0 }
+  {6   "#ff8800"   5   {20 10}     45   0   none        0 }
+}
+
+xschem update_net_hilight_style

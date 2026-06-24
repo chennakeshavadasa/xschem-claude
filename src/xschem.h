@@ -239,6 +239,8 @@ extern char win_temp_dir[PATH_MAX];
 #define GRABSCREEN 131072U  /* bit 17 */
 #define DESEL_CLICK 262144U /* bit 18 */
 #define DESEL_AREA 524288U  /* bit 19 */
+#define NET_HILIGHT 1048576U   /* bit 20: interactive net-highlight mode (click to hilight) */
+#define NET_UNHILIGHT 2097152U /* bit 21: interactive net-unhighlight mode (click to remove) */
 
 #define SELECTED 1U         /*  used in the .sel field for selected objs. */
 #define SELECTED1 2U        /*  first point selected... */
@@ -812,9 +814,29 @@ struct hilight_hashentry
   char *token;
   char *path; /* hierarchy path */
   int oldvalue;  /* used for FF simulation */
-  int value;  /* hilight color */
+  int value;  /* >=0: net highlight style index (see NetHilightStyle); <0: sim logic level */
   int time; /*delta-time for sims */
 };
+
+/* A user-customizable net highlight style (Cadence display.drf-like "packet").
+ * The per-net hilight value (Hilight_hashentry.value / xInstance.color), when >= 0,
+ * is a style index (taken modulo n_net_hilight_styles) into the style table.
+ * Wires render color (color_layer or custom pixel) + width + dash; stripe angle is
+ * clamped/stored but rendered flat until Pass 1.5; blink_ms/anim/rate_persec are
+ * reserved for Pass 2 animation (parsed/stored but inert). The on-screen draw uses the
+ * shared xctx->gc_hilight scratch GC. See specs/net_hilight_styles.md. */
+typedef struct {
+  int index;             /* style id (table order) */
+  int color_layer;       /* layer index used as the draw color, or < 0 for a custom pixel */
+  unsigned int color;    /* resolved X pixel, used when color_layer < 0 */
+  int width;             /* thickness in wire-width units; 1 = thinnest wire */
+  int dash_len;          /* number of entries in dash_arr (0 = solid) */
+  char dash_arr[16];     /* compiled dash pattern for XSetDashes */
+  int angle;             /* stripe tilt 0..45 deg (rendered Pass 1.5; flat for now) */
+  int blink_ms;          /* blink period ms, 0 = steady (Pass 2) */
+  int anim;              /* 0 none, 1 march_fwd, 2 march_rev (Pass 2) */
+  int rate_persec;       /* animation rate (Pass 2) */
+} NetHilightStyle;
 
 typedef struct {
   /* spice raw file specific data */
@@ -1051,12 +1073,16 @@ typedef struct {
   int hover_type;       /* hover highlight: currently-outlined object type (0 = none) */
   int hover_n;          /* hover highlight: its array index */
   int hover_col;        /* hover highlight: its layer (graphical types) */
+  GC gc_hilight;        /* net highlight scratch GC: reconfigured per wire from the
+                         * NetHilightStyle (color+width+dash) at draw time */
   char **color_array;
   unsigned int color_index[256];
   XColor xcolor_array[256];
   int *enable_layer;
   int n_active_layers;
   int *active_layer;
+  NetHilightStyle *net_hilight_style; /* customizable net highlight style table */
+  int n_net_hilight_styles;           /* number of styles (cursor wraps modulo this) */
   int crosshair_layer;
   char *undo_dirname;
   char *infowindow_text; /* ERC messages */
@@ -1072,6 +1098,8 @@ typedef struct {
   int drag_elements;
   int hilight_nets;
   int hilight_color;
+  int hilight_replace; /* hilight_net(): re-style an already-hilighted net + always advance
+                        * the style cursor (Cadence interactive 9/8); 0 = legacy no-replace */
   int hilight_time; /* timestamp for sims */
   unsigned int rectcolor; /* current layer */
   /* get_unnamed_node() */
@@ -1465,6 +1493,13 @@ extern int text_bbox(const char * str,double xscale, double yscale,
 extern void create_memory_cairo_ctx(int what);
 extern int hilight_graph_node(const char *node, int col);
 extern int get_color(int value);
+extern NetHilightStyle *get_hilight_style(int value);
+extern unsigned int get_hilight_pixel(int value);
+extern unsigned int find_best_color(char colorname[]);
+extern void build_net_hilight_styles(void);
+extern void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double linex1, double liney1,
+                              double linex2, double liney2, double bus);
+extern void draw_hilight_dot(unsigned int fg, double x, double y, double r);
 extern void incr_hilight_color(void);
 extern void get_inst_pin_coord(int i, int j, double *x, double *y);
 
@@ -1854,7 +1889,8 @@ extern void print_verilog_param(FILE *fd, int symbol);
 extern void hilight_net(int to_waveform);
 extern void logic_set(int v, int num, const char *net_name);
 extern int hilight_netname(const char *name, int fast);
-extern void unhilight_net();
+extern void unhilight_net(int keep_sel);
+extern void hilight_net_styled(void);
 extern void propagate_hilights(int set, int clear, int mode);
 extern void  select_connected_nets(int stop_at_junction);
 extern char *resolved_net(const char *net);

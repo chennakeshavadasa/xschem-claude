@@ -438,6 +438,22 @@
 #  "#ff7777" "#bfff81" "#00ffcc" "#ce0097" "#d2d46b"
 #  "#ef6158" "#fdb200"}
 
+###########################################################################
+#### NET HIGHLIGHT STYLES (Cadence display.drf-like) MAY BE DEFINED HERE
+###########################################################################
+# A list of rows, each:
+#   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
+# color = layer index (0..cadlayers-1) or X color name / #rrggbb; width 1 = thin wire;
+# dash-pattern = list of on/off runs ({} = solid); stripe-angle clamps to [0,45].
+# Empty (default) = one style per active layer (the classic highlight look). No 10-style
+# limit. After setting it, apply with:  xschem update_net_hilight_style
+# See <sharedir>/net_hilight_style_rc for a worked example.
+# set net_hilight_style {
+#   {0  red        1  {}     0  0 none 0}
+#   {1  "#00ff00"  2  {6 6}  0  0 none 0}
+# }
+# xschem update_net_hilight_style
+
 
 ###########################################################################
 #### CUSTOM FILL PATTERNS  MAY BE DEFINED HERE

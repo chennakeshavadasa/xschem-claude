@@ -2599,6 +2599,36 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
 }
 
 
+/* Cadence-style interactive net (un)highlight, shared by the '9' (add) and '8' (remove)
+ * commands which live in different first-letter dispatch groups. Noun-verb when a
+ * net/label/pin is selected (act on it; highlight keeps the selection and advances the
+ * style per net); else verb-noun: enter the click-loop mode with a statusbar + CIW
+ * prompt (clicks handled in callback.c::net_hilight_mode_click, ESC exits). */
+static void net_hilight_interactive(int add)
+{
+  int n, has_net = 0;
+  rebuild_selected_array();
+  for(n = 0; n < xctx->lastsel; ++n)
+    if(xctx->sel_array[n].type == WIRE || xctx->sel_array[n].type == ELEMENT) { has_net = 1; break; }
+  if(has_net) { /* noun-verb */
+    if(add) {
+      hilight_net_styled();           /* re-style + advance cursor per net (shared), keep selection */
+      redraw_hilights(0);
+    } else {
+      unhilight_net(1); /* noun-verb: remove highlight but keep the selection (like key 9) */
+    }
+  } else {      /* verb-noun: enter interactive mode */
+    if(add) { xctx->ui_state &= ~NET_UNHILIGHT; xctx->ui_state |= NET_HILIGHT; }
+    else    { xctx->ui_state &= ~NET_HILIGHT;   xctx->ui_state |= NET_UNHILIGHT; }
+    tclvareval(xctx->top_path, ".statusbar.10 configure -state active -text {",
+      add ? "HIGHLIGHT NET! (click a net or label, ESC to end) "
+          : "UNHIGHLIGHT NET! (click a net or label, ESC to end) ", "}", NULL);
+    tcleval(add
+      ? "if {[info procs ciw_echo] ne {}} {ciw_echo {Highlight net: click a net or label to highlight it; press ESC to end.}}"
+      : "if {[info procs ciw_echo] ne {}} {ciw_echo {Unhighlight net: click a highlighted net or label to clear it; press ESC to end.}}");
+  }
+}
+
 /* `xschem h...` commands, moved verbatim from the xschem() dispatcher
  * (dispatcher decomposition batch 3). Sets *cmd_found = 0 when argv[1]
  * matches no command in this group; early returns propagate unchanged. */
@@ -2753,6 +2783,17 @@ static int xschem_cmds_h(Tcl_Interp *interp, int argc, const char *argv[], int *
       redraw_hilights(0);
       Tcl_ResetResult(interp);
     }
+    /* hilight_net_interactive
+     *   Cadence-style key '9': noun-verb if a net/label/pin is selected (highlight it,
+     *   advancing the style cursor per net, leaving the selection intact); else verb-noun
+     *   (enter interactive highlight mode: each click highlights the net under the cursor
+     *   with the next style, until ESC). */
+    else if(!strcmp(argv[1], "hilight_net_interactive"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      net_hilight_interactive(1);
+      Tcl_ResetResult(interp);
+    }
     /* hilight_instname [-fast] inst
      *   Highlight instance 'inst'
      * if '-fast' is specified do not redraw
@@ -2812,20 +2853,34 @@ static int xschem_cmds_h(Tcl_Interp *interp, int argc, const char *argv[], int *
      *   if '-fast' is given do not redraw hilights after operation */
     else if(!strcmp(argv[1], "hilight_netname"))
     {
-      int ret = 0, fast = 0, i;
+      int ret = 0, fast = 0, i, style = 0, have_style = 0;
       const char *net = NULL;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       for(i = 2; i < argc; i++) {
         if(argv[i][0] == '-') {
           if(!strcmp(argv[i], "-fast")) {
             fast = 1;
+          } else if(!strcmp(argv[i], "-style") && i + 1 < argc) {
+            style = atoi(argv[++i]); /* explicit style index; does not advance the cursor */
+            have_style = 1;
           }
         } else {
           net = argv[i];
           break;
         }
       }
-      if(net) {
+      if(have_style && style < 0) {
+        Tcl_SetResult(interp, "hilight_netname: -style index must be >= 0", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      if(net && have_style) {
+        /* highlight with an explicit style: set the cursor, then restore it so the
+         * style cursor is neither used nor advanced (waveform-viewer / scripted bridge) */
+        int saved = xctx->hilight_color;
+        xctx->hilight_color = style;
+        ret = hilight_netname(net, fast);
+        xctx->hilight_color = saved;
+      } else if(net) {
         ret = hilight_netname(net,  fast);
       }
       Tcl_SetResult(interp, ret ? "1" : "0" , TCL_STATIC);
@@ -7943,7 +7998,18 @@ static int xschem_cmds_u(Tcl_Interp *interp, int argc, const char *argv[], int *
     else if(!strcmp(argv[1], "unhilight"))
     {
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
-      unhilight_net();
+      unhilight_net(0);
+    }
+
+    /* unhilight_net_interactive
+     *   Cadence-style key '8': noun-verb if a net/label/pin is selected (remove its
+     *   highlight); else verb-noun (enter interactive unhighlight mode: each click
+     *   removes the highlight on the net under the cursor, until ESC). */
+    else if(!strcmp(argv[1], "unhilight_net_interactive"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      net_hilight_interactive(0);
+      Tcl_ResetResult(interp);
     }
 
     /* unselect_all [draw]
@@ -7963,6 +8029,17 @@ static int xschem_cmds_u(Tcl_Interp *interp, int argc, const char *argv[], int *
     {
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       unselect_attached_floaters();
+    }
+    /* update_net_hilight_style
+     *   Recompile the net highlight style table from the 'net_hilight_style' Tcl
+     *   variable (after editing it) and redraw. Required: changing the variable
+     *   alone has no effect, since styles are compiled into the C table.
+     *   Out-of-range stripe angles are clamped to [0,45] with a warning. */
+    else if(!strcmp(argv[1], "update_net_hilight_style"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      build_net_hilight_styles();
+      draw();
     }
     /* update_all_sym_bboxes
      *   Update all symbol bounding boxes */

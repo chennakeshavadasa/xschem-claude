@@ -177,6 +177,11 @@ void abort_operation(void)
   dbg(1, "abort_operation(): Escape: ui_state=%d, last_command=%d\n", xctx->ui_state, xctx->last_command);
   xctx->constr_mv=0;
 
+  /* leaving interactive net-(un)highlight mode: clear its persistent statusbar prompt
+   * (abort_operation does not otherwise refresh the statusbar) */
+  if(xctx->ui_state & (NET_HILIGHT | NET_UNHILIGHT))
+    tclvareval(xctx->top_path, ".statusbar.10 configure -state normal -text { }", NULL);
+
   if(xctx->ui_state & STARTPOLYGON) new_polygon(END, xctx->mousex_snap, xctx->mousey_snap);
   if(xctx->last_command && xctx->ui_state & (STARTWIRE | STARTLINE)) {
     if(xctx->ui_state & STARTWIRE) new_wire(RUBBER|CLEAR, xctx->mousex_snap, xctx->mousey_snap);
@@ -218,6 +223,37 @@ void abort_operation(void)
   xctx->ui_state = 0;
   unselect_all(1);
   draw();
+}
+
+/* One click in interactive net-(un)highlight mode: act on the net/label/pin under the
+ * cursor and stay in the mode (ESC exits via abort_operation). add!=0 highlights with
+ * the current style and advances the style cursor (per-net); add==0 removes the
+ * highlight. The clicked object is not left selected (transient). */
+static void net_hilight_mode_click(int add)
+{
+  /* unselect_all() and unhilight_net() reset ui_state to 0 when something is selected,
+   * which would drop us out of the mode after one click; save and restore the mode bit. */
+  unsigned int mode = xctx->ui_state & (NET_HILIGHT | NET_UNHILIGHT);
+  Selected sel = find_closest_obj(xctx->mousex, xctx->mousey, 0);
+  /* act only on nets: a wire, or a net-bearing instance (label/pin), never a plain
+   * device body (which hilight_net would highlight by its first pin, surprising the user) */
+  if(sel.type == ELEMENT) {
+    const char *t;
+    if(xctx->inst[sel.n].ptr < 0) return; /* unbound/missing symbol: no symbol to inspect */
+    t = (xctx->inst[sel.n].ptr + xctx->sym)->type;
+    if(!(t && IS_LABEL_SH_OR_PIN(t))) return;
+  } else if(sel.type != WIRE) return;
+  unselect_all(0);
+  select_object(xctx->mousex, xctx->mousey, SELECTED, 0, &sel);
+  rebuild_selected_array();
+  if(add) {
+    hilight_net_styled();             /* re-style + advance cursor per net (shared) */
+    unselect_all(0);                  /* transient: leave nothing selected */
+    redraw_hilights(0);
+  } else {
+    unhilight_net(0);                 /* removes highlight; also unselects + redraws */
+  }
+  xctx->ui_state |= mode;             /* stay in the mode until ESC */
 }
 
 static void start_place_symbol(void)
@@ -5300,6 +5336,13 @@ static void handle_button_press(int event, int state, int rstate, KeySym key, in
      xctx->mouse_moved = 0;
      xctx->drag_elements = 0;
 
+     /* interactive net-(un)highlight mode: a click acts on the net under the cursor
+      * and stays in the mode until ESC (no normal selection happens) */
+     if(xctx->ui_state & (NET_HILIGHT | NET_UNHILIGHT)) {
+       net_hilight_mode_click((xctx->ui_state & NET_HILIGHT) ? 1 : 0);
+       return;
+     }
+
      /* start another wire or line in persistent mode */
      if(!xctx->readonly && tclgetboolvar("persistent_command") && xctx->last_command) {
        if(xctx->last_command == STARTLINE)  start_line(xctx->mousex_snap, xctx->mousey_snap);
@@ -5761,6 +5804,10 @@ static void update_statusbar(int persistent_command, int wire_draw_active)
      tclvareval(xctx->top_path, ".statusbar.10 configure -state active -text {DRAW ARC! }", NULL);
   } else if(rect_draw_active) {
      tclvareval(xctx->top_path, ".statusbar.10 configure -state active -text {DRAW RECTANGLE! }", NULL);
+  } else if(xctx->ui_state & NET_HILIGHT) {
+     tclvareval(xctx->top_path, ".statusbar.10 configure -state active -text {HIGHLIGHT NET! (click a net or label, ESC to end) }", NULL);
+  } else if(xctx->ui_state & NET_UNHILIGHT) {
+     tclvareval(xctx->top_path, ".statusbar.10 configure -state active -text {UNHIGHLIGHT NET! (click a net or label, ESC to end) }", NULL);
   } else {
      tclvareval(xctx->top_path, ".statusbar.10 configure -state normal -text { }", NULL);
   }

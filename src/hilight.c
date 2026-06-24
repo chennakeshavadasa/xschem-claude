@@ -356,22 +356,166 @@ int hilight_graph_node(const char *node, int col)
  * xctx->n_active_layers is the total number of layers for hilights.
  * standard xschem conf: cadlayers=22, xctx->n_active_layers=15 if no disabled layers.
  */
+/* free the current style table (styles hold no heap members) */
+static void free_net_hilight_styles(void)
+{
+  my_free(_ALLOC_ID_, &xctx->net_hilight_style);
+  xctx->n_net_hilight_styles = 0;
+}
+
+/* layer-derived default table: one style per active layer (color_layer=active_layer[i]),
+ * width 1, solid. Reproduces the legacy layer-color cycling, so highlighting is unchanged
+ * when the user provides no 'net_hilight_style' table. */
+static void default_net_hilight_styles(void)
+{
+  int i, n = xctx->n_active_layers > 0 ? xctx->n_active_layers : 1;
+  xctx->net_hilight_style = my_calloc(_ALLOC_ID_, n, sizeof(NetHilightStyle));
+  xctx->n_net_hilight_styles = n;
+  for(i = 0; i < n; ++i) {
+    NetHilightStyle *s = &xctx->net_hilight_style[i];  /* my_calloc zeroes the rest */
+    s->index = i;
+    s->color_layer = (xctx->n_active_layers > 0) ? xctx->active_layer[i]
+                                                 : (cadlayers > 5 ? 5 : cadlayers - 1);
+    s->width = 1;
+  }
+}
+
+/* Parse the user 'net_hilight_style' Tcl table: a list of rows, each row a list
+ *   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
+ * color: a layer index in [0,cadlayers) OR an X color name / #rrggbb (resolved to a pixel).
+ * dash-pattern: a list of on/off run lengths ({} = solid). stripe-angle clamped to [0,45]
+ * (warned). blink_ms/anim/rate_persec stored for Pass 2 animation (inert in Pass 1).
+ * Returns 1 if a non-empty table was built, 0 otherwise (caller falls back to default). */
+static int parse_net_hilight_styles(const char *tab)
+{
+  int nrows = 0, j;
+  const char **rows = NULL;
+  if(!interp) return 0;
+  if(Tcl_SplitList(interp, tab, &nrows, &rows) != TCL_OK) return 0;
+  if(nrows <= 0) { Tcl_Free((char *)rows); return 0; }
+  xctx->net_hilight_style = my_calloc(_ALLOC_ID_, nrows, sizeof(NetHilightStyle));
+  xctx->n_net_hilight_styles = nrows;
+  for(j = 0; j < nrows; ++j) {
+    NetHilightStyle *s = &xctx->net_hilight_style[j]; /* my_calloc zeroed all fields */
+    int nf = 0; const char **f = NULL;
+    s->index = j;
+    s->color_layer = cadlayers > 5 ? 5 : cadlayers - 1; /* sane default until parsed */
+    s->width = 1;
+    if(Tcl_SplitList(interp, rows[j], &nf, &f) != TCL_OK) continue;
+    if(nf > 0) s->index = atoi(f[0]);
+    if(nf > 1) { /* color: a pure integer is a layer index (clamped); else a name / #rrggbb */
+      char *endp; long lv = strtol(f[1], &endp, 10);
+      if(*endp == '\0' && f[1][0]) { /* whole token is an integer -> layer index, clamped */
+        if(lv < 0) lv = 0;
+        if(lv >= cadlayers) lv = cadlayers - 1;
+        s->color_layer = (int)lv;
+      } else {
+        /* resolve a color name/#rrggbb to a pixel; needs X (skip when headless: no
+         * rendering happens there, and find_best_color() would deref a NULL display) */
+        s->color = has_x ? find_best_color((char *)f[1]) : 0;
+        s->color_layer = -1;
+      }
+    }
+    if(nf > 2) { s->width = atoi(f[2]); if(s->width < 1) s->width = 1; if(s->width > 100) s->width = 100; }
+    if(nf > 3 && f[3][0]) { /* dash pattern: list of on/off run lengths */
+      int nd = 0, k; const char **dd = NULL;
+      if(Tcl_SplitList(interp, f[3], &nd, &dd) == TCL_OK) {
+        for(k = 0; k < nd && s->dash_len < (int)sizeof(s->dash_arr); ++k) {
+          int dv = atoi(dd[k]); if(dv < 1) dv = 1; if(dv > 255) dv = 255;
+          s->dash_arr[s->dash_len++] = (char)dv;
+        }
+        Tcl_Free((char *)dd);
+      }
+    }
+    if(nf > 4) { /* stripe-angle-deg: clamp to [0,45] with a warning (render: Pass 1.5) */
+      int ang = atoi(f[4]);
+      if(ang < 0 || ang > 45) {
+        int cl = ang < 0 ? 0 : 45;
+        char msg[200];
+        my_snprintf(msg, S(msg),
+          "net_hilight_style: style %d stripe-angle %d out of range [0,45], clamped to %d",
+          s->index, ang, cl);
+        dbg(0, "%s\n", msg);
+        if(has_x) tclvareval("if {[info procs ciw_echo] ne {}} {ciw_echo {", msg, "}}", NULL);
+        ang = cl;
+      }
+      s->angle = ang;
+    }
+    if(nf > 5) s->blink_ms = atoi(f[5]);                        /* Pass 2 (stored, inert) */
+    if(nf > 6) {                                                 /* Pass 2 (stored, inert) */
+      if(!strcmp(f[6], "march_fwd")) s->anim = 1;
+      else if(!strcmp(f[6], "march_rev")) s->anim = 2;
+    }
+    if(nf > 7) s->rate_persec = atoi(f[7]);                     /* Pass 2 (stored, inert) */
+    Tcl_Free((char *)f);
+  }
+  Tcl_Free((char *)rows);
+  return 1;
+}
+
+/* (Re)build the net highlight style table from the user 'net_hilight_style' Tcl variable
+ * if set & non-empty, else from the layer-derived default. Called from enable_layers()
+ * (so it tracks active layers / a freshly-set table) and from the
+ * 'xschem update_net_hilight_style' command after the user edits the table. */
+void build_net_hilight_styles(void)
+{
+  const char *tab;
+  free_net_hilight_styles();
+  tab = interp ? tclgetvar("net_hilight_style") : NULL;
+  if(!(tab && tab[0] && parse_net_hilight_styles(tab)))
+    default_net_hilight_styles();
+  dbg(1, "build_net_hilight_styles(): %d styles\n", xctx->n_net_hilight_styles);
+}
+
+/* Resolve a net-hilight value (>= 0) to its style, wrapping modulo the table size.
+ * Negative values are sim logic levels and never index the style table (see get_color). */
+NetHilightStyle *get_hilight_style(int value)
+{
+  int n;
+  if(!xctx->net_hilight_style || xctx->n_net_hilight_styles <= 0) build_net_hilight_styles();
+  n = xctx->n_net_hilight_styles;
+  /* sim logic levels (value < 0) are resolved to a color via get_color(), never here;
+   * map any stray negative to 0 (avoids signed-negation UB for INT_MIN, stays in bounds) */
+  if(value < 0) value = 0;
+  return &xctx->net_hilight_style[value % n];
+}
+
 int get_color(int value)
 {
-  int x;
+  NetHilightStyle *s;
+  if(value < 0) return (-value) % cadlayers ; /* sim logic level: unchanged */
+  s = get_hilight_style(value);
+  /* get_color() must return a valid layer index: it feeds layer-indexed consumers
+   * (SVG/PS export, ngspice plot colors). A custom-RGB style has no layer
+   * (color_layer < 0); fall back to a sane layer there. On-screen rendering uses the
+   * exact pixel via get_hilight_pixel() instead. */
+  if(s->color_layer >= 0) return s->color_layer;
+  return cadlayers > 5 ? 5 : cadlayers - 1;
+}
 
-  if(value < 0) return (-value) % cadlayers ;
-  if(xctx->n_active_layers) {
-    x = value%(xctx->n_active_layers);
-    return xctx->active_layer[x];
-  } else {
-    return cadlayers > 5 ? 5 : cadlayers -1; /* desperate attempt to return a decent color */
-  }
+/* Pixel for a hilight value given its already-resolved style (st may be NULL when
+ * value < 0). Single source of truth for value->pixel, shared by get_hilight_pixel()
+ * and the draw_hilight_net() hot loop (which resolves the style once):
+ *  - value < 0  : sim logic level -> layer (-value)%cadlayers color (legacy)
+ *  - layer style: color_index[color_layer]   (theme-aware)
+ *  - custom style: the style's pre-resolved RGB pixel (color_layer < 0) */
+static unsigned int hilight_pixel_of(int value, NetHilightStyle *st)
+{
+  if(value < 0) return xctx->color_index[(-value) % cadlayers];
+  return (st->color_layer >= 0) ? xctx->color_index[st->color_layer] : st->color;
+}
+
+/* Resolve a net hilight value to its X pixel color (used for both the wire body and
+ * its junction dots so they never diverge). */
+unsigned int get_hilight_pixel(int value)
+{
+  return hilight_pixel_of(value, value >= 0 ? get_hilight_style(value) : NULL);
 }
 
 void incr_hilight_color(void)
 {
-  xctx->hilight_color = (xctx->hilight_color + 1) % (xctx->n_active_layers * cadlayers);
+  int n = xctx->n_net_hilight_styles > 0 ? xctx->n_net_hilight_styles : 1;
+  xctx->hilight_color = (xctx->hilight_color + 1) % n;
   dbg(1, "incr_hilight_color(): xctx->hilight_color=%d\n", xctx->hilight_color);
 }
 
@@ -1928,6 +2072,11 @@ void hilight_net(int viewer)
   int sim_is_xyce;
   int incr_hi;
   char *s = NULL;
+  /* hilight_replace (Cadence interactive 9/8): re-style an already-hilighted net instead
+   * of leaving it (XINSERT vs XINSERT_NOREPLACE) and always advance the style cursor, so
+   * pressing 9 again on the same net steps to the next style (spec net_hilight_styles §5.4) */
+  int what = xctx->hilight_replace ? XINSERT : XINSERT_NOREPLACE;
+  int adv  = xctx->hilight_replace; /* force per-net advance even when nothing newly added */
   incr_hi = tclgetboolvar("incr_hilight");
   prepare_netlist_structs(0);
   dbg(1, "hilight_net(): entering\n");
@@ -1941,7 +2090,7 @@ void hilight_net(int viewer)
          /* sets xctx->hilight_nets=1 */
      if(!xctx->wire[n].node) break;
      dbg(1, "hilight_net(): wire[n].node=%s, incr_hi=%d\n", xctx->wire[n].node, incr_hi);
-     if(!bus_hilight_hash_lookup(xctx->wire[n].node, xctx->hilight_color, XINSERT_NOREPLACE)) {
+     if(!bus_hilight_hash_lookup(xctx->wire[n].node, xctx->hilight_color, what)) {
        if(viewer == XSCHEM_GRAPH) {
          send_net_to_graph(&s, sim_is_xyce, xctx->wire[n].node);
          dbg(1, "1 hilight_net(): send_net_to_graph() sets s=%s\n", s);
@@ -1949,7 +2098,7 @@ void hilight_net(int viewer)
        } else if(viewer == GAW) send_net_to_gaw(sim_is_xyce, xctx->wire[n].node);
        else if(viewer == BESPICE) send_net_to_bespice(sim_is_xyce, xctx->wire[n].node);
      }
-     if(xctx->some_nets_added && incr_hi) {
+     if((xctx->some_nets_added || adv) && incr_hi) {
        incr_hilight_color();
      }
      break;
@@ -1958,7 +2107,7 @@ void hilight_net(int viewer)
      if( type && xctx->inst[n].node && IS_LABEL_SH_OR_PIN(type) ) { /* instance must have a pin! */
            /* sets xctx->hilight_nets=1 */
        dbg(1, "hilight_net(): node[0]=%s, incr_hi=%d\n", xctx->inst[n].node[0], incr_hi);
-       if(!bus_hilight_hash_lookup(xctx->inst[n].node[0], xctx->hilight_color, XINSERT_NOREPLACE)) {
+       if(!bus_hilight_hash_lookup(xctx->inst[n].node[0], xctx->hilight_color, what)) {
          if(viewer == XSCHEM_GRAPH) {
            send_net_to_graph(&s, sim_is_xyce, xctx->inst[n].node[0]);
            dbg(1, "2 hilight_net(): send_net_to_graph() sets s=%s\n", s);
@@ -1967,7 +2116,7 @@ void hilight_net(int viewer)
          else if(viewer == GAW) send_net_to_gaw(sim_is_xyce, xctx->inst[n].node[0]);
          else if(viewer == BESPICE) send_net_to_bespice(sim_is_xyce, xctx->inst[n].node[0]);
        }
-       if(xctx->some_nets_added && incr_hi) {
+       if((xctx->some_nets_added || adv) && incr_hi) {
          incr_hilight_color();
        }
      } else {
@@ -1996,7 +2145,21 @@ void hilight_net(int viewer)
   tcleval("if { [info exists gaw_fd] } {close $gaw_fd; unset gaw_fd}\n");
 }
 
-void unhilight_net(void)
+/* Highlight the current selection Cadence-style (interactive key 9 / click-in-mode):
+ * re-style nets that are already highlighted and advance the style cursor per net.
+ * Forces incr_hilight on for the duration. Shared by the scheduler command and the
+ * callback click handler so both behave identically. */
+void hilight_net_styled(void)
+{
+  int save = tclgetboolvar("incr_hilight");
+  tclsetboolvar("incr_hilight", 1);
+  xctx->hilight_replace = 1;
+  hilight_net(0);
+  xctx->hilight_replace = 0;
+  tclsetboolvar("incr_hilight", save);
+}
+
+void unhilight_net(int keep_sel)
 {
   int i,n;
   char *type;
@@ -2028,7 +2191,7 @@ void unhilight_net(void)
   propagate_hilights(0, 1, XINSERT_NOREPLACE); /* will also clear xctx->hilight_nets if nothing left hilighted */
   draw();
 
-  unselect_all(1);
+  if(!keep_sel) unselect_all(1); /* keep_sel: leave the selection intact (Cadence key 8) */
 }
 
 /* redraws the whole affected rectangle, this avoids artifacts due to antialiased text */
@@ -2226,21 +2389,17 @@ void draw_hilight_net(int on_window)
      if(i >= xctx->wires) break;
    }
    if( (entry = bus_hilight_hash_lookup(xctx->wire[i].node, 0, XLOOKUP)) ) {
-     if(xctx->wire[i].bus == -1.0)
-       drawline(get_color(entry->value), THICK,
-          xctx->wire[i].x1, xctx->wire[i].y1, xctx->wire[i].x2, xctx->wire[i].y2, xctx->wire[i].bus, 0, NULL);
-     else
-       drawline(get_color(entry->value), NOW,
-          xctx->wire[i].x1, xctx->wire[i].y1, xctx->wire[i].x2, xctx->wire[i].y2, xctx->wire[i].bus, 0, NULL);
+     /* Resolve the style once, then derive one pixel for both body and dots (handles
+      * logic levels, layer-index styles and custom RGB styles). The style supplies
+      * width + dash (NULL for logic levels -> width 1 solid). Width 1 solid reproduces
+      * the legacy rendering exactly. */
+     NetHilightStyle *st = (entry->value >= 0) ? get_hilight_style(entry->value) : NULL;
+     unsigned int fg = hilight_pixel_of(entry->value, st);
+     draw_hilight_wire(fg, st,
+          xctx->wire[i].x1, xctx->wire[i].y1, xctx->wire[i].x2, xctx->wire[i].y2, xctx->wire[i].bus);
      if(xctx->cadhalfdotsize*xctx->mooz>=0.7) {
-       if( xctx->wire[i].end1 >1 ) {
-         filledarc(get_color(entry->value), NOW, xctx->wire[i].x1, xctx->wire[i].y1,
-            xctx->cadhalfdotsize, 0, 360);
-       }
-       if( xctx->wire[i].end2 >1 ) {
-         filledarc(get_color(entry->value), NOW, xctx->wire[i].x2, xctx->wire[i].y2,
-            xctx->cadhalfdotsize, 0, 360);
-       }
+       if( xctx->wire[i].end1 >1 ) draw_hilight_dot(fg, xctx->wire[i].x1, xctx->wire[i].y1, xctx->cadhalfdotsize);
+       if( xctx->wire[i].end2 >1 ) draw_hilight_dot(fg, xctx->wire[i].x2, xctx->wire[i].y2, xctx->cadhalfdotsize);
      }
    }
  }

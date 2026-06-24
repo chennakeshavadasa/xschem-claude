@@ -70,6 +70,18 @@ xschem bind wheel down 0    canvas view.pan_down
 # -> C dispatcher, which otherwise maps 'i' to descend-into-symbol.
 bind .drw <Key-i> {xschem create_instance; break}
 
+# Cadence-style net highlighting (see specs/net_hilight_styles.md):
+#   9 : highlight net. If a net/wire/label is selected, highlight it (advancing the
+#       style each time, leaving the selection intact); otherwise enter highlight mode
+#       and click nets/labels to highlight, ESC to end.
+#   8 : remove a specific net highlight (noun-verb on the selection, or click-to-remove
+#       mode otherwise).
+#   0 : remove ALL net highlights.
+# `break` stops the digit reaching the C dispatcher (where 0 toggles pin logic level).
+bind .drw <Key-9> {xschem hilight_net_interactive;   break}
+bind .drw <Key-8> {xschem unhilight_net_interactive; break}
+bind .drw <Key-0> {xschem unhilight_all;             break}
+
 # --------------------------------------------------------------------------
 # Cadence-style key bindings (library navigation + hierarchy).
 # See specs/cadence_bindkey_plan.md. Pure Tcl, no C changes: each bind lives on

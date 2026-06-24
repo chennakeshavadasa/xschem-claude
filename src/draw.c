@@ -1449,6 +1449,73 @@ void drawline(int c, int what, double linex1, double liney1, double linex2, doub
  }
 }
 
+/* Draw one highlighted wire segment in the given X pixel color (resolved by the caller
+ * via get_hilight_pixel(), which handles sim logic levels, layer-index styles and custom
+ * RGB styles uniformly), with width and dash taken from the NetHilightStyle (st may be
+ * NULL -> width 1, solid). Renders through the dedicated xctx->gc_hilight scratch GC
+ * (layer GCs untouched), to both the window and the save pixmap (highlights are part of
+ * the rendered schematic, so they must survive expose/blit). The style width multiplies
+ * the bus-aware base width used by drawline(), so width 1 reproduces legacy widths;
+ * cap/join also mirror drawline() (projecting/miter for bus-mult wires). gc_hilight is
+ * given the bbox clip by set_clip_mask(). dash_len 0 = solid; else a full XSetDashes
+ * pattern. (Stripe angle clamps/stores in the style but renders flat until Pass 1.5.) */
+void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double linex1, double liney1,
+                       double linex2, double liney2, double bus)
+{
+  double x1, y1, x2, y2;
+  int width, base, mult, cap, join;
+  GC gc = xctx->gc_hilight;
+
+  if(!has_x) return;
+  /* bus-aware base width, matching drawline() so width 1 == legacy highlight width */
+  if(bus == -1.0) base = INT_BUS_WIDTH(xctx->lw);
+  else if(bus > 0.0) base = XLINEWIDTH(bus * xctx->mooz);
+  else base = XLINEWIDTH(xctx->lw);
+  mult = (st && st->width >= 1) ? st->width : 1;
+  width = base * mult;
+  /* cap/join parity with drawline(): bus-mult (bus>0) wires use projecting/miter */
+  cap  = (bus > 0.0) ? CapProjecting : LINECAP;
+  join = (bus > 0.0) ? JoinMiter : LINEJOIN;
+
+  XSetForeground(display, gc, fg);
+  if(st && st->dash_len > 0) {
+    XSetLineAttributes(display, gc, width, xDashType, cap, join);
+    XSetDashes(display, gc, 0, st->dash_arr, st->dash_len);
+  } else {
+    XSetLineAttributes(display, gc, width, LineSolid, cap, join);
+  }
+
+  x1 = X_TO_SCREEN(linex1); y1 = Y_TO_SCREEN(liney1);
+  x2 = X_TO_SCREEN(linex2); y2 = Y_TO_SCREEN(liney2);
+  if( clip(&x1, &y1, &x2, &y2) ) {
+    if(xctx->draw_window) XDrawLine(display, xctx->window, gc, (int)x1, (int)y1, (int)x2, (int)y2);
+    if(xctx->draw_pixmap) XDrawLine(display, xctx->save_pixmap, gc, (int)x1, (int)y1, (int)x2, (int)y2);
+  }
+}
+
+/* Filled junction dot for a highlighted wire, in the same resolved pixel as the wire
+ * body (so body and dot never diverge), drawn through gc_hilight to window+pixmap. */
+void draw_hilight_dot(unsigned int fg, double x, double y, double r)
+{
+  double xx1, yy1, xx2, yy2, cx1, cy1, cx2, cy2;
+  GC gc = xctx->gc_hilight;
+  if(!has_x) return;
+  xx1 = X_TO_SCREEN(x - r); yy1 = Y_TO_SCREEN(y - r);
+  xx2 = X_TO_SCREEN(x + r); yy2 = Y_TO_SCREEN(y + r);
+  /* skip dots entirely outside the viewport, like filledarc() did: gc_hilight has no
+   * clip mask during a full redraw, and huge off-screen coords wrap in XFillArc's
+   * 16-bit fields (stray smear). */
+  cx1 = xx1; cy1 = yy1; cx2 = xx2; cy2 = yy2;
+  if(!rectclip(xctx->areax1, xctx->areay1, xctx->areax2, xctx->areay2, &cx1, &cy1, &cx2, &cy2)) return;
+  XSetForeground(display, gc, fg);
+  if(xctx->draw_window)
+    XFillArc(display, xctx->window, gc, (int)xx1, (int)yy1,
+             (int)(xx2 - xx1), (int)(yy2 - yy1), 0, 360 * 64);
+  if(xctx->draw_pixmap)
+    XFillArc(display, xctx->save_pixmap, gc, (int)xx1, (int)yy1,
+             (int)(xx2 - xx1), (int)(yy2 - yy1), 0, 360 * 64);
+}
+
 void drawtempline(GC gc, int what, double linex1,double liney1,double linex2,double liney2)
 {
   static int i = 0;
