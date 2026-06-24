@@ -96,7 +96,7 @@ bind .drw <Key-0> {xschem unhilight_all;             break}
 set _ut [file join [file dirname [file normalize [info script]]] .. utils]
 source [file join $_ut lib_mgr_helpers.tcl]
 source [file join $_ut cadence_nav.tcl]
-unset _ut
+# moved unset _ut
 
 # Ctrl-Alt-S : show the selected instance in the Library Manager
 bind .drw <Control-Alt-Key-s>   {locate_selected_in_libmgr;       break}
@@ -156,3 +156,8 @@ xschem bind key 103 ctrl canvas view.toggle_draw_grid
 #                                                             ;# is now grid; 115='s', pick
 #                                                             ;# any unused chord)
 # xschem bind key 37  0   canvas view.toggle_draw_grid        ;# also toggle grid with '%'
+
+# net highlighting tweaks - just testing..
+source [file join $_ut display.tcl]
+unset _ut
+
