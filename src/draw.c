@@ -1449,6 +1449,132 @@ void drawline(int c, int what, double linex1, double liney1, double linex2, doub
  }
 }
 
+#if HAS_CAIRO==1
+/* Set a cairo source from a net-hilight style's color. A layer-index style reads the RGB
+ * already cached in xctx->xcolor_array (no XQueryColor server round-trip, and consistent
+ * with the rest of the rendered net, which set_cairo_color() colors the same way). A
+ * custom-RGB style (color_layer < 0) has no layer to read, so its pixel is queried through
+ * the colormap ONCE and the RGB cached on the style (st->rgb_resolved); the cache is reset
+ * whenever the style table is rebuilt (update_net_hilight_style re-resolves .color), so it
+ * tracks colorscheme changes the same way .color does. fg is only a defensive fallback for
+ * the (unreached) st==NULL case. */
+static void hilight_cairo_set_source(cairo_t *ct, NetHilightStyle *st, unsigned int fg)
+{
+  unsigned short r, g, b;
+  if(st && st->color_layer >= 0) {
+    r = xctx->xcolor_array[st->color_layer].red;
+    g = xctx->xcolor_array[st->color_layer].green;
+    b = xctx->xcolor_array[st->color_layer].blue;
+  } else if(st) {
+    resolve_hilight_style_rgb(st);     /* resolve the custom pixel once, then reuse */
+    r = st->cr; g = st->cg; b = st->cb;
+  } else {
+    XColor xc;
+    xc.pixel = fg;
+    XQueryColor(display, colormap, &xc);
+    r = xc.red; g = xc.green; b = xc.blue;
+  }
+  cairo_set_source_rgb(ct, (double)r / 65535.0, (double)g / 65535.0, (double)b / 65535.0);
+}
+
+/* Pass 1.5 tilted-stripe rendering. Render a highlighted thick wire's dash pattern as
+ * "stripes" sheared by st->angle (0..45 deg) instead of perpendicular dash bands (which
+ * is all native XSetDashes can do). Works in a wire-local frame (translate to the start,
+ * rotate so the wire lies along +x) and fills one parallelogram per dash "on" run with
+ * its edges tilted by `half_width * tan(angle)`. Resolution-independent. x1,y1,x2,y2 are
+ * device (screen) coords; width is the device line width in px. The dash walk starts a
+ * whole number of pattern periods before the wire start so band positions match the
+ * flat-dash path (toggling the angle does not shift the stripes), and extends `half` past
+ * each endpoint to match the flat path's CapRound/CapProjecting overhang (else striped
+ * wires would gap where the flat path has a cap). The redraw-bbox clip is already on the
+ * cairo context (installed by set_clip_mask(), exactly as the flat path's gc_hilight
+ * clip), so only the thick-wire rectangle is added here. Returns 1 if it rendered (caller
+ * is done), 0 to fall back to the Xlib flat-dash path (thin wire, degenerate segment, or
+ * no cairo context for an active target). */
+static int draw_hilight_wire_striped(unsigned int fg, NetHilightStyle *st,
+        double x1, double y1, double x2, double y2, int width)
+{
+  double dx = x2 - x1, dy = y2 - y1;
+  double len = sqrt(dx * dx + dy * dy);
+  double half = width / 2.0;
+  double ext = half;   /* cap overhang to match the flat path (CapRound/CapProjecting) */
+  double theta, shear, period, cstart, pos, seg;
+  int i, idx, on, sum;
+  cairo_t *targets[2];
+  int nt = 0, t;
+
+  /* a sub-2px wire can't show a meaningful tilt, and width 0 (change_lw off, zoomed out)
+   * would make a zero-height clip that paints nothing; let the crisp Xlib flat-dash path
+   * (which draws width 0 as a 1px line) handle these */
+  if(width < 2) return 0;
+  if(len < 1e-6) return 0;              /* degenerate point: flat path draws the cap square */
+  /* fully off-screen reject (parity with the flat path's clip() viewport cull): cairo would
+   * otherwise build a parallelogram run spanning huge off-screen coords for every redraw,
+   * only to raster-clip it away. The wire bbox is its endpoints grown by the half-width +
+   * cap overhang. */
+  {
+    double m = half + ext + 1.0;
+    double bx1 = (x1 < x2 ? x1 : x2) - m, bx2 = (x1 > x2 ? x1 : x2) + m;
+    double by1 = (y1 < y2 ? y1 : y2) - m, by2 = (y1 > y2 ? y1 : y2) + m;
+    if(RECT_OUTSIDE(bx1, by1, bx2, by2,
+                    xctx->areax1, xctx->areay1, xctx->areax2, xctx->areay2)) return 1;
+  }
+  /* gather the cairo context(s) for the active draw target(s); bail to the Xlib path
+   * if a needed one is missing (e.g. cairo not yet (re)created) */
+  if(xctx->draw_window) { if(!xctx->cairo_ctx)      return 0; targets[nt++] = xctx->cairo_ctx; }
+  if(xctx->draw_pixmap) { if(!xctx->cairo_save_ctx) return 0; targets[nt++] = xctx->cairo_save_ctx; }
+  if(nt == 0) return 1;                 /* no target: nothing to do, but handled */
+
+  sum = 0;
+  for(i = 0; i < st->dash_len; ++i) sum += (unsigned char)st->dash_arr[i];
+  if(sum <= 0) return 0;                /* no "on" runs: let the flat path draw it */
+  /* XSetDashes doubles an odd-length pattern (on/off roles flip each pass), so the true
+   * repeat is 2*sum there; match that so our phase stays aligned with the flat path */
+  period = (st->dash_len & 1) ? 2.0 * sum : (double)sum;
+
+  theta = atan2(dy, dx);
+  shear = half * tan(st->angle * (XSCH_PI / 180.0));   /* angle <= 45 -> |shear| <= half */
+  /* start a whole number of periods before the wire start so a band begins at x=0 (phase
+   * parity with XSetDashes), far enough back that the sheared back edge AND the cap
+   * overhang at x=-ext are still covered regardless of the width/period ratio */
+  cstart = -ceil((ext + shear + period) / period) * period;
+
+  for(t = 0; t < nt; ++t) {
+    cairo_t *ct = targets[t];
+    cairo_save(ct);
+    /* wire-local frame, then clip to the thick-wire rectangle (extended by ext at each
+     * end for the cap overhang); cairo_clip() intersects with the ambient bbox clip */
+    cairo_translate(ct, x1, y1);
+    cairo_rotate(ct, theta);
+    cairo_rectangle(ct, -ext, -half, len + 2.0 * ext, (double)width);
+    cairo_clip(ct);
+    hilight_cairo_set_source(ct, st, fg);
+    pos = cstart; idx = 0; on = 1;
+    while(pos < len + ext + shear + 1.0) {
+      seg = (unsigned char)st->dash_arr[idx % st->dash_len];
+      if(on) {
+        /* parallelogram for the "on" run [pos, pos+seg], top/bottom edges sheared so the
+         * band tilts: a band centered at axis position p crosses y at x = p + y*tan(angle) */
+        cairo_move_to(ct, pos - shear,       -half);
+        cairo_line_to(ct, pos + seg - shear, -half);
+        cairo_line_to(ct, pos + seg + shear,  half);
+        cairo_line_to(ct, pos + shear,        half);
+        cairo_close_path(ct);
+      }
+      pos += seg;
+      ++idx;
+      on = !on;
+    }
+    cairo_fill(ct);
+    cairo_restore(ct);
+  }
+  /* the buffered cairo fills are flushed to the surface(s) once by draw_hilight_net() after
+   * its wire loop (before the Xlib instance highlights and the pixmap->window blit), not
+   * per segment (a per-segment flush forces an X round-trip on every wire). */
+  return 1;
+}
+#endif /* HAS_CAIRO==1 */
+
 /* Draw one highlighted wire segment in the given X pixel color (resolved by the caller
  * via get_hilight_pixel(), which handles sim logic levels, layer-index styles and custom
  * RGB styles uniformly), with width and dash taken from the NetHilightStyle (st may be
@@ -1458,7 +1584,8 @@ void drawline(int c, int what, double linex1, double liney1, double linex2, doub
  * the bus-aware base width used by drawline(), so width 1 reproduces legacy widths;
  * cap/join also mirror drawline() (projecting/miter for bus-mult wires). gc_hilight is
  * given the bbox clip by set_clip_mask(). dash_len 0 = solid; else a full XSetDashes
- * pattern. (Stripe angle clamps/stores in the style but renders flat until Pass 1.5.) */
+ * pattern. A nonzero stripe angle (with a dash pattern) is rendered as tilted stripes via
+ * cairo (draw_hilight_wire_striped); Xlib-only builds fall back to perpendicular dashes. */
 void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double linex1, double liney1,
                        double linex2, double liney2, double bus)
 {
@@ -1477,6 +1604,18 @@ void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double linex1, doub
   cap  = (bus > 0.0) ? CapProjecting : LINECAP;
   join = (bus > 0.0) ? JoinMiter : LINEJOIN;
 
+  x1 = X_TO_SCREEN(linex1); y1 = Y_TO_SCREEN(liney1);
+  x2 = X_TO_SCREEN(linex2); y2 = Y_TO_SCREEN(liney2);
+
+#if HAS_CAIRO==1
+  /* nonzero stripe angle on a dashed style: render tilted stripes via cairo (native Xlib
+   * dashes are perpendicular-only). Falls through to the flat dash path if cairo can't
+   * handle this wire (thin/degenerate) or has no usable context for the active target. */
+  if(st && st->angle > 0 && st->dash_len > 0) {
+    if(draw_hilight_wire_striped(fg, st, x1, y1, x2, y2, width)) return;
+  }
+#endif
+
   XSetForeground(display, gc, fg);
   if(st && st->dash_len > 0) {
     XSetLineAttributes(display, gc, width, xDashType, cap, join);
@@ -1485,9 +1624,7 @@ void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double linex1, doub
     XSetLineAttributes(display, gc, width, LineSolid, cap, join);
   }
 
-  x1 = X_TO_SCREEN(linex1); y1 = Y_TO_SCREEN(liney1);
-  x2 = X_TO_SCREEN(linex2); y2 = Y_TO_SCREEN(liney2);
-  if( clip(&x1, &y1, &x2, &y2) ) {
+  if( clip(&x1, &y1, &x2, &y2) ) {  /* clip() mutates x1..y2 to the on-screen segment */
     if(xctx->draw_window) XDrawLine(display, xctx->window, gc, (int)x1, (int)y1, (int)x2, (int)y2);
     if(xctx->draw_pixmap) XDrawLine(display, xctx->save_pixmap, gc, (int)x1, (int)y1, (int)x2, (int)y2);
   }

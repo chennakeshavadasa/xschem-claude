@@ -445,13 +445,22 @@
 #   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
 # color = layer index (0..cadlayers-1) or X color name / #rrggbb; width 1 = thin wire;
 # dash-pattern = list of on/off runs ({} = solid); stripe-angle clamps to [0,45].
-# Empty (default) = one style per active layer (the classic highlight look). No 10-style
-# limit. After setting it, apply with:  xschem update_net_hilight_style
-# See <sharedir>/net_hilight_style_rc for a worked example.
+# Leave it empty (default) and the engine auto-fills it with one style per active layer
+# (the classic highlight look) at startup, so you can inspect the live setup with
+# 'puts $net_hilight_style' and edit individual rows in place. No 10-style limit.
+# After setting/editing it, apply with:  xschem update_net_hilight_style
+# (set it back to {} + update to return to the auto default). See
+# <sharedir>/net_hilight_style_rc for a worked example.
+#
+# Replace the whole table:
 # set net_hilight_style {
 #   {0  red        1  {}     0  0 none 0}
 #   {1  "#00ff00"  2  {6 6}  0  0 none 0}
 # }
+# xschem update_net_hilight_style
+#
+# ...or override just a few rows of the auto-populated default:
+# lset net_hilight_style 2 {2 yellow 3 {8 4 2 4} 30 0 none 0}
 # xschem update_net_hilight_style
 
 

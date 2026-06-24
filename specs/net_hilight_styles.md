@@ -228,13 +228,14 @@ See the implementation plan (`claude_suggs/plan_net_hilight_styles.md`). Summary
    nonzero angle is accepted, stored, and rendered as a plain 0° dash).
 
 ## 9. Non-goals / constraints
-- **Styles apply to wires.** Per the "just wires" scope, the width/dash/custom-color
-  style is applied to highlighted **wire segments**. Instances/pins/labels on a
-  highlighted net keep the existing layer-color highlight. For default and layer-index
-  styles this is visually consistent (same layer color on wire and symbol); for a
-  **custom RGB** style the wire shows the custom color while symbols on the net show the
-  nearest fallback layer color. Generalizing the style to the instance render path
-  (`draw_symbol`) is a possible follow-up.
+- **Width/dash/angle apply to wires; COLOR also applies to symbols.** The width, dash and
+  stripe-angle of a style are applied to highlighted **wire segments** only. The style's
+  **color** is applied to both the wires and the instances/pins/labels on the net,
+  including the net-label and pin-name **text** — so a custom-RGB style colors the whole
+  highlight consistently (wire + label/pin text), not just the wire. Symbols are not
+  striped/widened (only colored). Implementation: `draw_hilight_net()` briefly repoints the
+  fallback layer's GC + `xcolor_array` to the style's pixel around the `draw_symbol()` call
+  for custom-RGB styles (layer-index styles already resolve through that layer's color).
 - **Export renderers** (`svgdraw.c`, `psprint.c`) and the ngspice plot-color generator
   resolve highlights through the layer-index path (`get_color`), so exported SVG/PDF/PS
   reflect highlight *color* (approximately, via a fallback layer for custom RGB) but not

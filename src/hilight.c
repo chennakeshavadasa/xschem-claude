@@ -380,6 +380,41 @@ static void default_net_hilight_styles(void)
   }
 }
 
+/* Emit a one-line net_hilight_style warning to the log and, if the GUI is up, the CIW.
+ * msg must be engine-controlled text (it is substituted into the eval, so it must not
+ * contain Tcl-special chars) — all callers build it from integers only. */
+static void hilight_style_warn(const char *msg)
+{
+  dbg(0, "%s\n", msg);
+  if(has_x) tclvareval("if {[info procs ciw_echo] ne {}} {ciw_echo {", msg, "}}", NULL);
+}
+
+/* Materialize the layer-derived default table into the 'net_hilight_style' Tcl variable so
+ * the user can inspect the active highlight setup and edit individual rows
+ * (`lset net_hilight_style 2 {...}; xschem update_net_hilight_style`) without first having
+ * to reproduce the default. Called only when the variable is EMPTY (see
+ * build_net_hilight_styles), so it writes the variable once rather than churning it on
+ * every per-context rebuild. Default styles are layer-colored, width 1, solid, so each row
+ * is the fixed form {index layer 1 {} 0 0 none 0}. Once materialized the variable is a
+ * normal table and is no longer regenerated on layer changes; set it back to {} + update
+ * to re-derive from the current active layers. */
+static void publish_net_hilight_styles_to_tcl(void)
+{
+  int i, n = xctx->n_net_hilight_styles, off = 0;
+  size_t sz;
+  char *s;
+  if(!interp || n <= 0) return;
+  sz = (size_t)n * 40 + 1;          /* "  {NNN LLL 1 {} 0 0 none 0}\n" is well under 40 */
+  s = my_malloc(_ALLOC_ID_, sz);
+  for(i = 0; i < n; ++i) {
+    NetHilightStyle *st = &xctx->net_hilight_style[i];
+    off += my_snprintf(s + off, sz - off, "  {%d %d 1 {} 0 0 none 0}\n",
+                       st->index, st->color_layer);
+  }
+  tclsetvar("net_hilight_style", s);
+  my_free(_ALLOC_ID_, &s);
+}
+
 /* Parse the user 'net_hilight_style' Tcl table: a list of rows, each row a list
  *   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
  * color: a layer index in [0,cadlayers) OR an X color name / #rrggbb (resolved to a pixel).
@@ -435,8 +470,7 @@ static int parse_net_hilight_styles(const char *tab)
         my_snprintf(msg, S(msg),
           "net_hilight_style: style %d stripe-angle %d out of range [0,45], clamped to %d",
           s->index, ang, cl);
-        dbg(0, "%s\n", msg);
-        if(has_x) tclvareval("if {[info procs ciw_echo] ne {}} {ciw_echo {", msg, "}}", NULL);
+        hilight_style_warn(msg);
         ang = cl;
       }
       s->angle = ang;
@@ -447,24 +481,61 @@ static int parse_net_hilight_styles(const char *tab)
       else if(!strcmp(f[6], "march_rev")) s->anim = 2;
     }
     if(nf > 7) s->rate_persec = atoi(f[7]);                     /* Pass 2 (stored, inert) */
+    /* a stripe angle only manifests through dash bands; with no dash pattern there is
+     * nothing to tilt, so warn that the angle has no effect (rather than silently ignore) */
+    if(s->angle > 0 && s->dash_len == 0) {
+      char msg[200];
+      my_snprintf(msg, S(msg),
+        "net_hilight_style: style %d has stripe-angle %d but no dash pattern; angle has no "
+        "effect (stripes need a dash pattern)", s->index, s->angle);
+      hilight_style_warn(msg);
+    }
     Tcl_Free((char *)f);
   }
   Tcl_Free((char *)rows);
   return 1;
 }
 
-/* (Re)build the net highlight style table from the user 'net_hilight_style' Tcl variable
- * if set & non-empty, else from the layer-derived default. Called from enable_layers()
- * (so it tracks active layers / a freshly-set table) and from the
- * 'xschem update_net_hilight_style' command after the user edits the table. */
+/* (Re)build the net highlight style table from the 'net_hilight_style' Tcl variable.
+ * A non-empty variable is the active table (the user's, or the default materialized into
+ * it earlier) and is parsed verbatim — color names / #rrggbb survive, and a malformed
+ * table renders the layer default WITHOUT overwriting the variable, so the user keeps their
+ * text to fix. An empty variable derives the default from the active layers and
+ * materializes it into the variable (once) so it can be inspected/edited
+ * (publish_net_hilight_styles_to_tcl). Called from enable_layers() and from
+ * 'xschem update_net_hilight_style'. Note: once materialized the table no longer tracks
+ * the active-layer set; set the variable to {} + update to re-derive it. */
 void build_net_hilight_styles(void)
 {
   const char *tab;
   free_net_hilight_styles();
   tab = interp ? tclgetvar("net_hilight_style") : NULL;
-  if(!(tab && tab[0] && parse_net_hilight_styles(tab)))
+  if(tab && tab[0]) {
+    /* render the layer default on a parse failure, but leave the variable intact */
+    if(!parse_net_hilight_styles(tab)) default_net_hilight_styles();
+  } else {
     default_net_hilight_styles();
+    publish_net_hilight_styles_to_tcl();
+  }
   dbg(1, "build_net_hilight_styles(): %d styles\n", xctx->n_net_hilight_styles);
+#if HAS_CAIRO==0
+  { /* tilted stripes need cairo; warn once if a style asks for a nonzero angle (Xlib-only
+     * builds render those as plain perpendicular dashes) */
+    static int warned = 0;
+    int i;
+    for(i = 0; !warned && i < xctx->n_net_hilight_styles; ++i) {
+      if(xctx->net_hilight_style[i].angle > 0) {
+        hilight_style_warn("net_hilight_style: nonzero stripe angle needs a cairo build; "
+                           "rendering as perpendicular dashes");
+        /* only latch once the message actually reached the CIW; if styles are (re)built
+         * headless during early init (has_x false), don't suppress the GUI warning later */
+        if(has_x) {
+          warned = 1;
+        }
+      }
+    }
+  }
+#endif
 }
 
 /* Resolve a net-hilight value (>= 0) to its style, wrapping modulo the table size.
@@ -510,6 +581,20 @@ static unsigned int hilight_pixel_of(int value, NetHilightStyle *st)
 unsigned int get_hilight_pixel(int value)
 {
   return hilight_pixel_of(value, value >= 0 ? get_hilight_style(value) : NULL);
+}
+
+/* Resolve a custom-color style's pixel (color_layer < 0) to cached 16-bit RGB, once.
+ * No-op for layer-index styles, NULL, already-resolved, or headless. Shared by the wire
+ * stripe path (draw.c) and the symbol-highlight path (draw_hilight_net), both of which
+ * need the style's RGB to recolor through cairo. */
+void resolve_hilight_style_rgb(NetHilightStyle *st)
+{
+  XColor xc;
+  if(!st || st->color_layer >= 0 || st->rgb_resolved || !has_x) return;
+  xc.pixel = st->color;
+  XQueryColor(display, colormap, &xc);
+  st->cr = xc.red; st->cg = xc.green; st->cb = xc.blue;
+  st->rgb_resolved = 1;
 }
 
 void incr_hilight_color(void)
@@ -2403,6 +2488,14 @@ void draw_hilight_net(int on_window)
      }
    }
  }
+#if HAS_CAIRO==1
+ /* commit any tilted-stripe (draw_hilight_wire_striped) cairo fills to the surface(s) once,
+  * here after the wire loop: before the Xlib instance/pin highlights below draw over them
+  * (preserving the wire-then-symbol layering) and before draw()'s pixmap->window blit. A
+  * per-segment flush would force an X round-trip on every striped wire. */
+ if(xctx->draw_window && xctx->cairo_ctx) cairo_surface_flush(xctx->cairo_sfc);
+ if(xctx->draw_pixmap && xctx->cairo_save_ctx) cairo_surface_flush(xctx->cairo_save_sfc);
+#endif
  for(c=0;c<cadlayers; ++c) {
    if(xctx->draw_single_layer!=-1 && c != xctx->draw_single_layer) continue;
    if(use_hash) init_inst_iterator(&ctx, x1, y1, x2, y2);
@@ -2418,7 +2511,27 @@ void draw_hilight_net(int on_window)
      }
      if(xctx->inst[i].color != -10000)
      {
-      int col = get_color(xctx->inst[i].color);
+      int val = xctx->inst[i].color;
+      int col = get_color(val);
+      NetHilightStyle *st = (val >= 0) ? get_hilight_style(val) : NULL;
+      XColor save_xc;
+      int custom = 0;
+      /* A custom-RGB style (color_layer < 0) has no layer, so get_color() returns a
+       * fallback layer and the highlighted symbol — including its net-label / pin-name
+       * text — would render in that fallback color instead of the style's color. Briefly
+       * repoint the fallback layer's GC (symbol graphics, non-cairo text) and xcolor_array
+       * (cairo text) to the style's exact pixel so the symbol takes the style COLOR. Only
+       * the color is applied; width/dash/angle are wire-only (symbols are not striped). */
+      if(st && st->color_layer < 0 && has_x) {
+        resolve_hilight_style_rgb(st);
+        save_xc = xctx->xcolor_array[col];
+        XSetForeground(display, xctx->gc[col], st->color);
+        xctx->xcolor_array[col].pixel = st->color;
+        xctx->xcolor_array[col].red   = st->cr;
+        xctx->xcolor_array[col].green = st->cg;
+        xctx->xcolor_array[col].blue  = st->cb;
+        custom = 1;
+      }
       symptr = (xctx->inst[i].ptr+ xctx->sym);
       if( c==0 || /*draw_symbol call is needed on layer 0 to avoid redundant work (outside check) */
           symptr->lines[c] || symptr->rects[c] || symptr->arcs[c] || symptr->polygons[c] ||
@@ -2430,6 +2543,10 @@ void draw_hilight_net(int on_window)
       drawarc(col, END, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0);
       drawrect(col, END, 0.0, 0.0, 0.0, 0.0, 0.0, 0, -1, -1);
       drawline(col, END, 0.0, 0.0, 0.0, 0.0, 0.0, 0, NULL);
+      if(custom) { /* restore the borrowed fallback layer's GC + color */
+        XSetForeground(display, xctx->gc[col], xctx->color_index[col]);
+        xctx->xcolor_array[col] = save_xc;
+      }
      }
    }
  }

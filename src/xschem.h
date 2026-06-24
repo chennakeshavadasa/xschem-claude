@@ -829,6 +829,8 @@ typedef struct {
   int index;             /* style id (table order) */
   int color_layer;       /* layer index used as the draw color, or < 0 for a custom pixel */
   unsigned int color;    /* resolved X pixel, used when color_layer < 0 */
+  unsigned short cr, cg, cb; /* custom color (color_layer<0) as 16-bit RGB for the cairo */
+  char rgb_resolved;     /* stripe path; resolved once from .color, reset on table rebuild */
   int width;             /* thickness in wire-width units; 1 = thinnest wire */
   int dash_len;          /* number of entries in dash_arr (0 = solid) */
   char dash_arr[16];     /* compiled dash pattern for XSetDashes */
@@ -1495,6 +1497,7 @@ extern int hilight_graph_node(const char *node, int col);
 extern int get_color(int value);
 extern NetHilightStyle *get_hilight_style(int value);
 extern unsigned int get_hilight_pixel(int value);
+extern void resolve_hilight_style_rgb(NetHilightStyle *st);
 extern unsigned int find_best_color(char colorname[]);
 extern void build_net_hilight_styles(void);
 extern void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double linex1, double liney1,

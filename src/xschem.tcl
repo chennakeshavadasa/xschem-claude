@@ -12636,14 +12636,20 @@ if {!$rainbow_colors} {
 }
 
 
-# Net highlight style table (Cadence display.drf-like). Empty = use the built-in
-# default (one style per active layer, width 1, solid: the legacy highlight look).
-# To customize, set this to a list of rows and run 'xschem update_net_hilight_style':
+# Net highlight style table (Cadence display.drf-like). Start it empty: at startup the C
+# engine fills it in with the built-in default (one style per active layer, width 1, solid:
+# the legacy highlight look), so you can inspect the live setup with 'puts $net_hilight_style'
+# and edit individual rows in place, e.g.:
+#   lset net_hilight_style 2 {2 yellow 3 {8 4 2 4} 30 0 none 0}
+#   xschem update_net_hilight_style
+# Each row is:
 #   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
 # color: a layer index (0..cadlayers-1) or an X color name / #rrggbb. dash-pattern:
 # a list of on/off run lengths ({} = solid). stripe-angle-deg clamps to [0,45].
 # blink_ms/anim/rate_persec are reserved for animation (Pass 2) and ignored for now.
 # See net_hilight_style_rc for an example. There is no 10-style limit.
+# Once filled in (or set by you), the table is fixed and no longer tracks the active-layer
+# set; set it back to {} and run 'xschem update_net_hilight_style' to re-derive the default.
 set_ne net_hilight_style {}
 
 # every 0x#### hex data represents one 16 bit row of the 16x16 bit fill bitmap
