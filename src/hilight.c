@@ -2485,13 +2485,15 @@ static int net_hilight_style_animates(NetHilightStyle *st)
 /* Single source of truth for "which highlighted objects animate": walks the highlighted
  * wires + instances and, for each whose style animates, optionally folds its on/off phase
  * into *sig, grows the union bbox (*bx1.. in schematic units), and tracks the widest style
- * (*maxw). Any out-param may be NULL (the predicate path passes all NULL). Returns the count
- * of animating objects. Shared by net_hilight_has_animation() and draw_hilight_region() so
- * the two never drift (esp. once Pass 2b extends net_hilight_style_animates). */
+ * (*maxw). Any out-param may be NULL; when ALL are NULL this is a pure predicate and it
+ * early-exits on the first animating object. Returns nonzero iff at least one animating
+ * object exists. Shared by net_hilight_has_animation() and draw_hilight_region() so the two
+ * never drift (esp. once Pass 2b extends net_hilight_style_animates). */
 static int scan_animating_hilights(double now, unsigned int *sig, int *maxw,
                                    double *bx1, double *by1, double *bx2, double *by2)
 {
   int i, found = 0;
+  int predicate = (!sig && !maxw && !bx1); /* caller only wants "does any animate?" */
   Hilight_hashentry *entry;
   prepare_netlist_structs(0);
   for(i = 0; i < xctx->wires; ++i) {
@@ -2500,6 +2502,7 @@ static int scan_animating_hilights(double now, unsigned int *sig, int *maxw,
     if(!(entry = bus_hilight_hash_lookup(xctx->wire[i].node, 0, XLOOKUP)) || entry->value < 0) continue;
     st = get_hilight_style(entry->value);
     if(!net_hilight_style_animates(st)) continue;
+    if(predicate) return 1;
     if(sig)  *sig = *sig * 1000003u + (unsigned int)(st->index * 2 + net_hilight_style_on_now(st, now));
     if(maxw && st->width > *maxw) *maxw = st->width;
     if(bx1) {
@@ -2518,6 +2521,7 @@ static int scan_animating_hilights(double now, unsigned int *sig, int *maxw,
     if(val == -10000 || val < 0) continue;
     st = get_hilight_style(val);
     if(!net_hilight_style_animates(st)) continue;
+    if(predicate) return 1;
     if(sig)  *sig = *sig * 1000003u + (unsigned int)(st->index * 2 + net_hilight_style_on_now(st, now));
     if(maxw && st->width > *maxw) *maxw = st->width;
     if(bx1) {
@@ -2560,6 +2564,9 @@ int draw_hilight_region(void)
                                    * never collides with the 0 "no frame drawn yet" sentinel
                                    * (e.g. a single OFF-phase style-0 net would hash to 0) */
   if(!has_x || !xctx->hilight_nets) return 0;
+  /* self-guard the kill-switch: the Tcl tick already checks net_hilight_animate, but a direct
+   * `xschem redraw_hilight_region` call must not bypass it (and must stop the tick -> 0). */
+  if(!tclgetboolvar("net_hilight_animate")) return 0;
   now = net_hilight_now_ms();
   if(!scan_animating_hilights(now, &sig, &maxw, &x1u, &y1u, &x2u, &y2u)) return 0; /* -> stop */
   /* pause (but keep ticking) while a draw is in progress or a gesture owns the screen */
@@ -2587,7 +2594,9 @@ int draw_hilight_region(void)
  * this exists chiefly to START the loop when a blinking highlight first appears. */
 void net_hilight_anim_update(void)
 {
-  if(!has_x) return;
+  /* current_win_path can be NULL mid window-alloc/teardown; a NULL middle arg would truncate
+   * tclvareval's va_arg list and run the unbalanced fragment "net_hilight_anim_update {". */
+  if(!has_x || !xctx->current_win_path) return;
   tclvareval("net_hilight_anim_update {", xctx->current_win_path, "}", NULL);
 }
 
@@ -2617,6 +2626,13 @@ void draw_hilight_net(int on_window)
     has_x && tclgetboolvar("net_hilight_animate")) {
    anim_on = 1;
    anim_now = net_hilight_now_ms();
+ } else {
+   /* An ordinary (non-animation) draw paints every highlight steady-ON but does not advance
+    * the blink phase signature. Invalidate it so the next animation tick performs one regional
+    * redraw to reconcile the true current phase, instead of seeing a stale-matching signature
+    * and skipping -- which would otherwise leave a blink stuck ON after a pan/zoom/redraw that
+    * landed during an OFF phase. */
+   xctx->net_hilight_anim_sig = 0;
  }
  save_draw = xctx->draw_window;
  xctx->draw_window = on_window;

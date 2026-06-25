@@ -486,7 +486,8 @@ proc net_hilight_animate_changed {args} {
   catch {xschem redraw}
   catch {net_hilight_anim_update [xschem get current_win_path]}
 }
-trace add variable net_hilight_animate write net_hilight_animate_changed
+# NB: the write-trace is registered next to `set_ne net_hilight_animate` (far below), AFTER the
+# variable is initialized, so the initial set does not fire a redraw before the GUI is ready.
 
 proc update_process_status {lb} {
   global execute has_x
@@ -12709,6 +12710,9 @@ set_ne net_hilight_style {}
 # whose style has blink_ms>0 blinks at that period via a per-window self-rescheduling timer.
 # A trace (see net_hilight_animate_changed) makes toggling this take effect immediately.
 set_ne net_hilight_animate 1
+# Register the write-trace AFTER the variable exists (set_ne above), so the initial set does
+# not fire a redraw during interpreter startup before the drawing canvas is ready.
+trace add variable net_hilight_animate write net_hilight_animate_changed
 
 # every 0x#### hex data represents one 16 bit row of the 16x16 bit fill bitmap
 # of the specified layer number.

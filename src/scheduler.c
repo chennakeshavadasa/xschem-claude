@@ -2788,6 +2788,7 @@ static int xschem_cmds_h(Tcl_Interp *interp, int argc, const char *argv[], int *
       if(argc >=3 && !strcmp(argv[2], "drill")) xctx->enable_drill = 1;
       hilight_net(0);
       redraw_hilights(0);
+      net_hilight_anim_update(); /* Pass 2a: the standard highlight path may add a blink style */
       Tcl_ResetResult(interp);
     }
     /* hilight_net_interactive
@@ -4337,10 +4338,20 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
      *   arg) turns the override off (back to wall-clock). Never used in production. */
     else if(!strcmp(argv[1], "net_hilight_test_now"))
     {
+      char *endp = NULL;
+      double ms;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
-      if(argc > 2 && atof(argv[2]) >= 0.0) {
+      /* strtod (not atof) so a non-numeric arg is rejected rather than parsed as 0.0, which
+       * would silently activate the override at t=0 instead of erroring. */
+      if(argc > 2) ms = strtod(argv[2], &endp);
+      else { ms = -1.0; endp = NULL; }
+      if(argc > 2 && (endp == argv[2] || *endp != '\0')) {
+        Tcl_SetResult(interp, "net_hilight_test_now: <ms> must be a number", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      if(ms >= 0.0) {
         xctx->net_hilight_test_active = 1;
-        xctx->net_hilight_test_ms = atof(argv[2]);
+        xctx->net_hilight_test_ms = ms;
       } else {
         xctx->net_hilight_test_active = 0;
         xctx->net_hilight_test_ms = 0.0;
@@ -6762,6 +6773,7 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
         if(viewer) {
           hilight_net(viewer);
           redraw_hilights(0);
+          net_hilight_anim_update(); /* Pass 2a: waveform-viewer highlight may add a blink style */
         }
         my_free(_ALLOC_ID_, &viewer_name);
       }
