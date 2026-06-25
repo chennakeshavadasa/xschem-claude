@@ -4377,6 +4377,12 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
         Tcl_SetResult(interp, "net_hilight_test_now: <ms> must be a number", TCL_STATIC);
         return TCL_ERROR;
       }
+      /* an explicit <win> that names no open window must error, not silently force the time on
+       * the FRONT context (borrow -> NULL is "already current" OR "unknown"; disambiguate). */
+      if(argc > 3 && !net_hilight_win_known(argv[3])) {
+        Tcl_SetResult(interp, "net_hilight_test_now: unknown window path", TCL_STATIC);
+        return TCL_ERROR;
+      }
       if(argc > 3) borrowed = net_hilight_borrow_ctx(argv[3]);
       if(ms >= 0.0) {
         xctx->net_hilight_test_active = 1;
@@ -4404,17 +4410,39 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
         Tcl_SetResult(interp, "net_hilight_dump_pixmap: missing <file>", TCL_STATIC);
         return TCL_ERROR;
       }
+      /* an explicit <win> that names no open window must error, not silently dump the FRONT
+       * window's pixmap (which would make the byte-compare test the wrong surface). */
+      if(argc > 3 && !net_hilight_win_known(argv[3])) {
+        Tcl_SetResult(interp, "net_hilight_dump_pixmap: unknown window path", TCL_STATIC);
+        return TCL_ERROR;
+      }
       if(argc > 3) borrowed = net_hilight_borrow_ctx(argv[3]);
+      /* Fail LOUDLY on any non-write rather than returning OK with no file: a test that then
+       * cmp's a stale/missing PNG would otherwise get a false verdict. */
 #if defined(__unix__) && HAS_CAIRO==1
       if(has_x && xctx->save_pixmap) {
         cairo_surface_t *sfc = cairo_xlib_surface_create(display, xctx->save_pixmap, visual,
                                  xctx->xrect[0].width, xctx->xrect[0].height);
-        cairo_surface_write_to_png(sfc, argv[2]);
+        cairo_status_t st = cairo_surface_write_to_png(sfc, argv[2]);
         cairo_surface_destroy(sfc);
+        net_hilight_restore_ctx(borrowed);
+        if(st != CAIRO_STATUS_SUCCESS) {
+          Tcl_AppendResult(interp, "net_hilight_dump_pixmap: PNG write failed: ",
+                           cairo_status_to_string(st), NULL);
+          return TCL_ERROR;
+        }
+        Tcl_ResetResult(interp);
+      } else {
+        net_hilight_restore_ctx(borrowed);
+        Tcl_SetResult(interp, "net_hilight_dump_pixmap: no pixmap to dump "
+                      "(no X, or window not drawn yet)", TCL_STATIC);
+        return TCL_ERROR;
       }
-#endif
+#else
       net_hilight_restore_ctx(borrowed);
-      Tcl_ResetResult(interp);
+      Tcl_SetResult(interp, "net_hilight_dump_pixmap: requires a unix cairo build", TCL_STATIC);
+      return TCL_ERROR;
+#endif
     }
 
     /* net_hilight_march_offset <idx>
@@ -6113,15 +6141,18 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
       char buf[64];
       Xschem_ctx *borrowed = NULL;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
-      if(argc > 2) borrowed = net_hilight_borrow_ctx(argv[2]);
-      /* An explicit <win> that is neither the current window nor a known window path cannot be
-       * borrowed (borrow -> NULL): nothing to redraw, stop the tick (0). The current-window
-       * case also borrows to NULL but correctly redraws the front (no <win> => same path). */
-      if(argc > 2 && !borrowed && xctx->current_win_path && strcmp(argv[2], xctx->current_win_path))
+      /* explicit <win> that names no open window -> nothing to redraw, stop the tick (0).
+       * net_hilight_win_known() (not the borrow's NULL, which also means "already current")
+       * is the unknown test, so a transiently-NULL current_win_path during window
+       * alloc/teardown can't make an unknown win fall through to redraw the FRONT. A known
+       * <win> that IS the current window borrows to NULL and correctly redraws the front. */
+      if(argc > 2 && !net_hilight_win_known(argv[2])) {
         r = 0;
-      else
-        r = draw_hilight_region(&next);
-      net_hilight_restore_ctx(borrowed);
+      } else {
+        if(argc > 2) borrowed = net_hilight_borrow_ctx(argv[2]);
+        r = draw_hilight_region(&next); /* guards save_pixmap==0 (unexposed bg window) internally */
+        net_hilight_restore_ctx(borrowed);
+      }
       /* Return "tristate next_ms": 0 = stop the tick, 1 = redrew (edge), 2 = keep ticking
        * (busy/no edge); next_ms = ms the tick should sleep before the next call. */
       my_snprintf(buf, S(buf), "%d %d", r, (int)next);

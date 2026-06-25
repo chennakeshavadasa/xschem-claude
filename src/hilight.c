@@ -2718,6 +2718,21 @@ void net_hilight_restore_ctx(Xschem_ctx *saved)
   if(saved) xctx = saved;
 }
 
+/* 1 iff win_path names a currently-open window (the current window, or an exact .drw window
+ * path). net_hilight_borrow_ctx() returns NULL for BOTH "already the current window" and
+ * "unknown/stale window"; a <win>-addressed command must tell those apart (operate on the
+ * current context vs. refuse/stop) -- this is that test. Matches the borrow's own exact-path
+ * rule (NOT get_tab_or_window_number's cell-name fallback). */
+int net_hilight_win_known(const char *win_path)
+{
+  int i;
+  if(!win_path || !win_path[0]) return 0;
+  if(xctx && xctx->current_win_path && !strcmp(win_path, xctx->current_win_path)) return 1;
+  for(i = 0; i < MAX_NEW_WINDOWS; ++i)
+    if(!strcmp(win_path, get_window_path(i))) return 1;
+  return 0;
+}
+
 /* True iff the current window should be running the animation tick: animation globally
  * enabled, on-screen, not mid-gesture, and >=1 highlighted net/instance uses an animating
  * style. Drives `xschem get net_hilight_animated` and the Tcl start/stop logic. */
@@ -2751,6 +2766,10 @@ int draw_hilight_region(double *next_ms)
                                    * (e.g. a single OFF-phase style-0 net would hash to 0) */
   if(next_ms) *next_ms = NET_HILIGHT_TICK_BUSY;
   if(!has_x || !xctx->hilight_nets) return 0;
+  /* a borrowed background window (multi-window anim) may not have been exposed/sized yet, so its
+   * save_pixmap is still 0; draw() would then XFillRectangle into Drawable 0 (BadDrawable). Stop
+   * the tick until the window is drawn at least once. (The front window always has one.) */
+  if(!xctx->save_pixmap) return 0;
   /* self-guard the kill-switch: the Tcl tick already checks net_hilight_animate, but a direct
    * `xschem redraw_hilight_region` call must not bypass it (and must stop the tick -> 0). */
   if(!tclgetboolvar("net_hilight_animate")) return 0;
