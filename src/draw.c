@@ -1619,11 +1619,23 @@ void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double dash_offset,
 
   XSetForeground(display, gc, fg);
   if(st && st->dash_len > 0) {
-    XSetLineAttributes(display, gc, width, xDashType, cap, join);
-    /* dash_offset (Pass 2b marching ants): phase into the pattern, in dash-length units; 0 on
+    /* dash_offset (Pass 2b marching ants): scroll phase in dash-length units; 0 on
      * ordinary/hardcopy draws (deterministic), nonzero only in an animation frame so the dashes
-     * crawl. XSetDashes' phase is measured from the drawn start (after clip), like cstart above. */
-    XSetDashes(display, gc, (int)dash_offset, st->dash_arr, st->dash_len);
+     * crawl. Two corrections vs feeding it raw:
+     *  - DIRECTION: XSetDashes' phase advances the pattern toward the wire START (-x) as it
+     *    grows -- the OPPOSITE of the cairo striped path (cstart += offset -> +x). Negate it
+     *    (period - offset, reduced into [0,period)) so a march_fwd style scrolls the SAME
+     *    visual direction at angle 0 and angle>0. period = net_hilight_dash_period(st) (doubled
+     *    for odd dash_len; the X server honors that doubled period -- verified by render).
+     *  - PRECISION: the phase arg is an int, so the flat Xlib path steps in whole pixels (no
+     *    sub-pixel glide like cairo); fine for marching ants, but slow scrolls advance coarsely.
+     * X measures the phase from the first drawn point, i.e. the clip()-trimmed start below, so a
+     * wire clipped at the viewport edge anchors its phase differently than the cairo path's
+     * un-clipped x1 -- only visible on a partially off-screen wire, and the tick pauses during pan. */
+    double period = net_hilight_dash_period(st);
+    int phase = (period > 0.0) ? (int)fmod(period - dash_offset, period) : 0;
+    XSetLineAttributes(display, gc, width, xDashType, cap, join);
+    XSetDashes(display, gc, phase, st->dash_arr, st->dash_len);
   } else {
     XSetLineAttributes(display, gc, width, LineSolid, cap, join);
   }
