@@ -1499,7 +1499,7 @@ static int draw_hilight_wire_striped(unsigned int fg, NetHilightStyle *st,
   double half = width / 2.0;
   double ext = half;   /* cap overhang to match the flat path (CapRound/CapProjecting) */
   double theta, shear, period, cstart, pos, seg;
-  int i, idx, on, sum;
+  int idx, on;
   cairo_t *targets[2];
   int nt = 0, t;
 
@@ -1525,12 +1525,11 @@ static int draw_hilight_wire_striped(unsigned int fg, NetHilightStyle *st,
   if(xctx->draw_pixmap) { if(!xctx->cairo_save_ctx) return 0; targets[nt++] = xctx->cairo_save_ctx; }
   if(nt == 0) return 1;                 /* no target: nothing to do, but handled */
 
-  sum = 0;
-  for(i = 0; i < st->dash_len; ++i) sum += (unsigned char)st->dash_arr[i];
-  if(sum <= 0) return 0;                /* no "on" runs: let the flat path draw it */
-  /* XSetDashes doubles an odd-length pattern (on/off roles flip each pass), so the true
-   * repeat is 2*sum there; match that so our phase stays aligned with the flat path */
-  period = (st->dash_len & 1) ? 2.0 * sum : (double)sum;
+  /* dash repeat period (odd-length patterns double — see net_hilight_dash_period). Shared with
+   * the marching-offset math (net_hilight_march_offset) so the scroll phase stays aligned with
+   * both the flat XSetDashes path and these stripes. */
+  period = net_hilight_dash_period(st);
+  if(period <= 0.0) return 0;          /* no "on" runs: let the flat path draw it */
 
   theta = atan2(dy, dx);
   shear = half * tan(st->angle * (XSCH_PI / 180.0));   /* angle <= 45 -> |shear| <= half */

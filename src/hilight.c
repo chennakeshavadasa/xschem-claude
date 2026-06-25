@@ -480,7 +480,20 @@ static int parse_net_hilight_styles(const char *tab)
       if(!strcmp(f[6], "march_fwd")) s->anim = 1;
       else if(!strcmp(f[6], "march_rev")) s->anim = 2;
     }
-    if(nf > 7) s->rate_persec = atoi(f[7]);                     /* Pass 2 (stored, inert) */
+    if(nf > 7) {
+      s->rate_persec = atoi(f[7]);                              /* marching scroll rate (Pass 2b) */
+      /* direction is set by the march_fwd/march_rev keyword; rate_persec is a magnitude, so a
+       * negative rate is invalid. Clamp to 0 (static) + warn, so a march_fwd style can never
+       * silently scroll backward (net_hilight_march_offset would otherwise see a negative phase). */
+      if(s->rate_persec < 0) {
+        char msg[200];
+        my_snprintf(msg, S(msg),
+          "net_hilight_style: style %d has negative rate_persec %d; clamped to 0 (use march_rev "
+          "for reverse direction)", s->index, s->rate_persec);
+        hilight_style_warn(msg);
+        s->rate_persec = 0;
+      }
+    }
     /* a stripe angle only manifests through dash bands; with no dash pattern there is
      * nothing to tilt, so warn that the angle has no effect (rather than silently ignore) */
     if(s->angle > 0 && s->dash_len == 0) {
@@ -490,16 +503,24 @@ static int parse_net_hilight_styles(const char *tab)
         "effect (stripes need a dash pattern)", s->index, s->angle);
       hilight_style_warn(msg);
     }
-    /* marching ants (anim) scrolls the dash pattern; with no dash pattern there is nothing
-     * to scroll, so the marching has no effect — warn rather than silently ignore (mirrors the
-     * stripe-angle-needs-dash warning above; see net_hilight_style_animates). NOTE: this warns
-     * only about the marching dimension; such a style may still blink if blink_ms>0, so the
-     * message speaks of "nothing to scroll", not of the whole style being inert. */
+    /* marching ants (anim) scrolls the dash pattern at rate_persec periods/sec; it needs BOTH a
+     * dash pattern and a positive rate, else there is nothing to scroll / no motion — warn rather
+     * than silently ignore (mirrors the stripe-angle-needs-dash warning above; see
+     * net_hilight_style_animates, which excludes both cases from the animation tick). NOTE: these
+     * warn only about the marching dimension; such a style may still blink if blink_ms>0, hence
+     * "nothing to scroll" / "will not scroll", not "the whole style is inert". */
     if(s->anim != 0 && s->dash_len == 0) {
       char msg[200];
       my_snprintf(msg, S(msg),
         "net_hilight_style: style %d has marching animation but no dash pattern; nothing to "
         "scroll (marching needs a dash pattern)", s->index);
+      hilight_style_warn(msg);
+    }
+    else if(s->anim != 0 && s->rate_persec <= 0) {
+      char msg[200];
+      my_snprintf(msg, S(msg),
+        "net_hilight_style: style %d has marching animation but rate_persec %d; will not scroll "
+        "(set rate_persec > 0)", s->index, s->rate_persec);
       hilight_style_warn(msg);
     }
     Tcl_Free((char *)f);
@@ -2496,12 +2517,14 @@ int net_hilight_style_on_now(NetHilightStyle *st, double now)
 }
 
 /* Does this style drive the animation tick? Two independent animators (which compose):
- * blink (blink_ms>0, Pass 2a) and marching ants (anim!=0, Pass 2b). Marching scrolls the
- * dash pattern, so it requires a dash pattern (dash_len>0) — a marching solid style has
- * nothing to scroll and does NOT animate (parse_net_hilight_styles warns about it). */
+ * blink (blink_ms>0, Pass 2a) and marching ants (anim!=0, Pass 2b). Marching scrolls the dash
+ * pattern, so it needs both a dash pattern (dash_len>0) and a positive scroll rate (rate_persec>0)
+ * — a marching solid style has nothing to scroll, and rate<=0 never moves, so neither animates
+ * (and arming the tick for them would just churn redraws; parse_net_hilight_styles warns about
+ * both). Keep in sync with net_hilight_march_offset's "returns 0" conditions. */
 static int net_hilight_style_animates(NetHilightStyle *st)
 {
-  return st && (st->blink_ms > 0 || (st->anim != 0 && st->dash_len > 0));
+  return st && (st->blink_ms > 0 || (st->anim != 0 && st->dash_len > 0 && st->rate_persec > 0));
 }
 
 /* Time (ms) until style st's next blink phase edge, given wall-clock 'now'. Always in
@@ -2518,31 +2541,40 @@ static double net_hilight_next_edge_ms(NetHilightStyle *st, double now)
   return (floor(now / half) + 1.0) * half - now;
 }
 
-/* Pass 2b marching-ants scroll offset, in dash-length units, reduced into [0, P). The dash
- * pattern is shifted by this amount each frame so it appears to crawl along the wire (fed to
- * XSetDashes' dash_offset / cairo_set_dash offset by the Phase-C render). Model:
- *   P   = sum(dash_arr), DOUBLED when dash_len is odd (the XSetDashes role-flip the Pass-1.5
- *         striped path already accounts for: an odd pattern only repeats after two passes).
- *   off = dir * (rate_persec * P * now_sec) mod P,   dir = +1 march_fwd / -1 march_rev,
- *         reduced into [0, P) so march_rev is the mirror P - off_fwd (and 0 stays 0).
- * rate_persec is periods-per-second (rate 1 scrolls one full pattern per second). Returns 0 for
- * a non-marching style, an empty dash, or a zero-length pattern (nothing to scroll). 'now' is
- * wall-clock ms from net_hilight_now_ms() (forced by the net_hilight_test_now hook in tests). */
-double net_hilight_march_offset(NetHilightStyle *st, double now)
+/* Dash repeat period of a highlight style, in dash-length units. = sum(dash_arr), DOUBLED when
+ * dash_len is odd because XSetDashes flips the on/off roles each pass, so an odd-length pattern
+ * only truly repeats after two passes. Shared by the marching-offset math here and the Pass-1.5
+ * tilted-stripe renderer (draw_hilight_wire_striped) so their phase definitions never drift.
+ * Returns 0 for an empty / all-zero pattern (caller treats that as "no dash, nothing to scroll"). */
+double net_hilight_dash_period(NetHilightStyle *st)
 {
   int i, sum = 0;
-  double P, off;
-  if(!st || st->anim == 0 || st->dash_len <= 0) return 0.0;
+  if(!st || st->dash_len <= 0) return 0.0;
   for(i = 0; i < st->dash_len; ++i) sum += (unsigned char)st->dash_arr[i];
   if(sum <= 0) return 0.0;
-  P = (st->dash_len & 1) ? 2.0 * sum : (double)sum;
-  off = fmod((double)st->rate_persec * P * (now / 1000.0), P);
-  if(off < 0.0) off += P;             /* fmod can be negative if a test forces now < 0 */
-  if(st->anim == 2) {                 /* march_rev: mirror, keep in [0, P) (off==0 -> 0) */
-    off = P - off;
-    if(off >= P) off -= P;
-  }
-  return off;
+  return (st->dash_len & 1) ? 2.0 * sum : (double)sum;
+}
+
+/* Pass 2b marching-ants scroll offset, in dash-length units, in [0, P) where P =
+ * net_hilight_dash_period(st). The dash pattern is shifted by this amount each frame so it
+ * appears to crawl along the wire (fed to XSetDashes' dash_offset / cairo_set_dash offset by the
+ * Phase-C render). Model: the pattern advances rate_persec full periods per second, so the phase
+ * (turns elapsed) is rate_persec * now_sec; off = P * frac(phase), mirrored to P*(1-frac) for
+ * march_rev (anim==2) with 0 mapping to 0. We reduce to the fractional turn BEFORE scaling by P:
+ * 'now' is wall-clock epoch ms (~1.7e12), and the old fmod(rate*P*now, P) lost dash-unit precision
+ * at that magnitude (the same 64-bit trap net_hilight_style_on_now dodges by reducing first).
+ * Returns 0 for a non-marching style, an empty dash, or rate_persec<=0 (rate 0 = static; negative
+ * rates are clamped away at parse, so a march_fwd style can never scroll backward). */
+double net_hilight_march_offset(NetHilightStyle *st, double now)
+{
+  double P, turns, frac;
+  if(!st || st->anim == 0 || st->rate_persec <= 0) return 0.0;
+  P = net_hilight_dash_period(st);
+  if(P <= 0.0) return 0.0;
+  turns = (double)st->rate_persec * (now / 1000.0); /* periods elapsed; >= 0 (rate, now >= 0) */
+  frac = turns - floor(turns);                      /* fractional turn in [0, 1) */
+  if(st->anim == 2 && frac > 0.0) frac = 1.0 - frac; /* march_rev: mirror; 0 stays 0 (no -0.0) */
+  return P * frac;                                  /* in [0, P): frac < 1, and >= 0, never -0.0 */
 }
 
 /* Single source of truth for "which highlighted objects animate": walks the highlighted
