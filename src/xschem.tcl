@@ -480,7 +480,11 @@ proc net_hilight_anim_update {win} {
   if { ![info exists has_x] || !$has_x } return
   if { !$net_hilight_animate } return
   if { ![winfo exists $win] } return
-  if { [catch {xschem get net_hilight_animated} need] || !$need } return
+  # Ask about THIS window's context (multi-window anim, Phase B): pass $win so the start gate
+  # for a non-front window consults its own animation state, not the front's. Today $win is
+  # always the front window (the C net_hilight_anim_update() arms only current_win_path), so
+  # this is a no-op now and becomes load-bearing when Phase D arms background windows.
+  if { [catch {xschem get net_hilight_animated $win} need] || !$need } return
   set net_hilight_after($win) [after $net_hilight_tick_ms [list net_hilight_anim_tick $win]]
 }
 

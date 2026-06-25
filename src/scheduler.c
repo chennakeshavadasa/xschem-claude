@@ -1867,10 +1867,21 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
              * tick for a non-front window gets its own window's answer, not the front's. With
              * no arg the front (current) behavior is unchanged. */
             Xschem_ctx *borrowed = NULL;
+            int animated;
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
             if(argc > 3) borrowed = net_hilight_borrow_ctx(argv[3]);
-            Tcl_SetResult(interp, net_hilight_has_animation() ? "1" : "0", TCL_STATIC);
+            /* An explicit <win> that is neither the current window nor a known window path
+             * cannot be borrowed (borrow -> NULL). Report "not animating" (0) for that window
+             * rather than silently answering about the front -- a tick polling a stale/closed
+             * window then stops cleanly instead of mirroring the front's state. (borrow also
+             * returns NULL when <win> IS the current window; that case correctly answers about
+             * the front, hence the current_win_path check distinguishes the two.) */
+            if(argc > 3 && !borrowed && xctx->current_win_path && strcmp(argv[3], xctx->current_win_path))
+              animated = 0;
+            else
+              animated = net_hilight_has_animation();
             net_hilight_restore_ctx(borrowed);
+            Tcl_SetResult(interp, animated ? "1" : "0", TCL_STATIC);
           }
           else if(!strcmp(argv[2], "no_draw")) { /* disable drawing */
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
