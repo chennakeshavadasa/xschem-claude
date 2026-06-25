@@ -2685,13 +2685,20 @@ static int scan_animating_hilights(double now, unsigned int *sig, int *maxw, dou
  * so a stale/unknown win path safely degrades to operating on the front context. */
 Xschem_ctx *net_hilight_borrow_ctx(const char *win_path)
 {
-  int n;
+  int i, n = -1;
   Xschem_ctx *target, **save_xctx = get_save_xctx();
   if(!win_path || !win_path[0]) return NULL;
   /* fast path: asking for the window we are already on -> no swap, no restore */
   if(xctx && xctx->current_win_path && !strcmp(win_path, xctx->current_win_path)) return NULL;
-  n = get_tab_or_window_number(win_path);
-  if(n < 0 || n >= MAX_NEW_WINDOWS) return NULL;
+  /* Match ONLY an exact window path (.drw, .x1.drw, ...). Deliberately NOT
+   * get_tab_or_window_number(): its cell-name fallback would resolve a borrow ambiguously
+   * when two windows show the same cell, silently targeting whichever slot is found first.
+   * Every borrow key is a window path (the per-window tick keys by path), so the cell-name
+   * match is unwanted here. */
+  for(i = 0; i < MAX_NEW_WINDOWS; ++i) {
+    if(!strcmp(win_path, get_window_path(i))) { n = i; break; }
+  }
+  if(n < 0) return NULL;
   /* single-schematic caveat: with only one schematic open the front context is the live
    * `xctx`, not save_xctx[0] (see get_tab_or_window_number()/create_new_window(), xinit.c). */
   if(get_window_count() == 0 && n == 0) target = xctx;
