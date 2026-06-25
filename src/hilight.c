@@ -490,6 +490,18 @@ static int parse_net_hilight_styles(const char *tab)
         "effect (stripes need a dash pattern)", s->index, s->angle);
       hilight_style_warn(msg);
     }
+    /* marching ants (anim) scrolls the dash pattern; with no dash pattern there is nothing
+     * to scroll, so the marching has no effect — warn rather than silently ignore (mirrors the
+     * stripe-angle-needs-dash warning above; see net_hilight_style_animates). NOTE: this warns
+     * only about the marching dimension; such a style may still blink if blink_ms>0, so the
+     * message speaks of "nothing to scroll", not of the whole style being inert. */
+    if(s->anim != 0 && s->dash_len == 0) {
+      char msg[200];
+      my_snprintf(msg, S(msg),
+        "net_hilight_style: style %d has marching animation but no dash pattern; nothing to "
+        "scroll (marching needs a dash pattern)", s->index);
+      hilight_style_warn(msg);
+    }
     Tcl_Free((char *)f);
   }
   Tcl_Free((char *)rows);
@@ -2463,6 +2475,14 @@ double net_hilight_now_ms(void)
   return (double)t.sec * 1000.0 + (double)t.usec / 1000.0;
 }
 
+/* Bounds (ms) on the adaptive tick delay: floor caps the wake rate near a blink edge (~60fps);
+ * the ceiling bounds how stale a highlight can look after an external full draw invalidates the
+ * change-detection signature (the next reconcile tick is at most this far off); busy = retry
+ * cadence while the animation is paused mid-gesture. */
+#define NET_HILIGHT_TICK_MIN  16.0
+#define NET_HILIGHT_TICK_MAX  250.0
+#define NET_HILIGHT_TICK_BUSY 50.0
+
 /* Blink gate: ON if the style does not blink (blink_ms<=0), else a 50% duty cycle of
  * period blink_ms. 'now' is wall-clock ms from net_hilight_now_ms(). */
 int net_hilight_style_on_now(NetHilightStyle *st, double now)
@@ -2475,18 +2495,26 @@ int net_hilight_style_on_now(NetHilightStyle *st, double now)
   return fmod(floor(now / half), 2.0) < 0.5;
 }
 
-/* Does this style drive the animation tick? Pass 2a = blink only; Pass 2b will also
- * return true for st->anim != 0 (marching ants). */
+/* Does this style drive the animation tick? Two independent animators (which compose):
+ * blink (blink_ms>0, Pass 2a) and marching ants (anim!=0, Pass 2b). Marching scrolls the
+ * dash pattern, so it requires a dash pattern (dash_len>0) — a marching solid style has
+ * nothing to scroll and does NOT animate (parse_net_hilight_styles warns about it). */
 static int net_hilight_style_animates(NetHilightStyle *st)
 {
-  return st && st->blink_ms > 0;
+  return st && (st->blink_ms > 0 || (st->anim != 0 && st->dash_len > 0));
 }
 
 /* Time (ms) until style st's next blink phase edge, given wall-clock 'now'. Always in
- * (0, blink_ms/2]: lets the tick sleep until the next visible change instead of polling. */
+ * (0, blink_ms/2]: lets the tick sleep until the next visible change instead of polling.
+ * A non-blinking style (blink_ms<=0, e.g. a pure marching-ants style, which now reaches here
+ * via the broadened net_hilight_style_animates) has no blink edge, so return the ceiling: it
+ * never lowers the tick's next-edge min, and we avoid a blink_ms==0 divide-by-zero (mirrors
+ * net_hilight_style_on_now's guard). Marching's own frame cadence arrives in Pass 2b Phase D. */
 static double net_hilight_next_edge_ms(NetHilightStyle *st, double now)
 {
-  double half = st->blink_ms / 2.0;
+  double half;
+  if(st->blink_ms <= 0) return NET_HILIGHT_TICK_MAX;
+  half = st->blink_ms / 2.0;
   return (floor(now / half) + 1.0) * half - now;
 }
 
@@ -2557,14 +2585,6 @@ int net_hilight_has_animation(void)
   if(xctx->ui_state & HILIGHT_ANIM_BUSY) return 0;
   return scan_animating_hilights(0.0, NULL, NULL, NULL, NULL, NULL, NULL, NULL) > 0;
 }
-
-/* Bounds (ms) on the adaptive tick delay: floor caps the wake rate near a blink edge (~60fps);
- * the ceiling bounds how stale a highlight can look after an external full draw invalidates the
- * change-detection signature (the next reconcile tick is at most this far off); busy = retry
- * cadence while the animation is paused mid-gesture. */
-#define NET_HILIGHT_TICK_MIN  16.0
-#define NET_HILIGHT_TICK_MAX  250.0
-#define NET_HILIGHT_TICK_BUSY 50.0
 
 /* One animation frame (the tick's only C call). Regional-redraws just the union bbox of the
  * *animating* highlighted objects (steady highlights keep their pixels). Change-detection:

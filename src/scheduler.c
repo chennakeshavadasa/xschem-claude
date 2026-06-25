@@ -1853,9 +1853,10 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
             }
           }
           else if(!strcmp(argv[2], "net_hilight_animated")) {
-            /* 1 if this window should run the net-highlight animation tick (Pass 2a):
-             * animation enabled, on-screen, idle, and >=1 highlighted net has a blinking
-             * style. The Tcl tick polls this to decide whether to keep rescheduling. */
+            /* 1 if this window should run the net-highlight animation tick: animation
+             * enabled, on-screen, idle, and >=1 highlighted net has an animating style
+             * (blinking, Pass 2a; or marching, Pass 2b). The Tcl tick polls this to decide
+             * whether to keep rescheduling. */
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
             Tcl_SetResult(interp, net_hilight_has_animation() ? "1" : "0", TCL_STATIC);
           }
