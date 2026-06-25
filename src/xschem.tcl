@@ -495,6 +495,146 @@ proc net_hilight_animate_changed {args} {
 # NB: the write-trace is registered next to `set_ne net_hilight_animate` (far below), AFTER the
 # variable is initialized, so the initial set does not fire a redraw before the GUI is ready.
 
+# ---- net_hilight_style table editors (fault tolerant) -----------------------------------
+# The net_hilight_style table is a Tcl list of rows; each row has 8 columns:
+#   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
+# color = a layer index (0..cadlayers-1) or an X color name / #rrggbb ; dash = a list of on/off
+# run lengths ({} = solid) ; anim = none | march_fwd | march_rev. These helpers NORMALIZE every
+# row (filling defaults for any missing field, coercing out-of-range ones) and keep the invariant
+# that a row's index column equals its position, then recompile the C table via
+# 'xschem update_net_hilight_style'. See specs/net_hilight_styles.md.
+
+# canonical per-column defaults (the index column is supplied per call)
+proc net_hilight_style_default_row {idx} { return [list $idx 4 1 {} 0 0 none 0] }
+
+# Normalize one (possibly short or sloppy) row into a clean 8-column row at position $idx:
+# missing trailing fields take the default; garbage/out-of-range numeric fields are coerced.
+proc net_hilight_style_norm {row idx} {
+  set d [net_hilight_style_default_row $idx]
+  set out {}
+  for {set i 0} {$i < 8} {incr i} {
+    if {$i < [llength $row]} { lappend out [lindex $row $i] } else { lappend out [lindex $d $i] }
+  }
+  lset out 0 $idx                                            ;# index column == position
+  if {![string is integer -strict [lindex $out 2]] || [lindex $out 2] < 1} { lset out 2 1 }
+  set a [lindex $out 4]
+  if {![string is integer -strict $a]} { set a 0 } elseif {$a < 0} { set a 0 } elseif {$a > 45} { set a 45 }
+  lset out 4 $a
+  if {![string is integer -strict [lindex $out 5]] || [lindex $out 5] < 0} { lset out 5 0 }
+  if {[lsearch -exact {none march_fwd march_rev} [lindex $out 6]] < 0} { lset out 6 none }
+  if {![string is integer -strict [lindex $out 7]] || [lindex $out 7] < 0} { lset out 7 0 }
+  return $out
+}
+
+# Current table, materializing the layer-derived default first if it is empty (so merge/append
+# build on the real default rather than an empty list).
+proc net_hilight_style_current {} {
+  global net_hilight_style
+  if {[llength $net_hilight_style] == 0} { xschem update_net_hilight_style }
+  return $net_hilight_style
+}
+
+# MODE 1 -- replace: the table becomes EXACTLY the given rows (positions 0..n-1; given index
+# columns are ignored and renumbered to position).
+proc net_hilight_style_replace {rows} {
+  global net_hilight_style
+  set t {} ; set i 0
+  foreach row $rows { lappend t [net_hilight_style_norm $row $i] ; incr i }
+  set net_hilight_style $t
+  xschem update_net_hilight_style
+  return $t
+}
+
+# MODE 2 -- merge: each row's index column selects the position to overwrite; every other row is
+# kept. An index past the current end extends the table, padding gaps with default rows.
+proc net_hilight_style_merge {rows} {
+  global net_hilight_style
+  set t [net_hilight_style_current]
+  foreach row $rows {
+    set idx [lindex $row 0]
+    if {![string is integer -strict $idx] || $idx < 0} continue   ;# need a valid target index
+    while {[llength $t] <= $idx} { lappend t [net_hilight_style_default_row [llength $t]] }
+    lset t $idx [net_hilight_style_norm $row $idx]
+  }
+  set net_hilight_style $t
+  xschem update_net_hilight_style
+  return $t
+}
+
+# MODE 3 -- append: ignore each row's index column; add the styles as new rows at the end.
+proc net_hilight_style_append {rows} {
+  global net_hilight_style
+  set t [net_hilight_style_current]
+  foreach row $rows { lappend t [net_hilight_style_norm $row [llength $t]] }
+  set net_hilight_style $t
+  xschem update_net_hilight_style
+  return $t
+}
+
+# MODE 4 -- reset: discard customizations and re-derive the default table (one solid width-1
+# style per active layer -- reproduces the legacy highlight look).
+proc net_hilight_style_reset {} {
+  global net_hilight_style
+  set net_hilight_style {}
+  xschem update_net_hilight_style       ;# empty var -> C re-derives + republishes the default
+  return $net_hilight_style
+}
+
+# Bonus -- remove rows by position; the survivors are renumbered to keep index == position.
+proc net_hilight_style_remove {indices} {
+  global net_hilight_style
+  set t [net_hilight_style_current]
+  foreach idx [lsort -integer -decreasing -unique $indices] {
+    if {$idx >= 0 && $idx < [llength $t]} { set t [lreplace $t $idx $idx] }
+  }
+  set re {} ; set i 0
+  foreach row $t { lappend re [net_hilight_style_norm $row $i] ; incr i }
+  set net_hilight_style $re
+  xschem update_net_hilight_style
+  return $re
+}
+
+# Bonus -- print the current table, one row per line, for inspection at the Tcl console.
+proc net_hilight_style_show {} {
+  set i 0
+  foreach row [net_hilight_style_current] { puts [format "%3d: %s" $i $row] ; incr i }
+  return
+}
+
+# Apply a LITERAL style row to named nets, or to the current selection, without hand-editing the
+# table first: the style is installed once (an identical existing style is reused, so repeated
+# calls do not grow the table) and then applied by its index. Returns the style index used.
+#   net_hilight_apply {6 orange 3 {20 20} 30 0 march_fwd 2}            ;# -> current selection
+#   net_hilight_apply {6 orange 3 {20 20} 30 0 march_fwd 2} VOUT CLK   ;# -> nets VOUT and CLK
+# NOTE: the named-net form works for any table size; the current-selection form relies on
+# 'xschem set hilight_color', which clamps the index to < cadlayers, so it is reliable only while
+# the table has fewer than cadlayers (~20) rows -- pass net names explicitly for larger tables.
+proc net_hilight_apply {styledef args} {
+  global net_hilight_style incr_hilight
+  set want [net_hilight_style_norm $styledef 0]
+  set t [net_hilight_style_current]
+  set idx -1
+  for {set i 0} {$i < [llength $t]} {incr i} {
+    if {[lrange [net_hilight_style_norm [lindex $t $i] 0] 1 end] eq [lrange $want 1 end]} { set idx $i ; break }
+  }
+  if {$idx < 0} {
+    set idx [llength $t]
+    lappend t [net_hilight_style_norm $styledef $idx]
+    set net_hilight_style $t
+    xschem update_net_hilight_style
+  }
+  if {[llength $args]} {
+    foreach net $args { xschem hilight_netname -style $idx $net }
+  } else {
+    set save $incr_hilight
+    set incr_hilight 0
+    xschem set hilight_color $idx
+    xschem hilight
+    set incr_hilight $save
+  }
+  return $idx
+}
+
 proc update_process_status {lb} {
   global execute has_x
   set exists 0
@@ -12696,19 +12836,27 @@ if {!$rainbow_colors} {
 
 # Net highlight style table (Cadence display.drf-like). Start it empty: at startup the C
 # engine fills it in with the built-in default (one style per active layer, width 1, solid:
-# the legacy highlight look), so you can inspect the live setup with 'puts $net_hilight_style'
-# and edit individual rows in place, e.g.:
-#   lset net_hilight_style 2 {2 yellow 3 {8 4 2 4} 30 0 none 0}
-#   xschem update_net_hilight_style
+# the legacy highlight look), so you can inspect the live setup with 'puts $net_hilight_style'.
 # Each row is:
 #   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
-# color: a layer index (0..cadlayers-1) or an X color name / #rrggbb. dash-pattern:
-# a list of on/off run lengths ({} = solid). stripe-angle-deg clamps to [0,45].
-# blink_ms drives blink animation (Pass 2a); anim/rate_persec are reserved for marching-ants
-# (Pass 2b) and ignored for now.
-# See net_hilight_style_rc for an example. There is no 10-style limit.
+# color: a layer index (0..cadlayers-1) or an X color name / #rrggbb. dash-pattern: a list of
+# on/off run lengths ({} = solid). stripe-angle-deg clamps to [0,45]. blink_ms drives blink
+# animation (period ms, 0 = steady); anim (none|march_fwd|march_rev) + rate_persec (periods/sec)
+# drive marching ants on a dashed style. There is no 10-style limit.
+#
+# To EDIT the table, prefer the fault-tolerant helpers (they fill defaults for missing fields,
+# keep index==position, and recompile for you) over hand-editing + lset:
+#   net_hilight_style_replace {rows}  - table becomes EXACTLY these rows
+#   net_hilight_style_merge   {rows}  - overwrite rows by their index column, keep the rest
+#   net_hilight_style_append  {rows}  - add rows at the end (index column ignored)
+#   net_hilight_style_reset           - re-derive the layer-default table
+#   net_hilight_style_remove  {idxs}  - delete rows by position;  net_hilight_style_show
+#   net_hilight_apply {styledef} ?net...?  - apply a literal style to the selection / named nets
+# (Editing the variable directly still works, but then you must call
+# 'xschem update_net_hilight_style' yourself; a raw 'lset ... {}' replaces the WHOLE list.)
+# See net_hilight_style_rc for an example.
 # Once filled in (or set by you), the table is fixed and no longer tracks the active-layer
-# set; set it back to {} and run 'xschem update_net_hilight_style' to re-derive the default.
+# set; net_hilight_style_reset (or set it to {} + update) re-derives the default.
 set_ne net_hilight_style {}
 
 # Net-highlight animation (Pass 2a, blink). Global kill-switch: set to 0 to freeze all
