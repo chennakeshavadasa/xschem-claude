@@ -4356,14 +4356,18 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
       /* else leave the result empty — a dangling anchor / unknown net */
     }
 
-    /* net_hilight_test_now <ms>
+    /* net_hilight_test_now <ms> [<win>]
      *   TEST HOOK (Pass 2a): force the net-highlight blink phase to a fixed time so a render
      *   can deterministically sample an ON-phase vs OFF-phase frame. A negative <ms> (or no
-     *   arg) turns the override off (back to wall-clock). Never used in production. */
+     *   arg) turns the override off (back to wall-clock). Never used in production.
+     *   The forced time is per-Xschem_ctx; the optional <win> sets it on THAT window's context
+     *   (Phase-A borrow) so a background window's animation frame can be driven from the front
+     *   (multi-window anim, Phase C). */
     else if(!strcmp(argv[1], "net_hilight_test_now"))
     {
       char *endp = NULL;
       double ms;
+      Xschem_ctx *borrowed = NULL;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       /* strtod (not atof) so a non-numeric arg is rejected rather than parsed as 0.0, which
        * would silently activate the override at t=0 instead of erroring. */
@@ -4373,6 +4377,7 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
         Tcl_SetResult(interp, "net_hilight_test_now: <ms> must be a number", TCL_STATIC);
         return TCL_ERROR;
       }
+      if(argc > 3) borrowed = net_hilight_borrow_ctx(argv[3]);
       if(ms >= 0.0) {
         xctx->net_hilight_test_active = 1;
         xctx->net_hilight_test_ms = ms;
@@ -4380,6 +4385,35 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
         xctx->net_hilight_test_active = 0;
         xctx->net_hilight_test_ms = 0.0;
       }
+      net_hilight_restore_ctx(borrowed);
+      Tcl_ResetResult(interp);
+    }
+
+    /* net_hilight_dump_pixmap <file> [<win>]
+     *   TEST HOOK (Pass 2-multiwin, Phase C): write the LIVE backing pixmap (save_pixmap) of
+     *   <win> (default: current window) to a PNG, WITHOUT re-rendering. Unlike `xschem print
+     *   png` (which calls draw() and so captures steady highlights), this captures exactly the
+     *   pixels a preceding `redraw_hilight_region` painted -- the blink/march phase -- so a
+     *   per-window animation frame can be byte-compared (cmp) and front/background cross-talk
+     *   detected. Never used in production. */
+    else if(!strcmp(argv[1], "net_hilight_dump_pixmap"))
+    {
+      Xschem_ctx *borrowed = NULL;
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc < 3) {
+        Tcl_SetResult(interp, "net_hilight_dump_pixmap: missing <file>", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      if(argc > 3) borrowed = net_hilight_borrow_ctx(argv[3]);
+#if defined(__unix__) && HAS_CAIRO==1
+      if(has_x && xctx->save_pixmap) {
+        cairo_surface_t *sfc = cairo_xlib_surface_create(display, xctx->save_pixmap, visual,
+                                 xctx->xrect[0].width, xctx->xrect[0].height);
+        cairo_surface_write_to_png(sfc, argv[2]);
+        cairo_surface_destroy(sfc);
+      }
+#endif
+      net_hilight_restore_ctx(borrowed);
       Tcl_ResetResult(interp);
     }
 
@@ -6065,20 +6099,29 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
      *   One net-highlight animation frame (Pass 2a): regional-redraw the union bbox of the
      *   animating (blinking) highlighted nets to restore underlying pixels for the new blink
      *   phase. Driven by the Tcl tick (net_hilight_anim_tick); no-op when nothing animates or
-     *   no blink edge occurred since the last frame. Returns 1 if it redrew, else 0. */
+     *   no blink edge occurred since the last frame. Returns 1 if it redrew, else 0.
+     *   Optional <win> arg (multi-window anim, Phase C): regional-redraw THAT window, not the
+     *   front. Borrow <win>'s context (Phase A), run draw_hilight_region() against it -- which
+     *   draws into that window's own save_pixmap + canvas via bbox()/draw() -- then restore.
+     *   The borrow wraps a COMPLETE, synchronous draw_hilight_region() (no vwait/update inside,
+     *   non-reentrant), which is the condition the A3 audit requires for the file-scope draw
+     *   batch buffers (draw.c) to stay safe under a context swap. */
     else if(!strcmp(argv[1], "redraw_hilight_region"))
     {
       int r;
       double next = 50.0;
       char buf[64];
+      Xschem_ctx *borrowed = NULL;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
-      /* Optional window arg: the C core animates only the current (front) window's global
-       * xctx, so a per-window tick for a non-front window must stop (return 0) rather than
-       * redraw the front context (it restarts when that window is focused — see
-       * net_hilight_anim_update on schematic switch; multi-window animation is otherwise
-       * deferred, see specs/multi_window_detach.md). */
-      if(argc > 2 && strcmp(argv[2], xctx->current_win_path)) r = 0;
-      else r = draw_hilight_region(&next);
+      if(argc > 2) borrowed = net_hilight_borrow_ctx(argv[2]);
+      /* An explicit <win> that is neither the current window nor a known window path cannot be
+       * borrowed (borrow -> NULL): nothing to redraw, stop the tick (0). The current-window
+       * case also borrows to NULL but correctly redraws the front (no <win> => same path). */
+      if(argc > 2 && !borrowed && xctx->current_win_path && strcmp(argv[2], xctx->current_win_path))
+        r = 0;
+      else
+        r = draw_hilight_region(&next);
+      net_hilight_restore_ctx(borrowed);
       /* Return "tristate next_ms": 0 = stop the tick, 1 = redrew (edge), 2 = keep ticking
        * (busy/no edge); next_ms = ms the tick should sleep before the next call. */
       my_snprintf(buf, S(buf), "%d %d", r, (int)next);

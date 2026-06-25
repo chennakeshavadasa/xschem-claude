@@ -267,3 +267,50 @@ Focus returned to `.drw`:
   state, not a constant. Regression suite (create_save/open_close/netlisting) clean.
 
 Next: Phase C (context-aware regional redraw — the one real draw risk; gated A3-clear).
+
+---
+
+## Phase C — STATUS: DONE (2026-06-25)
+
+C1+C2 implemented and verified RED→GREEN→sabotage. The A3 audit's draw-batch-buffer invariant
+held in practice (front PNG byte-identical across a background redraw). Single commit.
+
+### What landed
+- **`xschem redraw_hilight_region <win>`** (`scheduler.c`): with the optional `<win>` arg the
+  command borrows that window's context (Phase A) and runs `draw_hilight_region(&next)` against
+  it — which draws into THAT window's own `save_pixmap` + canvas via `bbox()`/`draw()` — then
+  restores. The old `win != current_win_path → r=0` bail is gone. An explicit unknown/stale
+  `<win>` (unborrowable, non-current) returns `0` (stop the tick), matching the Phase B contract.
+  The borrow wraps a complete, synchronous, non-reentrant `draw_hilight_region()` with no
+  `vwait`/`update` inside — exactly the condition the A3 audit requires for the file-scope draw
+  batch buffers (`draw.c`) to stay safe under a context swap.
+- **Two borrow-based test seams** (both `TEST HOOK … never used in production`, siblings of
+  `net_hilight_test_now`): `net_hilight_test_now <ms> [<win>]` now sets the per-`xctx` forced
+  blink/march time on `<win>`'s context (so a background frame can be driven from the front);
+  and new `net_hilight_dump_pixmap <file> [<win>]` writes a window's **live** `save_pixmap` to a
+  PNG **without re-rendering** — unlike `print png`, which calls `draw()` and captures steady
+  highlights, this captures exactly the animation phase a preceding `redraw_hilight_region`
+  painted, so per-window frames are byte-comparable and cross-talk is detectable.
+
+### Verification (`scratchpad/phaseC_redraw_test.tcl`, `DISPLAY=:0`)
+Front `.drw` (cmos_inv) and background `.x1.drw` (LCC_instances), each with a blinking highlight,
+focus on the front. Live `save_pixmap` PNGs via `net_hilight_dump_pixmap`, forced per-window time
+via `net_hilight_test_now <ms> <win>`, byte-compared with `cmp`:
+- **C1** — redraw `.x1.drw` at blink ON (`t=0`) vs OFF (`t=300`): its pixmap **differs** (it drew
+  into the background surface). RED (old bail) → command returns `0 50`, pixmap unchanged →
+  identical (C1 fails, exactly one assertion). GREEN → returns `1 …`, pixmaps differ.
+- **C2 cross-talk** — capture the front at `t=0` (ON); arm the front to `t=300` (OFF) **without
+  redrawing it**; redraw `.x1.drw`; re-capture the front: byte-**identical** (the background
+  redraw did not touch the front surface). Front still toggles on its own edge.
+- **Sabotage** (skip the borrow → draw the front context): C1 fails (background unchanged), C2
+  cross-talk fails (front flips to OFF — corrupted), and the unknown-`<win>` guard fails (drew
+  instead of stopping) — three failures, proving the borrow both runs AND targets the right
+  surface. Reverted; GREEN restored; regression (create_save/open_close/netlisting) clean.
+
+### Scope note (C3 deferred to Phase D)
+This is the **detached-windows** feature (LOCKED). `redraw_hilight_region <win>` will draw
+whatever window it is told; the decision **not** to tick a non-viewable background *tab*
+(tabs share the main canvas) is the `winfo viewable` visibility gate in **Phase D**, verified
+there. Phase C tested detached windows only.
+
+Next: Phase D (arm every animating window from C + the visibility gate).
