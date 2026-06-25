@@ -1,0 +1,176 @@
+# Plan — Multi-window net-highlight animation (blink + marching ants)
+
+Status: PLANNED (2026-06-25), after net-highlight Pass 1/1.5/2a/2b all shipped on
+`fluid-editing` (single-window animation works; HEAD `c2162eeb`). Goal: let blink AND
+marching highlights animate in **every visible window simultaneously**, not just the front one.
+See FAQ Q20 (`code_analysis/FAQ.md`) for the architectural summary and `specs/net_hilight_styles.md`
+/ `specs/multi_window_detach.md` for context.
+
+Guiding principle: this is **not a new subsystem** — the per-window contexts (`save_xctx[]`) and a
+per-window Tcl tick (`net_hilight_after` array, keyed by window path) already exist. The whole job
+is **lifting the "global front `xctx`" assumption** out of the four animation entry points, behind a
+single audited **context-borrow** primitive, gated on visibility and serialized. Land the borrow
+primitive first (read-only, lowest risk), then the query, then the draw (the one real risk), then
+arm-all + visibility, then serialize + verify.
+
+Each step is a RED test (fails today) → minimal GREEN → a sabotage check, exactly like the Pass 2b
+plan. Multi-window is harder to unit-test than the offset math, but the key behaviors ARE assertable
+headlessly via a new per-window query arg (the test seam below) plus per-window PNG byte-diffs
+(`cmp`, already proven by 2a/2b).
+
+---
+
+## Why it's front-only today (the three bake-ins)
+1. `net_hilight_anim_update()` (`hilight.c`) arms the tick only for `xctx->current_win_path`.
+2. `net_hilight_has_animation()` / `scan_animating_hilights()` / `draw_hilight_region()` read the
+   **global** `xctx`.
+3. `xschem redraw_hilight_region <win>` (`scheduler.c`) returns `0` (stop) when
+   `win != xctx->current_win_path`, so a background window's tick self-cancels.
+
+Already multi-window-ready: the Tcl tick (`net_hilight_anim_tick {win}` / `net_hilight_anim_update
+{win}` in `xschem.tcl`) is per-window; N concurrent self-rescheduling `after` chains already work.
+
+## The key new test seam
+`xschem get net_hilight_animated <win>` and `xschem redraw_hilight_region <win>` must evaluate
+**window `<win>`'s context**, not the global front one. Once the query takes `<win>` and answers
+about that window, every phase below is assertable from a headless/script `--script` run that opens
+two windows, highlights an animating net in the **non-front** one, and asserts on `<win>`.
+
+## Scope decision (LOCKED)
+This is a **detached-windows** feature. Background **tabs share one canvas and are not mapped**, so
+animating a hidden tab is invisible and would scribble an unmapped surface. Only windows whose canvas
+is `winfo viewable` animate; background tabs stay static (already correct). So "multi-window
+animation" == "every *visible* top-level (`.drw`, `.x1.drw`, `.x2.drw`, …) animates."
+
+## Shared test harness (used by every phase)
+```tcl
+# open a 2nd detached window with a different schematic, highlight an animating net in it,
+# return focus to the first. The non-front window is the unit under test.
+xschem load A.sch                                  ;# front = .drw
+xschem new_schematic create_window B.sch           ;# detached -> .x1.drw
+# operate on .x1.drw's context via the existing (heavyweight) switch for SETUP only:
+#   select a net there, install a blinking style, hilight it
+# then switch focus back to .drw so .x1.drw is the NON-front window.
+```
+(Confirm the exact `new_schematic` subcommand + how setup switches contexts during the spike.)
+
+---
+
+## Phase A — the context-borrow primitive (read-only; lowest risk)
+
+A1. **Map a window path to its context.** RED: a unit that, given `.x1.drw`, finds `save_xctx[n]`.
+GREEN: reuse `get_tab_or_window_number(win_path)` (`xinit.c:1395`) + `get_save_xctx()`; handle the
+"single schematic not yet in save_xctx → it's the live `xctx`" caveat (see `xinit.c:1408`,
+`get_window_count()==0`). Sabotage: an unknown win path → returns -1, borrow is a safe no-op.
+
+A2. **`with_net_hilight_ctx(win, &saved)` borrow + restore.** A C helper that points global `xctx`
+at `save_xctx[n]` and returns the previous `xctx` (NULL if win is already current / not found →
+caller skips switching). A matching restore. NO drawing, NO GUI side effects (unlike
+`switch_window()`, `xinit.c:1579`, which raises/focuses/sets title). RED: a probe subcommand
+`xschem get schname <win>` (or similar context-specific read) returns the FRONT window's value for a
+background win. GREEN: it returns the background window's value, and the global `xctx` is byte-identical
+before vs after (restore is exact). Sabotage: force the restore off → a follow-up front-window query
+returns the wrong window's value (proves the restore is load-bearing).
+
+A3. **Borrow audit (the de-risking step, no new behavior).** Enumerate every global the draw path
+reads that is NOT inside `Xschem_ctx`: `display` (shared, fine), the `bbox()` machinery state,
+`set_clip_mask` statics, cairo globals, `rstate`/areax. Document which are xctx-relative (safe) vs
+truly global (must be saved/restored or are read-only). Output: a short audit note appended to this
+plan. This gates Phase C.
+
+---
+
+## Phase B — context-aware animation query
+
+B1. **`xschem get net_hilight_animated <win>`.** RED: with an animating net highlighted in the
+**non-front** window, `xschem get net_hilight_animated .x1.drw` → returns the front window's answer
+(today: ignores the arg, reads global `xctx`). GREEN: borrow `<win>` (Phase A), call
+`net_hilight_has_animation()` against it, restore; with no arg keep the current (front) behavior.
+Sub-RED: the front window's own `net_hilight_animated` is unchanged. Sabotage: highlight nothing in
+`.x1.drw` → returns 0.
+
+B2. **`net_hilight_has_animation()` reads the (now possibly-borrowed) `xctx` correctly.** No change
+expected (it already reads the global `xctx`, which the borrow has repointed) — assert it via B1.
+Confirm the busy/animate-enabled guards still apply per-borrowed-context.
+
+---
+
+## Phase C — context-aware regional redraw (the one real risk)
+
+C1. **`xschem redraw_hilight_region <win>` draws window `<win>`, not the front.** RED: two PNGs of
+the **background** window at forced animation times (blink ON vs OFF, via `net_hilight_test_now`) →
+identical today (the command returns 0 / no-ops for a non-front win). GREEN: borrow `<win>`, run
+`draw_hilight_region(&next)` (it draws into that context's pixmap + canvas via `bbox(...)`/`draw()`),
+restore; remove the `win != current_win_path → return 0` bail. PNGs now differ. Sabotage: skip the
+borrow (draw with the front context) → the background window's PNG is unchanged AND the FRONT
+window's pixmap gets corrupted (proves the borrow targets the right surface).
+
+C2. **The front window keeps animating correctly while a background window also animates.** RED/guard:
+PNG the front window across its own blink edge while `.x1.drw` is also ticking → front still toggles,
+and `.x1.drw`'s redraw did not touch the front's pixmap (front PNG identical at equal forced times
+regardless of background activity). This is the cross-talk check the borrow must satisfy.
+
+C3. **Tabs stay front-only.** Guard: a background *tab* (not a detached window) does NOT animate
+(its canvas is not `winfo viewable`); only the front tab does. Verify no redraw is issued to an
+unmapped tab surface.
+
+---
+
+## Phase D — arm every animating window + visibility gate
+
+D1. **`net_hilight_anim_update` arms all windows, not just the front.** RED: highlight an animating
+net in `.x1.drw` (non-front); today no `net_hilight_after(.x1.drw)` timer is registered. GREEN:
+iterate `save_xctx[]`, and for each window with animation arm its tick (the Tcl
+`net_hilight_anim_update {win}` already exists per win). Sabotage: `unhilight_all` in `.x1.drw` →
+its timer cancels; the front's is untouched.
+
+D2. **Visibility gate.** RED: a background detached window that is *iconified/withdrawn* still ticks.
+GREEN: the tick (or `net_hilight_animated <win>`) returns 0 / stops when the window's canvas is not
+`winfo viewable`. Sabotage: de-iconify → it resumes.
+
+---
+
+## Phase E — serialization, reentrancy, finish
+
+E1. **Borrows never overlap a gesture.** Guard: globalize the `semaphore` / `HILIGHT_ANIM_BUSY`
+check so NO window animates a frame while the user is mid-drag/-wire/-move in ANY window (a borrow
+mid-gesture would corrupt the gesturing context). Verify a background tick returns "busy, keep
+ticking" (tri-state 2) during a front-window gesture, then resumes.
+
+E2. **No nested borrows / one at a time.** The borrow asserts it is not already borrowed (or is
+re-entrant-safe). Verify two windows' ticks interleave without leaving `xctx` mis-pointed.
+
+E3. **Live multi-window verification.** Two detached windows, each highlighting a blinking + a
+marching net; `vwait` harness confirms BOTH tick (~blink edges / ~30fps marching) simultaneously,
+each redraws only its own region, neither leaks into the other, CPU bounded, both stop on
+`unhilight_all`. Then `/code-review high`.
+
+E4. **Docs.** Update FAQ Q20 ("now: all visible windows animate"), `specs/net_hilight_styles.md`
+(drop the "front window only" note), and `specs/multi_window_detach.md` (the borrow primitive is
+reusable for other background-window redraws).
+
+---
+
+## Watch-items / risks
+- **The borrow audit (A3) is the whole risk.** If a draw-path global outside `Xschem_ctx` is missed,
+  a background redraw corrupts the front window or vice-versa. Front↔background PNG cross-talk checks
+  (C2) are the safety net — make them strict (byte-identical front frames regardless of background
+  activity).
+- **`switch_window()` is the wrong tool** — it raises/focuses/retitles. The borrow must be the
+  minimal pointer swap + nothing else; resist reusing the heavyweight switch.
+- **Front-context special case**: with a single schematic the front context is the live `xctx`, not
+  `save_xctx[0]` (`xinit.c:1408`). The win→ctx map (A1) must return the live `xctx` for the front.
+- **Cost**: N visible windows × cadence × regional redraw. Each frame is regional (small); bounded.
+  The adaptive marching cadence (1000/(rate·P) ms) and blink edge-seeking already minimize wakeups.
+- **GC/colormap**: `gc[]` and `gc_hilight` are per-`xctx` (`xschem.h:1067,1078`) — the borrow gets the
+  right GCs. `display` is shared (read-only). Confirm no per-draw reconfiguration of a *shared* GC
+  races between windows (serialization E1 covers this).
+- **Reentrancy with the Tcl event loop**: the per-window `after` ticks fire on the Tk loop; a borrow
+  must complete synchronously within one tick callback (no `vwait`/`update` inside a borrow).
+
+## Decisions (LOCKED 2026-06-25)
+1. Scope = **visible top-level windows** only; background tabs stay front-only (by design).
+2. The borrow is a **new minimal primitive**, NOT `switch_window()`.
+3. Land **read-only borrow (query) before draw borrow**; the A3 audit gates the draw phase.
+4. Test seam = **`<win>` arg on `get net_hilight_animated` + `redraw_hilight_region`** + per-window
+   PNG `cmp`.

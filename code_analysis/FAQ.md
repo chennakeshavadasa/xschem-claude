@@ -14,6 +14,55 @@ Newest entries on top.
 
 ---
 
+## Q20. What would it take to animate net highlights (blink + marching ants) in *multiple* open windows at once, not just the front one?
+
+- **Asked:** 2026-06-25
+- **Project state:** branch `fluid-editing` @ `c2162eeb`. Net-highlight-styles: Pass 1 + 1.5 +
+  2a (blink) + 2b (marching ants, phases A–E) all complete & committed; the animation tick
+  animates only the **front** window by design. Plan for this item:
+  `claude_suggs/plan_net_hilight_multiwindow_anim.md`.
+
+**Today it's front-window-only on purpose, but the groundwork is mostly there.** xschem already
+keeps a **separate `Xschem_ctx` per window/tab** in the `save_xctx[]` array (`get_save_xctx()`,
+`xinit.c:83`); the global `xctx` (`globals.c:236`) just points at the current/front one. Each
+context owns its own `window`, `save_pixmap`, cairo surfaces/contexts, `gc[]`/`gc_hilight`,
+zoom/pan, object arrays and hilight tables (`xschem.h:1058`+). The catch: **all drawing operates
+on the global `xctx`** — to draw window N you must repoint `xctx` at `save_xctx[N]`.
+
+The animation path bakes "front-only" into three spots:
+- `net_hilight_anim_update()` (`hilight.c`) arms the Tcl tick only for `xctx->current_win_path`.
+- `net_hilight_has_animation()` / `scan_animating_hilights()` / `draw_hilight_region()` all read
+  the **global** `xctx`.
+- `xschem redraw_hilight_region <win>` (`scheduler.c`) explicitly **returns 0 (stop)** when
+  `win != xctx->current_win_path`, so a background window's tick cancels itself.
+
+The one piece already multi-window-ready is the Tcl tick itself: `net_hilight_after` is an array
+keyed by window path, so N concurrent self-rescheduling ticks already work.
+
+**What it needs (see the plan doc for the atomic RED-first steps):**
+1. A **side-effect-free "borrow context for a draw" primitive** — repoint `xctx` → `save_xctx[N]`,
+   regional-redraw into N's pixmap+canvas, repoint back, with **no** focus/raise/title side
+   effects (unlike the existing `switch_window()`, `xinit.c:1579`, which is heavyweight). *This is
+   the only real risk* — drawing is almost all `xctx`-relative, but it needs an audit for hidden
+   global draw state (`bbox()`, `set_clip_mask`, cairo globals).
+2. Make the per-window query/frame evaluate window N via that borrow (`get net_hilight_animated
+   <win>`, `redraw_hilight_region <win>`); drop the front-window bail.
+3. `net_hilight_anim_update` arms **every** animating window (iterate `save_xctx[]`), not just the
+   front.
+4. Serialize the borrows + never borrow mid-gesture (globalize the `semaphore`/`HILIGHT_ANIM_BUSY`
+   checks).
+5. Animate only **visible** canvases → this is really a **detached-windows** feature; background
+   **tabs share one canvas and aren't visible**, so they correctly stay static (gate on
+   `winfo viewable`).
+6. The wall-clock (`net_hilight_now_ms`) is already global, so all windows animate in sync — no work.
+
+It is **not a new subsystem** (per-window contexts + per-window ticks already exist); the work is
+lifting the "global front `xctx`" assumption out of those four entry points. It's the same
+deferral the Pass-2a/2b reviews kept flagging, and a natural sub-item of the broader
+**multi-window-detach** work (`specs/multi_window_detach.md`).
+
+---
+
 ## Q19. Where are the net-highlight keys `9`/`8`/`0` defined, and how do I reassign them?
 
 - **Asked:** 2026-06-24
