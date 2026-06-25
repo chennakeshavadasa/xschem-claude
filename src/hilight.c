@@ -2821,6 +2821,13 @@ void net_hilight_anim_update(void)
     ctx = save_xctx[i];
     if(get_window_count() == 0 && i == 0) ctx = xctx; /* sole schematic not yet in save_xctx[] */
     if(!ctx) continue;
+    /* Skip a BACKGROUND TAB: a tab (empty top_path) shares the single .drw canvas and is shown
+     * only when it is the front context. Animating a non-front tab would scribble its highlights
+     * onto .drw while a DIFFERENT (front) tab is displayed -- and slot 0's path is the literal
+     * ".drw", which is always `winfo viewable`, so the Tcl-side gate can't catch it. The front
+     * context (ctx==xctx) and every detached window (own top_path/canvas) DO animate (LOCKED:
+     * tabs stay front-only). */
+    if(ctx != xctx && (!ctx->top_path || !ctx->top_path[0])) continue;
     wp = (i == 0) ? ".drw" : get_window_path(i);
     /* a NULL/empty middle arg would truncate tclvareval's va_arg list and run the unbalanced
      * fragment "net_hilight_anim_update {"; skip such a slot. */

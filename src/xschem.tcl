@@ -488,21 +488,23 @@ proc net_hilight_anim_update {win} {
   # iconified detached window -- or a background TAB, whose shared canvas is unmapped (C3) -- is
   # not `winfo viewable`; its tick is left cancelled (above) until the window is shown again.
   if { ![winfo viewable $win] } return
-  # Ask about THIS window's context (multi-window anim, Phase B): pass $win so the start gate
-  # for a non-front window consults its own animation state, not the front's. Today $win is
-  # always the front window (the C net_hilight_anim_update() arms only current_win_path), so
-  # this is a no-op now and becomes load-bearing when Phase D arms background windows.
+  # Ask about THIS window's context (multi-window anim): pass $win so a non-front window's start
+  # gate consults its OWN animation state, not the front's. The C net_hilight_anim_update() fans
+  # this proc out to every open window (Phase D), so $win is frequently a background window.
   if { [catch {xschem get net_hilight_animated $win} need] || !$need } return
   set net_hilight_after($win) [after $net_hilight_tick_ms [list net_hilight_anim_tick $win]]
 }
 
 # Make the net_hilight_animate kill-switch take effect immediately: a full redraw restores
 # highlights to their steady (always-on) look, and (re)start or cancel the per-window tick.
+# The kill-switch is GLOBAL, so refresh EVERY window's tick (Phase D), not just the front --
+# else background windows stay frozen after a toggle until their next highlight edit. Route
+# through the C fan-out (xschem net_hilight_anim_update_all), which skips background tabs.
 proc net_hilight_animate_changed {args} {
   global has_x
   if { ![info exists has_x] || !$has_x } return
   catch {xschem redraw}
-  catch {net_hilight_anim_update [xschem get current_win_path]}
+  catch {xschem net_hilight_anim_update_all}
 }
 # NB: the write-trace is registered next to `set_ne net_hilight_animate` (far below), AFTER the
 # variable is initialized, so the initial set does not fire a redraw before the GUI is ready.
@@ -11211,6 +11213,14 @@ global env has_x OS autofocus_mainwindow
     "
 
     bind $topwin <Expose> "if {{%W} eq {$topwin}} {xschem callback %W %T %x %y 0 %w %h %s}"
+
+    # Multi-window anim (Phase D): re-arm THIS window's net-highlight tick when its canvas becomes
+    # viewable again (deiconified / unobscured after being withdrawn). The D2 visibility gate stops
+    # the tick on a non-viewable canvas; without this re-arm an iconify+restore would leave the
+    # animation frozen until the next highlight/style edit. Use %W (not a captured $topwin) so
+    # clone_canvas_bindings copies it verbatim to each detached canvas and it still targets the
+    # right window. net_hilight_anim_update is gated (no-op unless that window animates & is shown).
+    bind $topwin <Visibility> {+net_hilight_anim_update %W}
 
     # transform mousewheel events into button4/5 events
     if {[info tclversion] > 8.7} {

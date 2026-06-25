@@ -4395,6 +4395,18 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
       Tcl_ResetResult(interp);
     }
 
+    /* net_hilight_anim_update_all
+     *   (Re)evaluate and arm/cancel the net-highlight animation tick for EVERY open window
+     *   (multi-window anim, Phase D). Thin Tcl entry to the C fan-out so a change to a GLOBAL
+     *   animation input (e.g. toggling the net_hilight_animate kill-switch) refreshes all
+     *   windows, not just the front. Background tabs are skipped inside the fan-out. */
+    else if(!strcmp(argv[1], "net_hilight_anim_update_all"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      net_hilight_anim_update();
+      Tcl_ResetResult(interp);
+    }
+
     /* net_hilight_dump_pixmap <file> [<win>]
      *   TEST HOOK (Pass 2-multiwin, Phase C): write the LIVE backing pixmap (save_pixmap) of
      *   <win> (default: current window) to a PNG, WITHOUT re-rendering. Unlike `xschem print
@@ -6150,7 +6162,17 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
         r = 0;
       } else {
         if(argc > 2) borrowed = net_hilight_borrow_ctx(argv[2]);
-        r = draw_hilight_region(&next); /* guards save_pixmap==0 (unexposed bg window) internally */
+        /* Background-TAB guard: a real borrow (borrowed != NULL) onto a context with an empty
+         * top_path is a non-front tab -- it shares the single visible .drw canvas with the
+         * ACTUAL front tab, so drawing it would scribble the wrong nets onto the shown tab.
+         * Stop the tick (0). This restores the pre-Phase-C "non-front window doesn't draw" bail,
+         * but narrowed to TABS: a detached window (non-empty top_path) owns its own canvas and
+         * DOES draw, which is the whole multi-window feature. (.drw's path is always
+         * `winfo viewable`, so the Tcl-side visibility gate cannot catch this.) */
+        if(borrowed && (!xctx->top_path || !xctx->top_path[0]))
+          r = 0;
+        else
+          r = draw_hilight_region(&next); /* guards save_pixmap==0 (unexposed bg window) internally */
         net_hilight_restore_ctx(borrowed);
       }
       /* Return "tristate next_ms": 0 = stop the tick, 1 = redrew (edge), 2 = keep ticking
