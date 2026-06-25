@@ -143,6 +143,30 @@ arbitration on detach, geometry of the torn-off window. Per
 `specs/library_manager_launch.md`, scripted toplevels are auto-mapped/focused under
 WSLg/Xvfb regardless of the code, so those assertions cannot tell bug from fix.
 
+## Reusable building block: the context-borrow primitive
+
+The multi-window **net-highlight animation** work (FAQ Q20;
+`claude_suggs/plan_net_hilight_multiwindow_anim.md`; `specs/net_hilight_styles.md`) added a
+small primitive that is **reusable for any background-window redraw**, not just animation:
+
+- **`net_hilight_borrow_ctx(win_path)` / `net_hilight_restore_ctx(saved)`** (`src/hilight.c`)
+  repoint the global `xctx` at another open window's context and back, with **no** GUI side
+  effects — unlike `switch_window()` it does not raise/focus/retitle or run the Tcl
+  `save_ctx`/`restore_ctx`/layer-button machinery. It is the minimal pointer swap, safe to use
+  synchronously inside a timer/idle callback. (`net_hilight_win_known(win_path)` tells an
+  unknown window from the current one, since the borrow returns NULL for both.)
+- **Audit / constraints** (the borrow's `plan` Phase A3): the draw path is `xctx`-relative
+  except the **file-scope draw batch buffers** in `draw.c`; a borrow is safe to *draw* only if
+  it wraps one **complete, non-reentrant** `draw()`/regional redraw with no `vwait`/`update`
+  inside, and never runs while the focused window is **mid-gesture**. Background **tabs** share
+  the main `.drw` canvas, so a borrowed redraw of a non-front tab must bail (it would scribble
+  the shown tab); only **detached** windows (own canvas) and the front context draw. Gate
+  per-window work on **`winfo viewable`**.
+
+Any future feature that needs to redraw or query a non-front window from a single-threaded
+callback (live cross-probe markers, background waveform cursors, etc.) should reuse this borrow
+rather than reaching for `switch_window()`.
+
 ## Out of scope
 
 - Persisting the multi-window layout across sessions (which tabs in which windows,

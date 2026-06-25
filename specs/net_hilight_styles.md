@@ -50,6 +50,19 @@ channel (the `*_backannotate.tcl` files are precedent).
   only when the pattern moves ≥1px, at a ~30fps frame cadence. Test/introspection hook
   `xschem net_hilight_march_offset <idx>` returns the offset at the forced `net_hilight_test_now`
   time. A style needs `anim != none`, a dash pattern, AND `rate_persec > 0` to march.
+- **Pass 2-multiwin — animate every visible window — DONE.** The tick was front-window-only at
+  first (the C core drew the global front `xctx`). It now animates **every *visible* detached
+  window simultaneously** (background **tabs** stay front-only — they share one canvas, by
+  design). Mechanism (see `claude_suggs/plan_net_hilight_multiwindow_anim.md`, phases A–E, and
+  FAQ Q20): a side-effect-free **context-borrow** (`net_hilight_borrow_ctx`/`_restore_ctx`)
+  repoints `xctx` at a window with no GUI side effects; `xschem get net_hilight_animated <win>`
+  and `xschem redraw_hilight_region <win>` evaluate/draw *that* window via the borrow;
+  `net_hilight_anim_update()` arms **every** open window; the per-window tick gates on
+  **`winfo viewable`** (a `<Visibility>` binding re-arms on de-iconify). Serialization: no window
+  animates a frame while the focused window is **mid-gesture** (`net_hilight_ctx_busy()` on the
+  pre-borrow context); the global wall-clock keeps all windows in phase. The borrow's only
+  draw-path risk is the file-scope draw batch buffers, safe because each borrow wraps one
+  complete, non-reentrant `draw()`.
 
 ## 3. The style table
 

@@ -349,3 +349,32 @@ Phase B/C tests still green; regression (create_save/open_close/netlisting) clea
 
 Next: Phase E (serialization E1/E2 — never borrow mid-gesture, non-reentrant — + live multi-window
 `vwait` verification E3 + docs E4).
+
+---
+
+## Phase E — STATUS: DONE (2026-06-25) — FEATURE COMPLETE
+
+E1–E4 implemented/verified; the feature is complete and the docs reflect it.
+
+- **E1 — never animate mid-gesture.** New `net_hilight_ctx_busy()` (`hilight.c`; single source
+  of truth for the `HILIGHT_ANIM_BUSY` gesture mask + `semaphore`). `redraw_hilight_region`
+  checks it on the **pre-borrow (front)** context: if the focused window is mid-gesture, no
+  window draws a frame (a borrow would swap `xctx` out from under the in-flight gesture / shared
+  draw buffers) — returns 2 (busy), resumes when the gesture ends. RED→GREEN: with a `wire gui`
+  gesture active on the front, a background redraw returned 1 (drew) before, 2 (busy) after, then
+  drew the pending edge on `abort_operation` (`scratchpad/phaseE1_gesture_test.tcl`).
+- **E2 — re-entrant-safe borrow.** Documented on `net_hilight_borrow_ctx`: balanced borrow/restore
+  stack, restored synchronously within one command/tick (no `vwait`/`update` between), single-
+  threaded Tcl loop runs each tick to completion → ticks never interleave mid-borrow. Guard test:
+  a mixed sequence of query/redraw/test_now/dump on two windows leaves `current_win_path` +
+  `current_name` the front's after every op (`phaseE2_interleave_test.tcl`).
+- **E3 — live verification.** `vwait` pumps the real event loop: both detached windows tick ~10×
+  each in 1.3 s simultaneously on wall-clock, rate bounded (edge-seeking, not a 20/s spin), both
+  stop on `unhilight_all` (`phaseE3_live_test.tcl`). Would fail pre-Phase-D (bg never ticks).
+- **E4 — docs.** FAQ Q20 marked DONE with the shipped mechanism; `specs/net_hilight_styles.md`
+  gained a "Pass 2-multiwin — DONE" bullet (front-only note dropped); `specs/multi_window_detach.md`
+  documents the borrow primitive as a reusable building block for any background-window redraw.
+
+Commits: A `00ed9ebd`/`c85b4751` · B `4115a27d`/`fd12f072` · C `87a36b86`/`2b7cf900` ·
+D `4ab92062`/`03597562` · E `38bf4ea4` (+docs). Issues logged for deferred cleanups: 0030
+(dash-period recompute), 0031 (per-window style-table staleness), 0032 (fan-out cost).

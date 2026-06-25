@@ -22,6 +22,24 @@ Newest entries on top.
   animates only the **front** window by design. Plan for this item:
   `claude_suggs/plan_net_hilight_multiwindow_anim.md`.
 
+> **UPDATE — DONE (2026-06-25, `fluid-editing`).** Implemented as planned, phases A–E. **Now
+> every *visible* detached window animates its net highlights (blink + marching) simultaneously;**
+> background **tabs** stay front-only (shared canvas, by design). It was exactly the "lift the
+> global-front-`xctx` assumption out of four entry points behind one audited context-borrow"
+> job described below. What shipped:
+> - **`net_hilight_borrow_ctx()` / `net_hilight_restore_ctx()`** (`hilight.c`): the side-effect-free
+>   borrow (repoint `xctx` at a window, no raise/focus/title) — A3 audit confirmed the draw path
+>   is `xctx`-relative except the file-scope draw batch buffers, which stay safe as long as a
+>   borrow wraps one complete, non-reentrant `draw()`.
+> - **`xschem get net_hilight_animated <win>`** and **`xschem redraw_hilight_region <win>`** take an
+>   optional window and evaluate/draw *that* window via the borrow.
+> - **`net_hilight_anim_update()`** fans out to every open window (`net_hilight_anim_update_all`
+>   exposes it for the kill-switch); the per-window Tcl tick gates on **`winfo viewable`** (stops
+>   iconified windows and background tabs; a `<Visibility>` binding re-arms on restore).
+> - **Serialization (E1):** no window animates a frame while the focused window is mid-gesture
+>   (`net_hilight_ctx_busy()` on the pre-borrow context). The global wall-clock keeps all windows
+>   in phase. See `specs/net_hilight_styles.md` and `specs/multi_window_detach.md`.
+
 **Today it's front-window-only on purpose, but the groundwork is mostly there.** xschem already
 keeps a **separate `Xschem_ctx` per window/tab** in the `save_xctx[]` array (`get_save_xctx()`,
 `xinit.c:83`); the global `xctx` (`globals.c:236`) just points at the current/front one. Each
