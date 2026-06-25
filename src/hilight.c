@@ -2518,6 +2518,33 @@ static double net_hilight_next_edge_ms(NetHilightStyle *st, double now)
   return (floor(now / half) + 1.0) * half - now;
 }
 
+/* Pass 2b marching-ants scroll offset, in dash-length units, reduced into [0, P). The dash
+ * pattern is shifted by this amount each frame so it appears to crawl along the wire (fed to
+ * XSetDashes' dash_offset / cairo_set_dash offset by the Phase-C render). Model:
+ *   P   = sum(dash_arr), DOUBLED when dash_len is odd (the XSetDashes role-flip the Pass-1.5
+ *         striped path already accounts for: an odd pattern only repeats after two passes).
+ *   off = dir * (rate_persec * P * now_sec) mod P,   dir = +1 march_fwd / -1 march_rev,
+ *         reduced into [0, P) so march_rev is the mirror P - off_fwd (and 0 stays 0).
+ * rate_persec is periods-per-second (rate 1 scrolls one full pattern per second). Returns 0 for
+ * a non-marching style, an empty dash, or a zero-length pattern (nothing to scroll). 'now' is
+ * wall-clock ms from net_hilight_now_ms() (forced by the net_hilight_test_now hook in tests). */
+double net_hilight_march_offset(NetHilightStyle *st, double now)
+{
+  int i, sum = 0;
+  double P, off;
+  if(!st || st->anim == 0 || st->dash_len <= 0) return 0.0;
+  for(i = 0; i < st->dash_len; ++i) sum += (unsigned char)st->dash_arr[i];
+  if(sum <= 0) return 0.0;
+  P = (st->dash_len & 1) ? 2.0 * sum : (double)sum;
+  off = fmod((double)st->rate_persec * P * (now / 1000.0), P);
+  if(off < 0.0) off += P;             /* fmod can be negative if a test forces now < 0 */
+  if(st->anim == 2) {                 /* march_rev: mirror, keep in [0, P) (off==0 -> 0) */
+    off = P - off;
+    if(off >= P) off -= P;
+  }
+  return off;
+}
+
 /* Single source of truth for "which highlighted objects animate": walks the highlighted
  * wires + instances and, for each whose style animates, optionally folds its on/off phase
  * into *sig, grows the union bbox (*bx1.. in schematic units), tracks the widest style

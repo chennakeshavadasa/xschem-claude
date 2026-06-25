@@ -4360,6 +4360,37 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
       Tcl_ResetResult(interp);
     }
 
+    /* net_hilight_march_offset <idx>
+     *   INTROSPECTION/TEST HOOK (Pass 2b): return the marching-ants dash scroll offset
+     *   (dash-length units, reduced into [0,P)) computed for net highlight style <idx> at the
+     *   current animation time (honoring the net_hilight_test_now override). 0 for a
+     *   non-marching / empty-dash style. Lets the deterministic offset formula be asserted
+     *   numerically without pixel analysis. */
+    else if(!strcmp(argv[1], "net_hilight_march_offset"))
+    {
+      char *endp = NULL;
+      long idx;
+      char buf[64];
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc < 3) {
+        Tcl_SetResult(interp, "net_hilight_march_offset: missing <idx>", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      idx = strtol(argv[2], &endp, 10);
+      if(endp == argv[2] || *endp != '\0') {
+        Tcl_SetResult(interp, "net_hilight_march_offset: <idx> must be an integer", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      if(!xctx->net_hilight_style || xctx->n_net_hilight_styles <= 0) build_net_hilight_styles();
+      if(idx < 0 || idx >= xctx->n_net_hilight_styles) {
+        Tcl_SetResult(interp, "net_hilight_march_offset: <idx> out of range", TCL_STATIC);
+        return TCL_ERROR;
+      }
+      my_snprintf(buf, S(buf), "%.6f",
+        net_hilight_march_offset(&xctx->net_hilight_style[(int)idx], net_hilight_now_ms()));
+      Tcl_SetResult(interp, buf, TCL_VOLATILE);
+    }
+
     /* nets [-selected]
      *   Return a Tcl LIST of net descriptors, one per DISTINCT net (deduped by
      *   token). With -selected, restrict to nets touched by the current
