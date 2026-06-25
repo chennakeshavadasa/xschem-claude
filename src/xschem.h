@@ -1519,7 +1519,14 @@ extern double net_hilight_march_offset(NetHilightStyle *st, double now); /* Pass
 extern Xschem_ctx *net_hilight_borrow_ctx(const char *win_path); /* repoint xctx at win (no GUI fx) */
 extern void net_hilight_restore_ctx(Xschem_ctx *saved);  /* undo net_hilight_borrow_ctx() */
 extern int net_hilight_win_known(const char *win_path);  /* is win an open window? (vs borrow NULL) */
-extern int net_hilight_ctx_busy(void);                   /* current window mid-gesture? (anim E1) */
+extern int net_hilight_ctx_busy(void);                   /* current window busy (gesture OR semaphore)? */
+extern int net_hilight_ctx_gesturing(void);              /* current window mid-GESTURE? (anim E1 guard) */
+/* Adaptive net-highlight tick bounds (ms): floor caps the wake rate near a blink edge; the
+ * ceiling bounds reconcile lag after an external full draw; BUSY = paused-retry cadence. Shared
+ * with scheduler.c's redraw_hilight_region busy path so the two retry cadences can't drift. */
+#define NET_HILIGHT_TICK_MIN  16.0
+#define NET_HILIGHT_TICK_MAX  250.0
+#define NET_HILIGHT_TICK_BUSY 50.0
 extern int net_hilight_has_animation(void);             /* window needs the animation tick? */
 extern int draw_hilight_region(double *next_ms);        /* regional redraw of animating nets */
 extern void net_hilight_anim_update(void);              /* (re)evaluate start/stop of the tick */

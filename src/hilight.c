@@ -2496,13 +2496,8 @@ double net_hilight_now_ms(void)
   return (double)t.sec * 1000.0 + (double)t.usec / 1000.0;
 }
 
-/* Bounds (ms) on the adaptive tick delay: floor caps the wake rate near a blink edge (~60fps);
- * the ceiling bounds how stale a highlight can look after an external full draw invalidates the
- * change-detection signature (the next reconcile tick is at most this far off); busy = retry
- * cadence while the animation is paused mid-gesture. */
-#define NET_HILIGHT_TICK_MIN  16.0
-#define NET_HILIGHT_TICK_MAX  250.0
-#define NET_HILIGHT_TICK_BUSY 50.0
+/* NET_HILIGHT_TICK_MIN/MAX/BUSY moved to xschem.h (the redraw_hilight_region busy path in
+ * scheduler.c reuses NET_HILIGHT_TICK_BUSY for its retry cadence). */
 #define NET_HILIGHT_FRAME_MS  33.0   /* Pass 2b marching cadence: ~30fps (continuous scroll, no edge) */
 
 /* Blink gate: ON if the style does not blink (blink_ms<=0), else a 50% duty cycle of
@@ -2690,7 +2685,8 @@ static int scan_animating_hilights(double now, unsigned int *sig, int *maxw, dou
  * nested they would unwind correctly (stack), and in practice the single-threaded Tcl event loop
  * runs each tick callback to completion before the next, so two windows' ticks never interleave
  * mid-borrow. The net effect: any sequence of borrowed reads/draws leaves the global xctx exactly
- * as it found it (verified by the E2 interleaving test). */
+ * as it found it. (Phase E2 exercised this with an interleaving probe; the per-command
+ * current_win_path-stability checks in the multi-window tests are the standing guard.) */
 Xschem_ctx *net_hilight_borrow_ctx(const char *win_path)
 {
   int i, n = -1;
@@ -2741,14 +2737,25 @@ int net_hilight_win_known(const char *win_path)
   return 0;
 }
 
-/* 1 iff the CURRENT window has a drawing gesture / operation in progress, so a net-highlight
- * animation frame must not draw now. Single source of truth for the HILIGHT_ANIM_BUSY mask +
- * the semaphore. Used per-context (is THIS window busy?) and, in redraw_hilight_region, on the
- * pre-borrow front context (multi-window anim E1: never animate ANY window while the focused
- * window is mid-gesture -- the gesture is always in the focused = global xctx). */
+/* 1 iff the CURRENT window has an operation in progress (gesture OR a held semaphore) so its
+ * OWN net-highlight animation frame must not draw now. Per-context "is THIS window busy?" check
+ * (draw_hilight_region, net_hilight_has_animation). Includes the semaphore because a window must
+ * not redraw its own animation while one of its own operations runs. */
 int net_hilight_ctx_busy(void)
 {
   return xctx->semaphore || (xctx->ui_state & HILIGHT_ANIM_BUSY);
+}
+
+/* 1 iff the CURRENT window has a drawing GESTURE in progress (rubber-band wire/rect/move/select/
+ * pan/...). This is the CROSS-window guard (multi-window anim E1): never borrow + draw another
+ * window's frame while the focused window is mid-gesture -- the borrow would swap xctx out from
+ * under the in-flight rubber-band draw / shared draw buffers. Deliberately does NOT include the
+ * semaphore (unlike net_hilight_ctx_busy): the semaphore is also held by PASSIVE operations such
+ * as a modal dialog (`xctx->semaphore++` around a tk_messageBox, xinit.c) -- those must not
+ * freeze OTHER windows' animation, only a real gesture must. */
+int net_hilight_ctx_gesturing(void)
+{
+  return (xctx->ui_state & HILIGHT_ANIM_BUSY) != 0;
 }
 
 /* True iff the current window should be running the animation tick: animation globally

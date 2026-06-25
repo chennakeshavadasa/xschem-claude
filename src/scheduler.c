@@ -6149,7 +6149,7 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
     else if(!strcmp(argv[1], "redraw_hilight_region"))
     {
       int r;
-      double next = 50.0;
+      double next = NET_HILIGHT_TICK_BUSY; /* default retry cadence (overwritten by draw_hilight_region) */
       char buf[64];
       Xschem_ctx *borrowed = NULL;
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
@@ -6160,12 +6160,16 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
        * <win> that IS the current window borrows to NULL and correctly redraws the front. */
       if(argc > 2 && !net_hilight_win_known(argv[2])) {
         r = 0;
-      } else if(net_hilight_ctx_busy()) {
-        /* E1: the focused (global) window is mid-gesture (drag / wire / move / select). Never
+      } else if(net_hilight_ctx_gesturing()) {
+        /* E1: the focused (global) window is mid-GESTURE (drag / wire / move / select). Never
          * animate ANY window's frame now -- a borrow would swap xctx out from under the in-flight
-         * gesture and the shared draw batch buffers. Checked BEFORE the borrow: the gesture is
-         * always in the focused = global xctx (switch_window refuses to leave mid-operation).
-         * Return 2 (busy, keep ticking) so the tick resumes promptly once the gesture ends. */
+         * rubber-band draw and the shared draw batch buffers. Checked BEFORE the borrow: a gesture
+         * lives in the focused window. (Gesturing, NOT net_hilight_ctx_busy: the semaphore is also
+         * held by passive ops like a modal dialog, which must not freeze OTHER windows' animation.
+         * If a gesture were ever left in a now-background window -- switch_window only blocks on the
+         * semaphore, not ui_state -- the post-borrow per-context check in draw_hilight_region still
+         * catches it.) Return 2 (busy, keep ticking; next stays at the NET_HILIGHT_TICK_BUSY
+         * default); resume promptly once the gesture ends. */
         r = 2;
       } else {
         if(argc > 2) borrowed = net_hilight_borrow_ctx(argv[2]);
