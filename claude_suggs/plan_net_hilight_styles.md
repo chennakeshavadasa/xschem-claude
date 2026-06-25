@@ -162,12 +162,81 @@ even if this phase slips.
 
 ---
 
-## Pass 2 (future, NOT in this plan)
-Timer-driven blink (`blink_ms`) + marching ants (`anim`,`rate_persec`). Tick calls only
-`draw_hilight_net()` (cheap — highlights are a small screen fraction); marching ants
-animate the `XSetDashes` dash_offset (currently always 0) / `cairo_set_dash` offset.
-Per-window timers. No xschem timer infra exists yet — this is the only new subsystem and
-is deliberately deferred.
+## Pass 2 — animation (split into 2a blink + 2b marching ants)
+
+`blink_ms`, `anim`, `rate_persec` already parse and store (inert since Pass 1). Pass 2 makes
+them live. It is the only genuinely new subsystem (a periodic animation tick), so it is split
+into two slices that share ONE timer + regional-redraw foundation:
+
+- **Pass 2a — blink** (`blink_ms`): a highlighted net's highlight toggles on/off with period
+  `blink_ms`. Trivial per-style ON/OFF gate, no dash math — it exists to build the shared
+  infra at the lowest risk.
+- **Pass 2b — marching ants** (`anim`, `rate_persec`): the dash pattern scrolls along the
+  wire (`march_fwd`/`march_rev`, speed `rate_persec`) by animating the dash offset. Reuses
+  2a's timer + redraw; adds dash-offset plumbing.
+
+### Shared foundation (built in 2a, reused by 2b)
+1. **Animation clock** — a wall-clock ms source (Tcl `clock milliseconds`, or C
+   `gettimeofday`) so periods/speeds are real-time and independent of tick jitter.
+2. **Per-window tick** — a self-rescheduling Tcl `after` loop per visible window (exact
+   precedent: `update_process_status`, `xschem.tcl:464/466` — `after 1000 …` + `after cancel`).
+3. **The erase problem (the main technical task)** — highlights are drawn OVER the schematic
+   into `save_pixmap` (no highlight-free copy), then blitted (`MyXCopyAreaDouble`). So a frame
+   cannot just over-draw: it must restore the underlying pixels first by redrawing the *union
+   bounding box of the highlighted nets* (schematic + current-phase highlights) via the
+   `bbox(SET)/draw/bbox(END)` regional-redraw machinery — NOT a full-screen `draw()` (flicker
+   + cost). Shared by both slices.
+4. **Start/stop wiring** — re-evaluate after every highlight change whether the loop should run.
+
+### Phase 2a — blink (detailed)
+
+**A) Clock + global switch.** Tcl var `net_hilight_animate` (`set_ne 1`) as a kill-switch;
+never animate when it is 0, headless (`!has_x`), or mid-gesture (`xctx->ui_state`/semaphore
+busy). Read wall-clock ms at draw time.
+
+**B) Blink gate in the draw path (`hilight.c::draw_hilight_net`).**
+- `net_hilight_style_on_now(NetHilightStyle *st, ms now)` → ON if `blink_ms<=0` else
+  `((now / (blink_ms/2)) & 1) == 0` (50% duty).
+- Per highlighted **wire**: if its style is OFF-phase, `continue` (skip wire+dots) so the
+  already-redrawn underlying wire shows. Same gate in the **instance/symbol** loop (skip
+  OFF-phase instances). With `net_hilight_animate==0`/headless, force ON (no blink) so static
+  PNG tests are unaffected.
+
+**C) The tick + regional redraw (Tcl + a thin C entry).**
+- `net_hilight_anim_tick(win)`: if `win` gone OR no highlighted nets OR no style needs
+  animation → stop (don't reschedule); else regional-redraw the highlight bbox and reschedule
+  `after TICK_MS` (~50 ⇒ ≤20 fps cap; blink cadence comes from `blink_ms`, not the tick).
+- **Redraw on change only** for blink: track the last on/off state per blinking style and
+  redraw only at transitions (a 1 Hz blink → 2 redraws/s, not 20). (2b redraws every tick.)
+- Regional redraw entry: a new `xschem redraw_hilight_region` (sets area = union bbox of
+  hilighted nets via `bbox(SET_INSIDE)`, redraws, `bbox(END)`), or verify an existing path;
+  fall back to `draw()` only if a clean region path proves infeasible.
+
+**D) Start/stop wiring (`net_hilight_anim_update(win)`).** Computes "does this window have ≥1
+highlighted net whose style animates (blink_ms>0 or anim!=0)?" → start the `after` loop if so
+and not running, else `after cancel` it. Store the after-id per win path. Call from:
+`hilight_net_styled` / `hilight_netname` / the mode-click (after applying), `unhilight_net` /
+`unhilight_all`, `update_net_hilight_style` (an edit may add/remove blink), load, and
+new_schematic switch/destroy (cancel a closed window's loop). Only the **visible** window
+animates (tabbed: front tab only).
+
+**Verify (per [[green-but-hollow]]).** blink_ms=600 net visibly toggles ~1.6 Hz; blink_ms=0
+steady. PNG-sample the wire region at an on-phase vs off-phase ms (present vs absent).
+Sabotage: force OFF always → highlight vanishes (gate is live). CPU: no highlight → no timer;
+steady highlight → no timer; blink → timer, stops on `unhilight_all`. No full-screen flicker
+(regional). Multi-tab: blink follows the front tab. Headless/`net_hilight_animate 0` → steady
+(static tests unchanged). Then `/code-review high`.
+
+**Risks.** (1) regional-redraw correctness/ghosting — union bbox + small margin; (2) `after`
+leaks — centralize cancel in `net_hilight_anim_update` + on window destroy; (3) the tick must
+NOT `log_action` (not a user action) and must pause during move/wire gestures.
+
+### Phase 2b — marching ants (after 2a)
+Animate the dash offset on the same infra: XSetDashes 4th arg (`dash_offset`, today 0) +
+`cairo_set_dash` offset; for the Pass-1.5 cairo stripe path, shift `cstart` by the animated
+offset. `anim` sets the sign (fwd/rev), `offset = (rate_persec * dash_period * elapsed_s)`.
+The tick now redraws every frame for marching nets (still regional). Verify a dashed style
+scrolls, `rate_persec` controls speed, `march_rev` reverses, and blink+march compose.
 
 ---
 

@@ -1085,6 +1085,17 @@ typedef struct {
   int *active_layer;
   NetHilightStyle *net_hilight_style; /* customizable net highlight style table */
   int n_net_hilight_styles;           /* number of styles (cursor wraps modulo this) */
+  unsigned int net_hilight_anim_sig;  /* last-frame blink phase signature (Pass 2a change
+                                       * detection); a stable sig means no blink edge -> the
+                                       * animation tick can skip the regional redraw */
+  int in_hilight_anim_frame;          /* set only around draw() inside draw_hilight_region:
+                                       * the blink gate applies ONLY in an animation frame, so
+                                       * ordinary/interactive redraws and hardcopy export keep
+                                       * highlights steady (deterministic) */
+  int net_hilight_test_active;        /* test hook (xschem net_hilight_test_now): forces the
+                                       * blink gate + a fixed time so a render can sample a
+                                       * specific phase. A C flag, never set in production. */
+  double net_hilight_test_ms;         /* forced "now" (ms) when net_hilight_test_active */
   int crosshair_layer;
   char *undo_dirname;
   char *infowindow_text; /* ERC messages */
@@ -1500,6 +1511,12 @@ extern unsigned int get_hilight_pixel(int value);
 extern void resolve_hilight_style_rgb(NetHilightStyle *st);
 extern unsigned int find_best_color(char colorname[]);
 extern void build_net_hilight_styles(void);
+/* Pass 2a net-highlight animation (blink). See specs/net_hilight_styles.md §2 (Pass 2). */
+extern double net_hilight_now_ms(void);                 /* wall-clock ms (or test override) */
+extern int net_hilight_style_on_now(NetHilightStyle *st, double now); /* blink ON/OFF gate */
+extern int net_hilight_has_animation(void);             /* window needs the animation tick? */
+extern int draw_hilight_region(void);                   /* regional redraw of animating nets */
+extern void net_hilight_anim_update(void);              /* (re)evaluate start/stop of the tick */
 extern void draw_hilight_wire(unsigned int fg, NetHilightStyle *st, double linex1, double liney1,
                               double linex2, double liney2, double bus);
 extern void draw_hilight_dot(unsigned int fg, double x, double y, double r);

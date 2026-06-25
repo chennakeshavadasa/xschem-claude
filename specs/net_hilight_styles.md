@@ -31,10 +31,17 @@ channel (the `*_backannotate.tcl` files are precedent).
 - Interactive keyboard shortcuts `9` / `8` / `0` in `cadence_style_rc`, supporting both
   noun-verb and verb-noun interaction.
 
-### Pass 2 (future, out of scope here)
-- Blink (`blink_ms`) and marching-ants (`anim`, `rate_persec`) via a timer that
-  redraws *only* highlighted nets. No timer infrastructure exists in xschem today;
-  this is the only genuinely new subsystem and is intentionally walled off.
+### Pass 2 (animation — the only genuinely new subsystem)
+- **Pass 2a — blink (`blink_ms`) — DONE.** A per-window self-rescheduling Tcl `after`
+  tick (precedent `update_process_status`) triggers a *regional* redraw (union bbox of the
+  animating nets via `bbox(START/ADD/SET/draw/END)` — NOT a full `draw()`) so the C blink
+  gate (`net_hilight_style_on_now` in `draw_hilight_net`) can toggle each net on/off in real
+  time. Global kill-switch Tcl var `net_hilight_animate` (1 = on); never animates headless,
+  with the switch off, or mid-gesture. Change-detection redraws only at blink edges. Test
+  hook `net_hilight_test_now_ms` overrides "now" for deterministic frame sampling. Commands:
+  `xschem get net_hilight_animated`, `xschem redraw_hilight_region`.
+- **Pass 2b — marching-ants (`anim`, `rate_persec`) — future.** Reuses 2a's timer + regional
+  redraw; animates the dash offset. Still parsed/stored but inert.
 
 ## 3. The style table
 
@@ -53,7 +60,7 @@ Each row is a list with these columns, in order:
 | 3   | `width`           | Line thickness. **`1` = same thickness as the thinnest wire.**       | used   |
 | 4   | `dash-pattern`    | Tcl list of on/off run lengths, e.g. `{}` solid, `{4 4}`, `{8 4 2 4}`.| used  |
 | 5   | `stripe-angle-deg`| Tilt of dash "stripes" on a thick line. Clamped to **[0, 45]**.      | used*  |
-| 6   | `blink_ms`        | Blink period in ms (`0` = steady).                                   | stored |
+| 6   | `blink_ms`        | Blink period in ms (`0` = steady). **Live (Pass 2a).**               | used   |
 | 7   | `anim`            | Animation mode: `none` / `march_fwd` / `march_rev`.                  | stored |
 | 8   | `rate_persec`     | Animation rate (stripe shifts per second) for `anim`.               | stored |
 

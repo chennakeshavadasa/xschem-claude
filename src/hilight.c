@@ -1405,6 +1405,7 @@ int hilight_netname(const char *name, int fast)
       propagate_hilights(1, 0, XINSERT_NOREPLACE);
       if(tclgetboolvar("incr_hilight")) incr_hilight_color();
       redraw_hilights(0);
+      net_hilight_anim_update(); /* Pass 2a: a blinking style may have just been applied */
     }
   }
   return node_entry ? 1 : 0;
@@ -2242,6 +2243,7 @@ void hilight_net_styled(void)
   hilight_net(0);
   xctx->hilight_replace = 0;
   tclsetboolvar("incr_hilight", save);
+  net_hilight_anim_update(); /* Pass 2a: a blinking style may have just been applied */
 }
 
 void unhilight_net(int keep_sel)
@@ -2275,6 +2277,7 @@ void unhilight_net(int keep_sel)
   }
   propagate_hilights(0, 1, XINSERT_NOREPLACE); /* will also clear xctx->hilight_nets if nothing left hilighted */
   draw();
+  net_hilight_anim_update(); /* Pass 2a: removing the last blinking net must stop the tick */
 
   if(!keep_sel) unselect_all(1); /* keep_sel: leave the selection intact (Cadence key 8) */
 }
@@ -2436,10 +2439,164 @@ char *resolved_net(const char *net)
   return rnet;
 }
 
+/* ===== Pass 2a: net-highlight animation (blink) ==================================== *
+ * blink_ms makes a highlighted net's highlight toggle on/off in real time. The shared
+ * foundation here (wall-clock source + ON/OFF gate + regional redraw + start/stop
+ * predicate) is reused by Pass 2b (marching ants), which additionally animates the
+ * anim/rate_persec columns. See specs/net_hilight_styles.md §2 and
+ * claude_suggs/plan_net_hilight_styles.md "Pass 2". */
+
+/* ui_state bits meaning a drawing gesture is in progress: pause animation during these
+ * (a regional redraw mid-gesture would fight the gesture's own rubber-band drawing). */
+#define HILIGHT_ANIM_BUSY (STARTWIRE | STARTRECT | STARTLINE | STARTSELECT | STARTMOVE | \
+  STARTCOPY | STARTZOOM | STARTMERGE | STARTPAN | STARTPOLYGON | STARTARC | START_SYMPIN)
+
+/* Wall-clock milliseconds driving the blink phase. Portable via Tcl_GetTime() (the
+ * codebase avoids sys/time.h, and time() is seconds-only -> too coarse for blink). The
+ * test hook (xschem net_hilight_test_now <ms>) forces a fixed time so a render can
+ * deterministically sample an ON-phase vs OFF-phase frame ([[green-but-hollow]]). */
+double net_hilight_now_ms(void)
+{
+  Tcl_Time t;
+  if(xctx->net_hilight_test_active) return xctx->net_hilight_test_ms;
+  Tcl_GetTime(&t);
+  return (double)t.sec * 1000.0 + (double)t.usec / 1000.0;
+}
+
+/* Blink gate: ON if the style does not blink (blink_ms<=0), else a 50% duty cycle of
+ * period blink_ms. 'now' is wall-clock ms from net_hilight_now_ms(). */
+int net_hilight_style_on_now(NetHilightStyle *st, double now)
+{
+  double half;
+  if(!st || st->blink_ms <= 0) return 1;
+  half = st->blink_ms / 2.0;
+  /* even half-period index -> ON (50% duty). Use fmod/floor, not an integer cast: 'now' is
+   * epoch wall-clock ms (~1.7e12), which overflows a 32-bit long (Windows/ILP32). */
+  return fmod(floor(now / half), 2.0) < 0.5;
+}
+
+/* Does this style drive the animation tick? Pass 2a = blink only; Pass 2b will also
+ * return true for st->anim != 0 (marching ants). */
+static int net_hilight_style_animates(NetHilightStyle *st)
+{
+  return st && st->blink_ms > 0;
+}
+
+/* Single source of truth for "which highlighted objects animate": walks the highlighted
+ * wires + instances and, for each whose style animates, optionally folds its on/off phase
+ * into *sig, grows the union bbox (*bx1.. in schematic units), and tracks the widest style
+ * (*maxw). Any out-param may be NULL (the predicate path passes all NULL). Returns the count
+ * of animating objects. Shared by net_hilight_has_animation() and draw_hilight_region() so
+ * the two never drift (esp. once Pass 2b extends net_hilight_style_animates). */
+static int scan_animating_hilights(double now, unsigned int *sig, int *maxw,
+                                   double *bx1, double *by1, double *bx2, double *by2)
+{
+  int i, found = 0;
+  Hilight_hashentry *entry;
+  prepare_netlist_structs(0);
+  for(i = 0; i < xctx->wires; ++i) {
+    NetHilightStyle *st;
+    double a, b;
+    if(!(entry = bus_hilight_hash_lookup(xctx->wire[i].node, 0, XLOOKUP)) || entry->value < 0) continue;
+    st = get_hilight_style(entry->value);
+    if(!net_hilight_style_animates(st)) continue;
+    if(sig)  *sig = *sig * 1000003u + (unsigned int)(st->index * 2 + net_hilight_style_on_now(st, now));
+    if(maxw && st->width > *maxw) *maxw = st->width;
+    if(bx1) {
+      a = xctx->wire[i].x1; b = xctx->wire[i].x2; if(a > b) { double t = a; a = b; b = t; }
+      if(!found || a < *bx1) *bx1 = a;
+      if(!found || b > *bx2) *bx2 = b;
+      a = xctx->wire[i].y1; b = xctx->wire[i].y2; if(a > b) { double t = a; a = b; b = t; }
+      if(!found || a < *by1) *by1 = a;
+      if(!found || b > *by2) *by2 = b;
+    }
+    found = 1;
+  }
+  for(i = 0; i < xctx->instances; ++i) {
+    NetHilightStyle *st;
+    int val = xctx->inst[i].color;
+    if(val == -10000 || val < 0) continue;
+    st = get_hilight_style(val);
+    if(!net_hilight_style_animates(st)) continue;
+    if(sig)  *sig = *sig * 1000003u + (unsigned int)(st->index * 2 + net_hilight_style_on_now(st, now));
+    if(maxw && st->width > *maxw) *maxw = st->width;
+    if(bx1) {
+      if(!found || xctx->inst[i].x1 < *bx1) *bx1 = xctx->inst[i].x1;
+      if(!found || xctx->inst[i].y1 < *by1) *by1 = xctx->inst[i].y1;
+      if(!found || xctx->inst[i].x2 > *bx2) *bx2 = xctx->inst[i].x2;
+      if(!found || xctx->inst[i].y2 > *by2) *by2 = xctx->inst[i].y2;
+    }
+    found = 1;
+  }
+  return found;
+}
+
+/* True iff the current window should be running the animation tick: animation globally
+ * enabled, on-screen, not mid-gesture, and >=1 highlighted net/instance uses an animating
+ * style. Drives `xschem get net_hilight_animated` and the Tcl start/stop logic. */
+int net_hilight_has_animation(void)
+{
+  if(!has_x || !xctx->hilight_nets) return 0;
+  if(!tclgetboolvar("net_hilight_animate")) return 0;
+  if(xctx->semaphore) return 0;
+  if(xctx->ui_state & HILIGHT_ANIM_BUSY) return 0;
+  return scan_animating_hilights(0.0, NULL, NULL, NULL, NULL, NULL, NULL) > 0;
+}
+
+/* One animation frame (the tick's only C call). Regional-redraws just the union bbox of the
+ * *animating* highlighted objects (steady highlights keep their pixels). Change-detection:
+ * fold each in-use blinking style's current on/off phase into a signature; if it matches the
+ * last frame (no blink edge), skip the redraw (a 1 Hz blink -> 2 redraws/s, not 20).
+ * Tri-state return so the tick needs no separate predicate call:
+ *   0 = nothing animates here -> the tick should stop (don't reschedule)
+ *   1 = redrew (a blink edge)
+ *   2 = animating but no redraw this frame (busy, or no edge) -> keep ticking
+ * Reused by Pass 2b, which redraws every frame (the dash offset always changes). */
+int draw_hilight_region(void)
+{
+  int maxw = 1;
+  double now, x1u = 0.0, y1u = 0.0, x2u = 0.0, y2u = 0.0, marg;
+  unsigned int sig = 2166136261u; /* FNV offset basis: a nonzero seed so a real signature
+                                   * never collides with the 0 "no frame drawn yet" sentinel
+                                   * (e.g. a single OFF-phase style-0 net would hash to 0) */
+  if(!has_x || !xctx->hilight_nets) return 0;
+  now = net_hilight_now_ms();
+  if(!scan_animating_hilights(now, &sig, &maxw, &x1u, &y1u, &x2u, &y2u)) return 0; /* -> stop */
+  /* pause (but keep ticking) while a draw is in progress or a gesture owns the screen */
+  if(xctx->semaphore || (xctx->ui_state & HILIGHT_ANIM_BUSY)) return 2;
+  if(sig == xctx->net_hilight_anim_sig) return 2; /* no blink edge since the last frame */
+  xctx->net_hilight_anim_sig = sig;
+  /* Grow the clip (schematic units) by the widest in-use highlight half-width + endpoint dot
+   * radius so thick highlights and dots are fully covered. mooz = screen px / schematic unit. */
+  marg = xctx->cadhalfdotsize + (INT_BUS_WIDTH(xctx->lw) * (double)maxw) / (2.0 * xctx->mooz);
+  /* gate the blink only for this frame's draw(): ordinary/interactive redraws and hardcopy
+   * export keep highlights steady (deterministic), so only the tick blinks them. */
+  xctx->in_hilight_anim_frame = 1;
+  bbox(START, 0.0, 0.0, 0.0, 0.0);
+  bbox(ADD, x1u - marg, y1u - marg, x2u + marg, y2u + marg);
+  bbox(SET, 0.0, 0.0, 0.0, 0.0);
+  draw();
+  bbox(END, 0.0, 0.0, 0.0, 0.0);
+  xctx->in_hilight_anim_frame = 0;
+  return 1;
+}
+
+/* (Re)evaluate whether the current window's animation tick should run, after any change to
+ * the highlight set or styles. Delegates start/stop to the Tcl per-window `after` loop (it
+ * owns the after-ids). The tick is self-terminating, so the STOP side is mostly self-healing;
+ * this exists chiefly to START the loop when a blinking highlight first appears. */
+void net_hilight_anim_update(void)
+{
+  if(!has_x) return;
+  tclvareval("net_hilight_anim_update {", xctx->current_win_path, "}", NULL);
+}
+
 void draw_hilight_net(int on_window)
 {
  int save_draw;
  int i,c;
+ double anim_now = 0.0; /* Pass 2a: ms for the blink phase (read once per frame, only if gating) */
+ int anim_on;           /* Pass 2a: blink gate active this draw? (animation frame + enabled) */
  double x1,y1,x2,y2;
  xSymbol *symptr;
  int use_hash;
@@ -2451,6 +2608,16 @@ void draw_hilight_net(int on_window)
  if(!xctx->hilight_nets) return;
  dbg(3, "draw_hilight_net(): xctx->prep_hi_structs=%d\n", xctx->prep_hi_structs);
  prepare_netlist_structs(0);
+ /* Pass 2a blink gate: a style's OFF-phase nets are skipped so the (already-redrawn) underlying
+  * wire shows. Gated ONLY in an animation frame (the tick's draw_hilight_region) or under the
+  * test hook -- both are cheap C-field checks, so ordinary/interactive/hardcopy draws pay no
+  * Tcl lookup here and render highlights steady (deterministic). */
+ anim_on = 0;
+ if((xctx->in_hilight_anim_frame || xctx->net_hilight_test_active) &&
+    has_x && tclgetboolvar("net_hilight_animate")) {
+   anim_on = 1;
+   anim_now = net_hilight_now_ms();
+ }
  save_draw = xctx->draw_window;
  xctx->draw_window = on_window;
  x1 = X_TO_XSCHEM(xctx->areax1);
@@ -2479,7 +2646,9 @@ void draw_hilight_net(int on_window)
       * width + dash (NULL for logic levels -> width 1 solid). Width 1 solid reproduces
       * the legacy rendering exactly. */
      NetHilightStyle *st = (entry->value >= 0) ? get_hilight_style(entry->value) : NULL;
-     unsigned int fg = hilight_pixel_of(entry->value, st);
+     unsigned int fg;
+     if(anim_on && !net_hilight_style_on_now(st, anim_now)) continue; /* blink OFF: skip wire+dots */
+     fg = hilight_pixel_of(entry->value, st);
      draw_hilight_wire(fg, st,
           xctx->wire[i].x1, xctx->wire[i].y1, xctx->wire[i].x2, xctx->wire[i].y2, xctx->wire[i].bus);
      if(xctx->cadhalfdotsize*xctx->mooz>=0.7) {
@@ -2512,10 +2681,12 @@ void draw_hilight_net(int on_window)
      if(xctx->inst[i].color != -10000)
      {
       int val = xctx->inst[i].color;
-      int col = get_color(val);
+      int col;
       NetHilightStyle *st = (val >= 0) ? get_hilight_style(val) : NULL;
       XColor save_xc;
       int custom = 0;
+      if(anim_on && !net_hilight_style_on_now(st, anim_now)) continue; /* blink OFF: skip symbol */
+      col = get_color(val);
       /* A custom-RGB style (color_layer < 0) has no layer, so get_color() returns a
        * fallback layer and the highlighted symbol — including its net-label / pin-name
        * text — would render in that fallback color instead of the style's color. Briefly

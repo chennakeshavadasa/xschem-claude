@@ -437,6 +437,57 @@ proc insert_running_cmds {lb} {
 }
 
 # periodically update status
+# ---- Pass 2a: net-highlight animation (blink) -------------------------------------------
+# A per-window self-rescheduling timer (precedent: update_process_status below) that triggers
+# a regional redraw at blink edges. Only a VISIBLE window with >=1 highlighted net whose style
+# blinks runs a timer; everything else is cancelled. The C side does the actual on/off gating
+# (draw_hilight_net) and the change-detected regional redraw (redraw_hilight_region); these
+# procs just own the after-ids. net_hilight_animate is the global kill-switch.
+# net_hilight_anim_update {win} is called from C after any highlight/style change to (re)start
+# or cancel the loop; the C 'xschem get net_hilight_animated' query decides if it should run
+# (animation enabled, on-screen, idle, and a blinking highlight present).
+array set net_hilight_after {}
+
+# poll period (ms): bounds the worst-case latency between a blink edge and the redraw; the
+# blink cadence itself comes from each style's blink_ms, not from this tick.
+set net_hilight_tick_ms 50
+
+proc net_hilight_anim_tick {win} {
+  global net_hilight_after net_hilight_animate net_hilight_tick_ms has_x
+  catch {unset net_hilight_after($win)}
+  if { ![info exists has_x] || !$has_x } return
+  if { !$net_hilight_animate } return
+  if { ![winfo exists $win] } return
+  # One C call advances + decides: 0 = nothing animates / not the front window -> stop;
+  # 1 = redrew; 2 = keep ticking (busy or no blink edge). It pauses itself mid-gesture
+  # (returns 2), so we just stop on 0. Pass $win so a non-front window's tick stops cleanly.
+  if { [catch {xschem redraw_hilight_region $win} r] || $r == 0 } return
+  set net_hilight_after($win) [after $net_hilight_tick_ms [list net_hilight_anim_tick $win]]
+}
+
+proc net_hilight_anim_update {win} {
+  global net_hilight_after net_hilight_animate net_hilight_tick_ms has_x
+  if { [info exists net_hilight_after($win)] } {
+    after cancel $net_hilight_after($win)
+    unset net_hilight_after($win)
+  }
+  if { ![info exists has_x] || !$has_x } return
+  if { !$net_hilight_animate } return
+  if { ![winfo exists $win] } return
+  if { [catch {xschem get net_hilight_animated} need] || !$need } return
+  set net_hilight_after($win) [after $net_hilight_tick_ms [list net_hilight_anim_tick $win]]
+}
+
+# Make the net_hilight_animate kill-switch take effect immediately: a full redraw restores
+# highlights to their steady (always-on) look, and (re)start or cancel the per-window tick.
+proc net_hilight_animate_changed {args} {
+  global has_x
+  if { ![info exists has_x] || !$has_x } return
+  catch {xschem redraw}
+  catch {net_hilight_anim_update [xschem get current_win_path]}
+}
+trace add variable net_hilight_animate write net_hilight_animate_changed
+
 proc update_process_status {lb} {
   global execute has_x
   set exists 0
@@ -12646,11 +12697,18 @@ if {!$rainbow_colors} {
 #   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
 # color: a layer index (0..cadlayers-1) or an X color name / #rrggbb. dash-pattern:
 # a list of on/off run lengths ({} = solid). stripe-angle-deg clamps to [0,45].
-# blink_ms/anim/rate_persec are reserved for animation (Pass 2) and ignored for now.
+# blink_ms drives blink animation (Pass 2a); anim/rate_persec are reserved for marching-ants
+# (Pass 2b) and ignored for now.
 # See net_hilight_style_rc for an example. There is no 10-style limit.
 # Once filled in (or set by you), the table is fixed and no longer tracks the active-layer
 # set; set it back to {} and run 'xschem update_net_hilight_style' to re-derive the default.
 set_ne net_hilight_style {}
+
+# Net-highlight animation (Pass 2a, blink). Global kill-switch: set to 0 to freeze all
+# net-highlight animation (highlights render steady). When 1 (default), a highlighted net
+# whose style has blink_ms>0 blinks at that period via a per-window self-rescheduling timer.
+# A trace (see net_hilight_animate_changed) makes toggling this take effect immediately.
+set_ne net_hilight_animate 1
 
 # every 0x#### hex data represents one 16 bit row of the 16x16 bit fill bitmap
 # of the specified layer number.

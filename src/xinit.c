@@ -2355,9 +2355,15 @@ int new_schematic(const char *what, const char *win_path, const char *fname, int
     /* a real window switches like windowed mode (keeps its own X canvas); only pure
      * tabs use switch_tab (shared canvas). Holds even in tabbed mode so windows and
      * tabs can coexist (specs/multi_window_detach.md) */
-    if(is_window_context(win_path)) return switch_window(&window_count, win_path, 1);
-    else if(tabbed_interface) return switch_tab(&window_count, win_path, dr);
-    else return switch_window(&window_count, win_path, 1);
+    int ret;
+    if(is_window_context(win_path)) ret = switch_window(&window_count, win_path, 1);
+    else if(tabbed_interface) ret = switch_tab(&window_count, win_path, dr);
+    else ret = switch_window(&window_count, win_path, 1);
+    /* Pass 2a: the now-front schematic may (or may not) have blinking highlights; (re)start
+     * or cancel its animation tick. The background tab's tick self-terminates on its next
+     * fire (its net_hilight_animated query reflects this new front context). */
+    net_hilight_anim_update();
+    return ret;
   } else if(!strcmp(what, "switch_no_tcl_ctx")) {
     if(!tabbed_interface || is_window_context(win_path)) switch_window(&window_count, win_path, 0);
   }

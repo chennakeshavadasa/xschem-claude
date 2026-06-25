@@ -1852,6 +1852,13 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
               Tcl_SetResult(interp, "unknown", TCL_STATIC);
             }
           }
+          else if(!strcmp(argv[2], "net_hilight_animated")) {
+            /* 1 if this window should run the net-highlight animation tick (Pass 2a):
+             * animation enabled, on-screen, idle, and >=1 highlighted net has a blinking
+             * style. The Tcl tick polls this to decide whether to keep rescheduling. */
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            Tcl_SetResult(interp, net_hilight_has_animation() ? "1" : "0", TCL_STATIC);
+          }
           else if(!strcmp(argv[2], "no_draw")) { /* disable drawing */
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
             if(xctx->no_draw != 0 )
@@ -4324,6 +4331,23 @@ static int xschem_cmds_n(Tcl_Interp *interp, int argc, const char *argv[], int *
       /* else leave the result empty — a dangling anchor / unknown net */
     }
 
+    /* net_hilight_test_now <ms>
+     *   TEST HOOK (Pass 2a): force the net-highlight blink phase to a fixed time so a render
+     *   can deterministically sample an ON-phase vs OFF-phase frame. A negative <ms> (or no
+     *   arg) turns the override off (back to wall-clock). Never used in production. */
+    else if(!strcmp(argv[1], "net_hilight_test_now"))
+    {
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      if(argc > 2 && atof(argv[2]) >= 0.0) {
+        xctx->net_hilight_test_active = 1;
+        xctx->net_hilight_test_ms = atof(argv[2]);
+      } else {
+        xctx->net_hilight_test_active = 0;
+        xctx->net_hilight_test_ms = 0.0;
+      }
+      Tcl_ResetResult(interp);
+    }
+
     /* nets [-selected]
      *   Return a Tcl LIST of net descriptors, one per DISTINCT net (deduped by
      *   token). With -selected, restrict to nets touched by the current
@@ -5969,6 +5993,26 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       draw();
       Tcl_ResetResult(interp);
+    }
+
+    /* redraw_hilight_region
+     *   One net-highlight animation frame (Pass 2a): regional-redraw the union bbox of the
+     *   animating (blinking) highlighted nets to restore underlying pixels for the new blink
+     *   phase. Driven by the Tcl tick (net_hilight_anim_tick); no-op when nothing animates or
+     *   no blink edge occurred since the last frame. Returns 1 if it redrew, else 0. */
+    else if(!strcmp(argv[1], "redraw_hilight_region"))
+    {
+      int r;
+      if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+      /* Optional window arg: the C core animates only the current (front) window's global
+       * xctx, so a per-window tick for a non-front window must stop (return 0) rather than
+       * redraw the front context (it restarts when that window is focused — see
+       * net_hilight_anim_update on schematic switch; multi-window animation is otherwise
+       * deferred, see specs/multi_window_detach.md). */
+      if(argc > 2 && strcmp(argv[2], xctx->current_win_path)) r = 0;
+      else r = draw_hilight_region();
+      /* tri-state: 0 = stop the tick, 1 = redrew (edge), 2 = keep ticking (busy/no edge) */
+      Tcl_SetResult(interp, my_itoa(r), TCL_VOLATILE);
     }
 
     /* reload
@@ -8006,6 +8050,7 @@ static int xschem_cmds_u(Tcl_Interp *interp, int argc, const char *argv[], int *
       clear_all_hilights();
       /* undraw_hilight_net(1); */
       if(!fast) draw();
+      net_hilight_anim_update(); /* Pass 2a: clearing all highlights stops the tick */
       Tcl_ResetResult(interp);
     }
 
@@ -8058,6 +8103,7 @@ static int xschem_cmds_u(Tcl_Interp *interp, int argc, const char *argv[], int *
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       build_net_hilight_styles();
       draw();
+      net_hilight_anim_update(); /* Pass 2a: an edit may add/remove blink on highlighted nets */
     }
     /* update_all_sym_bboxes
      *   Update all symbol bounding boxes */
