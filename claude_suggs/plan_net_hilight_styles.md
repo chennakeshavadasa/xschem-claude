@@ -240,6 +240,79 @@ scrolls, `rate_persec` controls speed, `march_rev` reverses, and blink+march com
 
 ---
 
+## Phase 2b — RED-first plan (atomic, test-first)
+
+Status: PLANNED (2026-06-24), after 2a (blink) shipped + verified (commits e8e1ad7e,
+e2d4ff65, 381d5358; live tick verified). Each step is a RED test (fails today) → minimal
+GREEN → a sabotage check. Marching is unusually amenable to TDD because most of it is a
+**deterministic offset formula** you assert numerically; only the on-screen scroll needs a
+PNG byte-diff (`cmp`, already proven to work by the 2a ON/OFF frames).
+
+**The key new test seam** (the "make state an input" lesson, like `net_hilight_test_now`):
+`xschem net_hilight_march_offset <styleidx>` returns the computed scroll offset at the
+*forced* test time, so the math is assertable without pixel analysis.
+
+### The offset model (every test asserts against this)
+- Period `P` = `sum(dash_arr)`, **×2 when `dash_len` is odd** (the XSetDashes role-flip the
+  Pass-1.5 striped path already accounts for).
+- `offset(now) = dir · (rate_persec · P · now_ms/1000) mod P`, `dir = +1` (march_fwd) /
+  `−1` (march_rev), reduced into `[0, P)`.
+- Gated exactly like blink: nonzero **only** in an animation frame (or test hook); `0` on
+  ordinary/hardcopy draws → deterministic export.
+
+### Phase A — make a marching style "animate"
+1. **Predicate recognizes marching.** RED: `xschem get net_hilight_animated` for a
+   `{… {6 6} … march_fwd}` (blink_ms 0) style → `0` today. GREEN:
+   `net_hilight_style_animates = blink_ms>0 || (anim!=0 && dash_len>0)`; warn at parse if
+   `anim!=0 && dash_len==0` (nothing to scroll — mirror the Pass-1.5 angle-needs-dash warn).
+   Sabotage: anim→none ⇒ predicate 0, no timer.
+
+### Phase B — the offset math (pure, deterministic — the core)
+2. **Queryable offset + time advance.** Add `net_hilight_march_offset(st, now)` (C) +
+   `xschem net_hilight_march_offset <idx>` (uses the forced `net_hilight_test_now`). RED:
+   command unknown / `0` at `now=500`. GREEN: formula with `dir=+1`, `rate=1`. Sub-RED:
+   `offset(0)=0`; monotonic in now; **wraps** mod P.
+3. **Direction.** RED: `offset(march_rev,t)` should be `P − offset(march_fwd,t)`, returns
+   same. GREEN: `dir` from `anim`.
+4. **rate_persec.** RED: `offset(rate=2,t)` should be `2·offset(rate=1,t)` (mod P), equal
+   today. GREEN: multiply by `rate_persec`. (3,4 may fold into 2; split for strict RED-first.)
+
+### Phase C — apply to rendering
+5. **Xlib flat-dash path scrolls.** RED: `cmp` two PNGs of a **0°** dashed marching net at
+   forced times chosen so offset differs by ≈ `P/2` (avoid period-aliasing) → identical
+   today. GREEN: thread offset into `draw_hilight_wire` → `XSetDashes(…, offset, …)` (2nd
+   arg, currently 0). Sabotage: force offset 0 ⇒ identical again.
+6. **Cairo tilted-stripe path scrolls.** RED: same PNG-diff for an **angle>0** marching net
+   → identical. GREEN: shift `cstart` by offset in `draw_hilight_wire_striped`.
+7. **Offset gated to animation frames.** RED: two *ordinary* hardcopy PNGs at different
+   wall-clock moments must be identical (deterministic export); unconditional offset makes
+   them differ. GREEN: compute offset only when `anim_on`, else 0. Verify export identical +
+   live frames differ.
+
+### Phase D — the tick
+8. **Redraw every moved frame.** RED: two `redraw_hilight_region` at forced times Δ apart
+   (≥1px move) → second returns `2` (sig ignores offset). GREEN: fold `(int)offset` per
+   marching style into the change-detection signature ⇒ `1`. Sabotage: sub-pixel Δ ⇒ still
+   `2` (slow marching costs nothing).
+9. **Frame-cadence delay.** RED: `redraw_hilight_region` next_ms for a marching net → `250`
+   (blink cap); want ~`33` (≈30fps). GREEN: a marching style's "next change" = `FRAME_MS`
+   in the next-edge min. Verify via the live `vwait` harness (~30 fires/s; pure-blink
+   unchanged).
+
+### Phase E — compose & finish
+10. **Blink + march compose.** Verify (guard): a `blink_ms>0, march_fwd` style is **absent**
+    at a forced OFF time, **present + scrolled** at an ON time.
+11. **Docs (not RED).** Flip `anim`/`rate_persec` to live in the spec table +
+    `net_hilight_style_rc` example + xschemrc; optional tutorial addendum. Then
+    `/code-review high` (as for 2a).
+
+**Watch-items.** Period-aliasing in the step-5/6 PNG-diff (pick Δ so offset≈P/2); the offset
+must reduce mod P with a correct sign for `march_rev` (negative → add P); `dir`/`rate` read
+from the compiled `NetHilightStyle`, not re-parsed; offset is wire-only (symbols colored,
+never marched — same scope as width/dash/angle, spec §9).
+
+---
+
 ## Risks / watch-items
 - **Decoupling regressions**: defaults must reproduce current cycling exactly; guard with
   regression + sabotage check.
