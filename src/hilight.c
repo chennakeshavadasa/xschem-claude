@@ -2533,22 +2533,34 @@ static int net_hilight_style_animates(NetHilightStyle *st)
   return st && (st->blink_ms > 0 || net_hilight_style_marches(st));
 }
 
-/* Time (ms) until style st's next visible change, given wall-clock 'now' — lets the tick sleep
- * to the next change instead of polling. For a blinking style that is the next 50%-duty phase
- * edge (in (0, blink_ms/2]); a non-blinking style has no edge (ceiling, and avoids a blink_ms==0
- * divide-by-zero — mirrors net_hilight_style_on_now's guard). A marching style scrolls
- * continuously (no discrete edge), so cap the wait at the ~30fps frame cadence: the tick samples
- * the moving offset every frame and the change-detection signature skips redraws between
- * whole-pixel moves (so slow marching wakes but rarely redraws). A blink+march style takes the
- * min of the two. */
+/* Time (ms) until style st's next BLINK phase edge, given wall-clock 'now' (in (0, blink_ms/2]);
+ * a non-blinking style has no edge -> the ceiling (also avoids a blink_ms==0 divide-by-zero,
+ * mirroring net_hilight_style_on_now's guard). This is the only animator that applies to symbol
+ * instances (marching is wire-only), so the instance scan uses this directly. */
+static double net_hilight_blink_edge_ms(NetHilightStyle *st, double now)
+{
+  double half;
+  if(st->blink_ms <= 0) return NET_HILIGHT_TICK_MAX;
+  half = st->blink_ms / 2.0;
+  return (floor(now / half) + 1.0) * half - now;
+}
+
+/* Time (ms) until style st's next visible change on a WIRE — min of the blink edge and, if the
+ * style marches, the marching cadence. Marching scrolls at rate_persec*P pixels/sec (P = dash
+ * period); the change-detection signature only flips when (int)offset advances a whole pixel, so
+ * the useful wake interval is one dash-pixel-time = 1000/(rate*P) ms -- wake that far apart (every
+ * wake then actually redraws) rather than a flat 30fps poll that mostly no-ops for slow scrolls.
+ * Floored at NET_HILIGHT_FRAME_MS so fast marching is capped at ~30fps, and the caller clamps the
+ * result into [TICK_MIN, TICK_MAX]. Lets the tick sleep to the next change instead of polling. */
 static double net_hilight_next_edge_ms(NetHilightStyle *st, double now)
 {
-  double half, edge = NET_HILIGHT_TICK_MAX;
-  if(st->blink_ms > 0) {
-    half = st->blink_ms / 2.0;
-    edge = (floor(now / half) + 1.0) * half - now;
+  double edge = net_hilight_blink_edge_ms(st, now);
+  if(net_hilight_style_marches(st)) {
+    double P = net_hilight_dash_period(st);
+    double px_ms = (P > 0.0) ? 1000.0 / ((double)st->rate_persec * P) : NET_HILIGHT_TICK_MAX;
+    double march = px_ms > NET_HILIGHT_FRAME_MS ? px_ms : NET_HILIGHT_FRAME_MS;
+    if(march < edge) edge = march;
   }
-  if(net_hilight_style_marches(st) && NET_HILIGHT_FRAME_MS < edge) edge = NET_HILIGHT_FRAME_MS;
   return edge;
 }
 
@@ -2637,11 +2649,15 @@ static int scan_animating_hilights(double now, unsigned int *sig, int *maxw, dou
     int val = xctx->inst[i].color;
     if(val == -10000 || val < 0) continue;
     st = get_hilight_style(val);
-    if(!net_hilight_style_animates(st)) continue;
+    /* marching is wire-only (symbols are colored, never marched), so an instance animates ONLY if
+     * its style blinks. Gating on blink (not net_hilight_style_animates, which also admits marching)
+     * keeps a marching-but-non-blinking net whose only highlighted objects are instances from arming
+     * the ~30fps tick to redraw nothing. Hence the blink-only signature term + blink edge below. */
+    if(!(st && st->blink_ms > 0)) continue;
     if(predicate) return 1;
     if(sig)  *sig = *sig * 1000003u + (unsigned int)(st->index * 2 + net_hilight_style_on_now(st, now));
     if(maxw && st->width > *maxw) *maxw = st->width;
-    if(next_ms) { double d = net_hilight_next_edge_ms(st, now); if(d < *next_ms) *next_ms = d; }
+    if(next_ms) { double d = net_hilight_blink_edge_ms(st, now); if(d < *next_ms) *next_ms = d; }
     if(bx1) {
       if(!found || xctx->inst[i].x1 < *bx1) *bx1 = xctx->inst[i].x1;
       if(!found || xctx->inst[i].y1 < *by1) *by1 = xctx->inst[i].y1;
