@@ -143,6 +143,27 @@ proc ciw_hist_move {dir} {
   else           { $w insert end [lindex $::ciw_history $pos] }
 }
 
+## Route a captured `puts` (its raw arg list) to the CIW log pane: a stdout write (`puts STRING`
+## or `puts stdout STRING`) uses the `result` tag, a `puts stderr STRING` uses the `error` (red)
+## tag, and any OTHER channel (a file/socket) or a malformed call is delegated VERBATIM to the real
+## puts (saved as ::ciw_saved_puts while capture is active). `-nonewline` is accepted and ignored
+## for the console channels (the log pane is line-oriented), but preserved when delegating. Only
+## installed for the dynamic extent of a CIW command -- see ciw_exec. Spec: specs/ciw_puts_capture.md.
+proc ciw_capture_puts {argl} {
+  set a $argl
+  if {[lindex $a 0] eq "-nonewline"} {set a [lrange $a 1 end]}
+  set n [llength $a]
+  if {$n == 1} {
+    ciw_echo [lindex $a 0] result
+  } elseif {$n == 2 && [lindex $a 0] eq "stdout"} {
+    ciw_echo [lindex $a 1] result
+  } elseif {$n == 2 && [lindex $a 0] eq "stderr"} {
+    ciw_echo [lindex $a 1] error
+  } else {
+    eval [linsert $argl 0 ::ciw_saved_puts]   ;# 8.4-safe form of: ::ciw_saved_puts {*}$argl
+  }
+}
+
 proc ciw_exec {} {
   set cmd [string trim [.ciw.c.e get 1.0 end-1c]]
   if {$cmd eq {}} return
@@ -153,7 +174,16 @@ proc ciw_exec {} {
   set ::ciw_hist_pending {}
   .ciw.c.e delete 1.0 end
   ciw_echo "> $cmd" input
-  if {[catch {uplevel #0 $cmd} res]} {
+  ## Capture the command's stdout/stderr `puts` into the log pane, scoped to exactly this command
+  ## (spec: ciw_puts_capture.md). Redefine puts around the eval and restore it right after; the
+  ## rename pair is balanced and the catch keeps an error from skipping the restore. puts still
+  ## returns "" so the result-echo below does not print captured text a second time.
+  rename ::puts ::ciw_saved_puts
+  proc ::puts {args} {ciw_capture_puts $args}
+  set code [catch {uplevel #0 $cmd} res]
+  rename ::puts {}
+  rename ::ciw_saved_puts ::puts
+  if {$code} {
     ciw_echo $res error
     xschem log_action -noecho "# failed: $cmd"
   } else {
