@@ -37,8 +37,15 @@ Newest entries on top.
 >   exposes it for the kill-switch); the per-window Tcl tick gates on **`winfo viewable`** (stops
 >   iconified windows and background tabs; a `<Visibility>` binding re-arms on restore).
 > - **Serialization (E1):** no window animates a frame while the focused window is mid-gesture
->   (`net_hilight_ctx_busy()` on the pre-borrow context). The global wall-clock keeps all windows
->   in phase. See `specs/net_hilight_styles.md` and `specs/multi_window_detach.md`.
+>   (`net_hilight_ctx_gesturing()` on the pre-borrow context — a held `semaphore` from a passive
+>   modal dialog does NOT freeze other windows). The global wall-clock keeps all windows in phase.
+>   See `specs/net_hilight_styles.md` and `specs/multi_window_detach.md`.
+>
+> Commit chain on `fluid-editing` (each phase RED-first + a `/code-review high` gate): A `00ed9ebd`
+> (+review `c85b4751`) → B `4115a27d` (+`fd12f072`) → C `87a36b86` (+`2b7cf900`) → D `4ab92062`
+> (+`03597562`) → E `38bf4ea4` (+docs `0f66df43`, +review `ba14af94`). Deferred cleanups logged as
+> issues `0030` (dash-period recompute), `0031` (per-window style-table staleness), `0032`
+> (anim-update fan-out cost).
 
 **Today it's front-window-only on purpose, but the groundwork is mostly there.** xschem already
 keeps a **separate `Xschem_ctx` per window/tab** in the `save_xctx[]` array (`get_save_xctx()`,
