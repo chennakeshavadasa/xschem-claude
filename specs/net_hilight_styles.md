@@ -40,8 +40,16 @@ channel (the `*_backannotate.tcl` files are precedent).
   with the switch off, or mid-gesture. Change-detection redraws only at blink edges. Test
   hook `net_hilight_test_now_ms` overrides "now" for deterministic frame sampling. Commands:
   `xschem get net_hilight_animated`, `xschem redraw_hilight_region`.
-- **Pass 2b — marching-ants (`anim`, `rate_persec`) — future.** Reuses 2a's timer + regional
-  redraw; animates the dash offset. Still parsed/stored but inert.
+- **Pass 2b — marching-ants (`anim`, `rate_persec`) — DONE.** Reuses 2a's timer + regional
+  redraw and animates the dash offset: `net_hilight_march_offset(st, now)` =
+  `dir·(rate_persec·P·now_s) mod P` (period `P` = `sum(dash_arr)`, doubled for an odd
+  `dash_len`; `dir` from `march_fwd`/`march_rev`), threaded into the flat path's `XSetDashes`
+  phase and the cairo striped path's band start so the dashes/stripes crawl. Wire-only (symbols
+  are colored, never marched). Gated like blink (offset 0 on ordinary/hardcopy draws →
+  deterministic export). The change-detection signature folds `(int)offset` so the tick redraws
+  only when the pattern moves ≥1px, at a ~30fps frame cadence. Test/introspection hook
+  `xschem net_hilight_march_offset <idx>` returns the offset at the forced `net_hilight_test_now`
+  time. A style needs `anim != none`, a dash pattern, AND `rate_persec > 0` to march.
 
 ## 3. The style table
 
@@ -61,8 +69,8 @@ Each row is a list with these columns, in order:
 | 4   | `dash-pattern`    | Tcl list of on/off run lengths, e.g. `{}` solid, `{4 4}`, `{8 4 2 4}`.| used  |
 | 5   | `stripe-angle-deg`| Tilt of dash "stripes" on a thick line. Clamped to **[0, 45]**.      | used*  |
 | 6   | `blink_ms`        | Blink period in ms (`0` = steady). **Live (Pass 2a).**               | used   |
-| 7   | `anim`            | Animation mode: `none` / `march_fwd` / `march_rev`.                  | stored |
-| 8   | `rate_persec`     | Animation rate (stripe shifts per second) for `anim`.               | stored |
+| 7   | `anim`            | Marching mode: `none` / `march_fwd` / `march_rev`. **Live (Pass 2b).**| used   |
+| 8   | `rate_persec`     | Marching speed in dash-periods/sec (needs `anim`+dash). **Live (2b).**| used   |
 
 \* `stripe-angle-deg` is parsed, clamped to [0,45], and stored in Pass 1, but **nonzero
 angles are rendered as plain 0° dashes until Pass 1.5** (tilted-stripe rendering needs
@@ -104,8 +112,11 @@ There is **no 10-entry limit**. The table length *is* the number of styles.
   the input is **clamped to a maximum of 45°** (and minimum 0°). When clamping occurs,
   `update_net_hilight_style` emits a **warning to the log/CIW** naming the offending
   style index and the original vs clamped value.
-- **blink_ms / anim / rate_persec**: parsed, validated, and stored in Pass 1; have no
-  visual effect until Pass 2.
+- **blink_ms** (Pass 2a) / **anim + rate_persec** (Pass 2b): the animation columns. `blink_ms>0`
+  blinks the highlight; `anim` (`march_fwd`/`march_rev`) with a dash pattern and `rate_persec>0`
+  scrolls the dashes ("marching ants"). A negative `rate_persec` is clamped to 0 with a warning;
+  a marching style with no dash, or `rate_persec<=0`, is warned and does not march. They compose
+  (a style can both blink and march).
 
 ## 4. Decoupling style from layer color (the refactor)
 

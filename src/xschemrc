@@ -444,24 +444,30 @@
 # A list of rows, each:
 #   {index  color  width  dash-pattern  stripe-angle-deg  blink_ms  anim  rate_persec}
 # color = layer index (0..cadlayers-1) or X color name / #rrggbb; width 1 = thin wire;
-# dash-pattern = list of on/off runs ({} = solid); stripe-angle clamps to [0,45].
+# dash-pattern = list of on/off runs ({} = solid); stripe-angle clamps to [0,45];
+# blink_ms = blink period (0 = steady, Pass 2a); anim = none|march_fwd|march_rev with
+# rate_persec dash-periods/sec = marching ants on a dashed style (Pass 2b). blink + march
+# compose. The global var net_hilight_animate (default 1) is the animation kill-switch.
 # Leave it empty (default) and the engine auto-fills it with one style per active layer
 # (the classic highlight look) at startup, so you can inspect the live setup with
-# 'puts $net_hilight_style' and edit individual rows in place. No 10-style limit.
+# 'puts $net_hilight_style'. No 10-style limit.
 # After setting/editing it, apply with:  xschem update_net_hilight_style
 # (set it back to {} + update to return to the auto default). See
 # <sharedir>/net_hilight_style_rc for a worked example.
 #
-# Replace the whole table:
-# set net_hilight_style {
-#   {0  red        1  {}     0  0 none 0}
-#   {1  "#00ff00"  2  {6 6}  0  0 none 0}
+# Prefer the fault-tolerant editor procs (they fill defaults + recompile for you) over a raw
+# 'lset' (a stray 'lset net_hilight_style {} ...' replaces the WHOLE table):
+# net_hilight_style_replace {rows}  - table becomes EXACTLY these rows
+# net_hilight_style_merge   {rows}  - overwrite rows by their index column, keep the rest
+# net_hilight_style_append  {rows}  - add rows at the end
+# net_hilight_style_reset           - re-derive the layer default
+# net_hilight_apply {styledef} ?net...?  - apply a literal style to the selection / named nets
+# e.g.:
+# net_hilight_style_replace {
+#   {0  red        1  {}     0  0 none      0}
+#   {1  "#00ff00"  2  {6 6}  0  0 march_fwd 2}
 # }
-# xschem update_net_hilight_style
-#
-# ...or override just a few rows of the auto-populated default:
-# lset net_hilight_style 2 {2 yellow 3 {8 4 2 4} 30 0 none 0}
-# xschem update_net_hilight_style
+# net_hilight_style_merge {{2 yellow 3 {8 4 2 4} 30 0 none 0}}   ;# override one row of the default
 
 
 ###########################################################################

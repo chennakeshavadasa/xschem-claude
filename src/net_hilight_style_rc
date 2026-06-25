@@ -17,10 +17,15 @@
 #           wire (needs a dash pattern + Cairo; out-of-range values warn)
 #   blink   blink period in ms; 0 = steady. Nonzero makes the highlight blink (Pass 2a).
 #           The global Tcl var net_hilight_animate (default 1) is the on/off kill-switch.
-#   anim    none | march_fwd | march_rev (reserved for marching-ants; ignored for now)
-#   rate    animation rate per second (reserved for marching-ants; ignored for now)
+#   anim    none | march_fwd | march_rev  -- marching ants: scrolls the dash pattern along
+#           the wire (Pass 2b). Needs a dash pattern AND rate > 0; direction = fwd/rev.
+#   rate    marching speed in dash-periods per second (e.g. 2 = two patterns/sec).
 #
 # There is no 10-style limit; the cursor cycles back to row 0 after the last row.
+#
+# Prefer the fault-tolerant editor procs over hand-editing this list (they fill defaults and
+# recompile for you): net_hilight_style_replace / _merge / _append / _reset / _remove, and
+# net_hilight_apply {styledef} ?net...? to apply one literal style to the selection or a net.
 
 set net_hilight_style {
   {0   red         1   {}          0    0    none        0 }
@@ -28,8 +33,8 @@ set net_hilight_style {
   {2   yellow      3   {12 6}      0    0    none        0 }
   {3   "#0099cc"   4   {16 8 4 8}  30   0    none        0 }
   {4   magenta     2   {}          0    600  none        0 }
-  {5   12          1   {4 4}       0    0    none        0 }
-  {6   "#ff8800"   5   {20 10}     45   0    none        0 }
+  {5   12          1   {4 4}       0    0    march_fwd   2 }
+  {6   "#ff8800"   5   {20 10}     45   0    march_rev   1 }
 }
 
 xschem update_net_hilight_style
