@@ -1,7 +1,11 @@
 # Issue 0035 — a freshly descended NEW window is spuriously flagged "modified" (asterisk + save prompt)
 
 **Opened:** 2026-06-25
-**Status:** ✅ RESOLVED (2026-06-26) for the read-only / default workflow. The first
+**Status:** ✅ RESOLVED (2026-06-26) for the read-only / default workflow. The reporter
+later confirmed the spurious `*` no longer appears via File ▸ Open *or* the Library
+Manager. A *separate* follow-up surfaced from the same workflow — the new window opening
+**blank / grid-only until F** (a geometry race in the new-window descend's `zoom_full`,
+NOT a modified-flag issue) — is fixed and documented in **issue 0037 §5**. The first
 attempt (read-only guard on the mtime check at `callback.c`) was not enough — the user
 still saw the `*`, because the trigger is NOT only the mtime check: a child schematic
 that **auto-normalizes on load** (`check.c`/`netlist.c` `set_modify(1)`) is flagged

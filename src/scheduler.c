@@ -1899,6 +1899,10 @@ static int xschem_cmds_g(Tcl_Interp *interp, int argc, const char *argv[], int *
           if(!strcmp(argv[2], "pinlayer")) { /* layer number for pins */
             Tcl_SetResult(interp, my_itoa(PINLAYER),TCL_VOLATILE);
           }
+          else if(!strcmp(argv[2], "pending_fullzoom")) { /* deferred full-zoom counter */
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            Tcl_SetResult(interp, my_itoa(xctx->pending_fullzoom),TCL_VOLATILE);
+          }
           else if(!strcmp(argv[2], "polygons")) { /* (xschem get polygons n) number of polygons on layer 'n' */
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
             if(argc > 3) {
@@ -6376,13 +6380,23 @@ static int xschem_cmds_r(Tcl_Interp *interp, int argc, const char *argv[], int *
       Tcl_ResetResult(interp);
     }
 
-    /* resetwin create_pixmap clear_pixmap force w h
-     *   internal command: calls resetwin() */
+    /* resetwin create_pixmap clear_pixmap force w h   (full internal form)
+     * resetwin w h                                     (fit form, issue 0035/0037)
+     *   Recreate the backing pixmap from the window geometry and redraw -- like the
+     *   ConfigureNotify handler. The 2-arg form forces a refit to an explicit w/h (e.g. Tk's
+     *   `winfo width/height`), bypassing XGetWindowAttributes -- which on some WMs (WSLg) still
+     *   reports a transient 1x1 for a just-mapped window even though Tk knows the real size.
+     *   If a deferred full-zoom is armed (pending_fullzoom) resetwin() performs it against that
+     *   geometry, so a freshly-opened new window whose WM never delivered a settling Configure
+     *   still gets fit. */
     else if(!strcmp(argv[1], "resetwin"))
     {
       if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
       if(argc > 6) {
         resetwin(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), atoi(argv[6]));
+      } else if(argc > 3) {
+        resetwin(1, 1, 1, atoi(argv[2]), atoi(argv[3])); /* create, clear, force, w, h */
+        draw();
       }
       Tcl_ResetResult(interp);
     }
@@ -7104,6 +7118,15 @@ static int xschem_cmds_s(Tcl_Interp *interp, int argc, const char *argv[], int *
             int s = atoi(argv[3]);
             if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
             xctx->no_undo=s;
+          }
+          else if(!strcmp(argv[2], "pending_fullzoom")) {
+            /* arm a deferred full-zoom: the next ConfigureNotify with valid (mapped,
+             * >1x1) geometry performs zoom_full() in resetwin(). Used by the new-window
+             * descend paths, whose zoom_full() runs before the just-created window has
+             * settled to its real size, so the immediate view is computed for the wrong
+             * geometry (blank / off-screen until a manual F). See issue 0035/0037. */
+            if(!xctx) {Tcl_SetResult(interp, not_avail, TCL_STATIC); return TCL_ERROR;}
+            xctx->pending_fullzoom = atoi(argv[3]);
           }
           else if(!strcmp(argv[2], "raw_level")) { /* set hierarchy level loaded raw file refers to */
             int n = atoi(argv[3]);

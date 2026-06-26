@@ -4360,6 +4360,64 @@ proc save_file_dialog { msg ext global_initdir {initialf {}} {overwrt 1} } {
   return $r
 }
 
+# Make a freshly-opened NEW top-level WINDOW full-zoom correctly once it has settled to its
+# real on-screen size. A descend draws into the new window before it has processed its queued
+# Map/Configure events, so that draw used a transient geometry -- the window comes up blank /
+# grid-only / off-screen until a manual zoom-full (F). issue 0035/0037. Two parts:
+#  1. Arm pending_fullzoom: if the WM delivers a settling ConfigureNotify, resetwin() performs
+#     the zoom_full() against the real size immediately (the fast path on a normal X server).
+#  2. A deferred backstop: some WMs (notably WSLg) do NOT send a settling Configure on open --
+#     the window just stays blank until the user resizes it (which the reporter confirmed
+#     fixes it). So once the window is realized at a sane size, force the same work the
+#     Configure path / a manual resize would do (`xschem resetwin` -> re-read geometry +
+#     deferred zoom_full). Retries until the window is mapped, then self-terminates; if a real
+#     Configure already fit it (pending cleared) it is a no-op, so it never fights the WM or
+#     overrides a later user zoom.
+# Only for real WINDOWS: a new TAB shares the already-sized main canvas and has no race (and
+# arming it would cause a spurious full-zoom on the next user resize).
+proc newwin_defer_fullzoom {win} {
+  global has_x
+  if { ![info exists has_x] || !$has_x } return   ;# no geometry race without X
+  xschem set pending_fullzoom 1
+  after 120 [list _newwin_fit_fullzoom $win 0]
+}
+proc _newwin_fit_fullzoom {win tries} {
+  if {![winfo exists $win]} return
+  # Act only while this window is still the armed, active context. If a real Configure already
+  # fit it (pending cleared), or the user has moved on, there is nothing to do.
+  if {[xschem get current_win_path] ne $win} return
+  if {[xschem get pending_fullzoom] == 0} return
+  # Wait until the window is actually realized with a real size, else our zoom_full would use
+  # the same transient geometry the descend already did. Retry briefly, then give up (the
+  # pending arm still rides any eventual Configure).
+  if {[winfo ismapped $win] && [winfo width $win] > 1 && [winfo height $win] > 1} {
+    # Pass Tk's known canvas size through: a just-mapped window can still report a transient
+    # 1x1 via XGetWindowAttributes, which would defeat resetwin's deferred-zoom gate.
+    xschem resetwin [winfo width $win] [winfo height $win]
+  } elseif {$tries < 25} {
+    after 120 [list _newwin_fit_fullzoom $win [expr {$tries + 1}]]
+  }
+}
+
+# A new-window descend reloads the parent from DISK, so any UNSAVED edits in the source window
+# (e.g. an instance just added but not saved) are missing from the new window -- and a descend
+# into such a freshly-added instance then no-ops, leaving the new window on the stale parent
+# (wrong title + wrong schematic). issue 0037. Bridge the edits through the cell's "~" autosave
+# backup: persist them from the source here (returns the source cell path, or "" if nothing to
+# carry), ...
+proc newwin_capture_unsaved {} {
+  if { ![xschem get modified] } { return {} }
+  xschem backup write          ;# write <cell>~.sch with the current in-memory content
+  return [xschem get schname]
+}
+# ... then reload them into the just-opened new window (same cell -> same backup file) so the
+# descend target is present. Best-effort: if no backup exists the new window keeps the disk
+# parent (no worse than before).
+proc newwin_restore_unsaved {src} {
+  if { $src eq {} } return
+  catch { xschem load_backup $src }
+}
+
 # opens indicated instance (or selected one) into a separate tab/window
 # keeping the hierarchy path, as it was descended into (as with 'e' key).
 proc open_sub_schematic {{inst {}} {inst_number 0}} {
@@ -4367,6 +4425,9 @@ proc open_sub_schematic {{inst {}} {inst_number 0}} {
   set rawfile {}
   set n_sel [xschem get lastsel]
   set current_win_path [xschem get current_win_path] ;# .drw or .x1.drw or .x2.drw ...
+  # carry the source window's unsaved edits across to the new window (issue 0037) -- capture
+  # BEFORE unselect_all / opening the new window, while the source is still the active context
+  set src_unsaved [newwin_capture_unsaved]
 
   if { $inst eq {} && $n_sel == 0} {
     if {$search_schematic == 1} {
@@ -4399,6 +4460,7 @@ proc open_sub_schematic {{inst {}} {inst_number 0}} {
   if {$res} {
     xschem copy_hilights
     xschem new_schematic switch $new_window_path
+    newwin_restore_unsaved $src_unsaved   ;# pull source's unsaved edits into the new window
     if { $rawfile ne {}} {
       if {$sim_type eq {op}} {
         xschem annotate_op $rawfile
@@ -4409,6 +4471,12 @@ proc open_sub_schematic {{inst {}} {inst_number 0}} {
     }
     xschem select instance $inst fast
     xschem descend
+    # In window mode the just-created window has not settled to its real size, so the
+    # descend's zoom_full used a transient geometry (blank / off-screen until F). A new tab
+    # shares the already-sized main canvas, so skip it there. issue 0035/0037.
+    if {!([info exists ::tabbed_interface] && $::tabbed_interface)} {
+      newwin_defer_fullzoom $new_window_path
+    }
     return 1
   }
   return 0
@@ -4599,6 +4667,9 @@ proc hi_descend_current {instname row iter mode} {
 proc hi_descend_newwin {instname row dest iter mode} {
   lassign $row vname vtype vpath
   set current_win_path [xschem get current_win_path]
+  # carry the source window's unsaved edits across (issue 0037) -- capture BEFORE unselect_all
+  # / opening the new window, while the source is still the active context
+  set src_unsaved [newwin_capture_unsaved]
 
   # Open the CURRENT (parent) schematic in the new window, then descend -- NOT the
   # instance's schematic directly. With the instance still selected,
@@ -4631,12 +4702,19 @@ proc hi_descend_newwin {instname row dest iter mode} {
 
   xschem copy_hilights
   xschem new_schematic switch $new_window_path
+  newwin_restore_unsaved $src_unsaved   ;# pull source's unsaved edits into the new window
   if {$rawfile ne {}} {
     if {$sim_type eq {op}} { xschem annotate_op $rawfile } else { xschem raw_read $rawfile $sim_type }
     xschem set raw_level $raw_level
   }
   xschem select instance $instname fast
-  return [hi_descend_finish $instname $vtype $vpath $iter $mode]
+  set ok [hi_descend_finish $instname $vtype $vpath $iter $mode]
+  # A real new window has not yet settled to its on-screen size when descend runs (its
+  # Map/Configure events are still queued), so the descend's zoom_full used a transient
+  # geometry and the window comes up blank / grid-only / off-screen until a manual zoom-full
+  # (F). A new TAB shares the already-sized main canvas and has no such race. issue 0035/0037.
+  if {$ok && $dest eq {window}} { newwin_defer_fullzoom $new_window_path }
+  return $ok
 }
 
 # Headless entry point shared by the dialog and by scripted calls.
