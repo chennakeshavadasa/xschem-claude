@@ -121,15 +121,26 @@ proc build_menu_from_table {topwin menukey} {
       dynamic {
         set sub [dict get $row submenu]
         set subw $topwin.menubar.$sub
-        if {![winfo exists $subw]} {
-          menu $subw -tearoff 0 -takefocus 0
-        }
-        $m add cascade -label $label -menu $subw
-        if {$type eq {cascade}} {
-          build_menu_from_table $topwin $sub
-        } else {
+        if {$type eq {dynamic}} {
+          # Dynamic submenu: attach the populate hook to the menu widget's
+          # -postcommand so it re-runs every time the user posts the submenu and
+          # the list stays current. The previous build-time call populated it
+          # once and never refreshed (only masked for file.open_recent because
+          # add_recent_file also calls setup_recent_menu on each load).
           set hook [dict get $row hook]
-          if {$hook ne {}} { $hook $topwin }
+          set postcmd [expr {$hook ne {} ? [list $hook $topwin] : {}}]
+          if {![winfo exists $subw]} {
+            menu $subw -tearoff 0 -takefocus 0 -postcommand $postcmd
+          } else {
+            $subw configure -postcommand $postcmd
+          }
+          $m add cascade -label $label -menu $subw
+        } else {
+          if {![winfo exists $subw]} {
+            menu $subw -tearoff 0 -takefocus 0
+          }
+          $m add cascade -label $label -menu $subw
+          build_menu_from_table $topwin $sub
         }
       }
       default {
