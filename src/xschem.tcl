@@ -662,7 +662,6 @@ proc net_hilight_apply {styledef args} {
 # Auto-write the harmless "user has opened the net highlight style editor" breadcrumb.
 proc write_net_hilight_editor_seen {} {
   global USER_CONF_DIR net_hilight_editor_seen
-  set net_hilight_editor_seen 1
   if {[catch {open $USER_CONF_DIR/net_hilight_editor_seen w} fd]} {
     puts "write_net_hilight_editor_seen: $fd"
     return
@@ -670,12 +669,16 @@ proc write_net_hilight_editor_seen {} {
   puts $fd "# xschem: user has opened the net highlight style editor (harmless UI breadcrumb)"
   puts $fd "set net_hilight_editor_seen 1"
   close $fd
+  # Mark seen only AFTER the breadcrumb is persisted: a failed write (read-only ~/.xschem) then
+  # leaves the flag 0 so the next open retries, instead of de-emphasizing without ever recording it.
+  set net_hilight_editor_seen 1
 }
 
 # Write the current style table to a Tcl-sourceable file at $path (the editor's explicit Save).
 # Sourcing it restores the table and recompiles it; also stamps the harmless seen flag. Returns
 # 1 on success, 0 on an I/O error. Row format = 8 cols {index color width dash angle blink_ms
-# anim rate_persec}; the whole list is brace-wrapped (same idiom as write_recent_file).
+# anim rate_persec}. The table line is emitted via [list ...] so it is always a balanced,
+# source-able Tcl command even if a field ever carried an unbalanced brace/backslash.
 proc write_net_hilight_style_conf {path} {
   global net_hilight_style
   if {[catch {open $path w} fd]} {
@@ -686,7 +689,7 @@ proc write_net_hilight_style_conf {path} {
   puts $fd "# 8 columns per row: index color width dash angle blink_ms anim rate_persec"
   puts $fd "# (color = layer index | X color name | #rrggbb ; anim = none|march_fwd|march_rev)."
   puts $fd "set net_hilight_editor_seen 1"
-  puts $fd "set net_hilight_style {$net_hilight_style}"
+  puts $fd [list set net_hilight_style $net_hilight_style]
   puts $fd "catch {xschem update_net_hilight_style}"
   close $fd
   return 1
@@ -744,7 +747,9 @@ proc nhse_rebuild {} {
 }
 
 proc net_hilight_style_editor { {topwin {}} } {
-  write_net_hilight_editor_seen
+  global net_hilight_editor_seen
+  # record "seen" once, on the first open only (no redundant rewrite every open)
+  if {!$net_hilight_editor_seen} { write_net_hilight_editor_seen }
   set w .nhse
   if {[winfo exists $w]} { raise $w ; focus $w ; nhse_rebuild ; return $w }
   toplevel $w
@@ -774,6 +779,10 @@ proc net_hilight_style_editor { {topwin {}} } {
   bind $t.sf.body <Configure> "$t.sf configure -scrollregion \[$t.sf bbox all\]"
 
   nhse_rebuild
+  # Stop the resizable dialog from being narrowed past the fixed-width columns (which has only a
+  # vertical scrollbar): clamp the minimum width to the natural content width. Height stays free.
+  update idletasks
+  catch { wm minsize $w [winfo reqwidth $w] 200 }
   return $w
 }
 
