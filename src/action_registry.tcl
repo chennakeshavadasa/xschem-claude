@@ -49,6 +49,13 @@ proc action_parse_csv_line {line} {
       }
     }
   }
+  if {$inq} {
+    # Unterminated quoted field: the closing '"' is missing, so every remaining
+    # character (including commas that should have been delimiters) was swallowed
+    # into this one field. Warn loudly — silently returning the garbled row makes
+    # the resulting wrong menu label / command impossible to trace to its source.
+    puts stderr "action registry: unterminated quoted field in CSV line: [string range $line 0 60]..."
+  }
   lappend fields $field
   return $fields
 }
