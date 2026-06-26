@@ -2712,6 +2712,13 @@ int descend_schematic(int instnumber, int fallback, int alert, int set_title)
      xctx->readonly = 1;
      set_modify(-1); /* refresh window title to show the read-only marker */
    }
+   /* Re-arm the animated-highlight tick (issue 0034): the child reloaded into a fresh
+    * context whose per-window animation tick is unarmed, and descend is not a highlight
+    * MUTATION (the only thing that otherwise calls net_hilight_anim_update), so without
+    * this a blink/marching-ants highlight freezes after descend. Cheap: the function
+    * short-circuits to one boolean read when nothing animates. Arms every open window,
+    * so the new-window descend path (open_sub_schematic) is covered too. */
+   if(descend_ok) net_hilight_anim_update();
    zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97);
  }
  return descend_ok;
@@ -2809,6 +2816,10 @@ void go_back(int what)
 
   change_linewidth(-1.);
   draw();
+  /* Re-arm the animated-highlight tick after ascending (issue 0034): the parent reloaded
+   * into a fresh context whose tick is unarmed; like descend, go_back is not a highlight
+   * mutation, so a blink/marching-ants highlight would otherwise freeze on pop. */
+  net_hilight_anim_update();
 
   dbg(1, "go_back(): current path: %s\n", xctx->sch_path[xctx->currsch]);
  }

@@ -5460,6 +5460,11 @@ int descend_symbol(void)
   xctx->loaded_symbol = 1;
   xctx->netlist_type = CAD_SYMBOL_ATTRS;
   set_tcl_netlist_type();
+  /* Re-arm the animated-highlight tick (issue 0034): descending into a symbol view loads
+   * a fresh context whose tick is unarmed and is not a highlight mutation, so an animated
+   * (blink/marching-ants) highlight would otherwise freeze. Short-circuits cheaply when
+   * nothing animates. */
+  net_hilight_anim_update();
   zoom_full(1, 0, 1 + 2 * tclgetboolvar("zoom_full_center"), 0.97);
   return 1;
 }
