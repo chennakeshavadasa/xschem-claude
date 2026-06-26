@@ -3584,19 +3584,24 @@ static void handle_motion_notify(int event, KeySym key, int state, int rstate, i
      * doesn't error; keep the default. */
     if(has_x) tk_scaling = atof(tcleval("tk scaling"));
     /* Ignore motion that belongs to a DIFFERENT window's canvas, so the crosshair/hover
-     * is drawn in the window under the pointer, not in the focused one. In non-tabbed
-     * mode any path mismatch qualifies; in tabbed mode only when a REAL (detached, own
-     * canvas) window is involved on either side -- background tabs share .drw and
-     * legitimately match the active tab's current_win_path, and must still update so a
-     * tab switch (which regenerates no EnterNotify) keeps the crosshair alive (issue
-     * 0010). Without this, motion over a background window draws the crosshair in the
-     * focused (detached) window's context (issue 0036). */
+     * is drawn in the window under the pointer, not in the focused one (issue 0036).
+     * Non-tabbed mode: any path mismatch qualifies (unchanged). Tabbed mode: only with
+     * mouse_follows_focus on, and only when a REAL (detached, own canvas) window is
+     * involved on either side -- the matching EnterNotify switch (handle_window_switching)
+     * makes the hovered window the context, so its own motion still draws; background tabs
+     * share .drw and match the active tab's current_win_path. When mouse_follows_focus is
+     * OFF there is no compensating switch, so fall back to the pre-0036 behavior (don't
+     * drop in tabbed mode) -- the opt-out keeps the old background-tab motion. */
     if(strcmp(win_path, xctx->current_win_path)) {
-      int wn = get_tab_or_window_number(win_path);
-      Xschem_ctx **sx = get_save_xctx();
-      int win_is_real = (wn > 0 && sx[wn] && sx[wn]->top_path && sx[wn]->top_path[0]);
-      int cur_is_real = (xctx->top_path && xctx->top_path[0]);
-      if(!tabbed_interface || win_is_real || cur_is_real) return;
+      int drop = !tabbed_interface;
+      if(tabbed_interface && tclgetboolvar("mouse_follows_focus")) {
+        int wn = get_tab_or_window_number(win_path);
+        Xschem_ctx **sx = get_save_xctx();
+        int win_is_real = (wn > 0 && sx[wn] && sx[wn]->top_path && sx[wn]->top_path[0]);
+        int cur_is_real = (xctx->top_path && xctx->top_path[0]);
+        drop = (win_is_real || cur_is_real);
+      }
+      if(drop) return;
     }
     /* A motion delivered to this canvas means the pointer is inside it. EnterNotify
      * is the only other setter, but with the shared tabbed canvas a tab switch

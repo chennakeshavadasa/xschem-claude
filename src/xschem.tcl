@@ -4443,21 +4443,27 @@ if {![info exists hi_descend_key]} { set hi_descend_key e }
 # Resolve which instance hi_descend should act on: an explicit name, else the
 # single selected instance. Returns the instance name, or {} (after a ciw_echo)
 # when there is nothing usable / the selection is ambiguous.
+# The symbol reference behind a named instance (e.g. "devices/nmos4" or "lib/cell"),
+# or {} if not found. Single place that walks `xschem instance_list`.
+proc hi_descend_inst_sym {instname} {
+  foreach {i s t} [xschem instance_list] { if {$i eq $instname} { return $s } }
+  return {}
+}
+
 proc hi_descend_target_inst {inst} {
   if {$inst ne {}} {
-    set known {}
-    foreach {i s t} [xschem instance_list] { lappend known $i }
-    if {[lsearch -exact $known $inst] < 0} {
+    if {[hi_descend_inst_sym $inst] eq {}} {
       ciw_echo "hi_descend: no such instance: $inst" error
       return {}
     }
     return $inst
   }
-  set n [xschem get lastsel]
-  if {$n == 0} { ciw_echo "hi_descend: select one instance to descend into" error; return {} }
-  if {$n > 1}  { ciw_echo "hi_descend: select exactly one instance" error; return {} }
+  # Use the selected INSTANCES only (selected_set returns ELEMENT selections), so a
+  # mixed rubber-band selection (instance + wires/text) still descends into the
+  # instance, matching the old C descend's sel_array[0] behaviour. Descend into the
+  # first selected instance when several are selected.
   set sel [xschem selected_set]
-  if {[llength $sel] != 1} { ciw_echo "hi_descend: select one instance" error; return {} }
+  if {[llength $sel] == 0} { ciw_echo "hi_descend: select an instance to descend into" error; return {} }
   return [lindex $sel 0]
 }
 
@@ -4466,8 +4472,7 @@ proc hi_descend_target_inst {inst} {
 # Covers both the OpenAccess lib/cell/view layout (alternates like schematic_old)
 # and the legacy flat layout (default schematic + symbol).
 proc hi_descend_enum_views {instname} {
-  set sym {}
-  foreach {i s t} [xschem instance_list] { if {$i eq $instname} { set sym $s; break } }
+  set sym [hi_descend_inst_sym $instname]
   if {$sym eq {}} { return {} }
 
   set rows {}                 ;# {name type abspath}
@@ -4506,9 +4511,14 @@ proc hi_descend_enum_views {instname} {
 # explicit $view name and/or $type. Returns the {name type abspath} row, or {}.
 proc hi_descend_pick_view {rows view type} {
   if {$view eq {}} {
-    # default: the view literally named "schematic", else the first schematic-type
-    foreach r $rows { if {[lindex $r 0] eq {schematic} && ($type eq {} || [lindex $r 1] eq $type)} { return $r } }
-    foreach r $rows { if {[lindex $r 1] eq {schematic} && ($type eq {} || [lindex $r 1] eq $type)} { return $r } }
+    # no view name: honor an explicit type (e.g. type=symbol -> first symbol view);
+    # otherwise default to the view named "schematic", else the first schematic-type row.
+    if {$type ne {}} {
+      foreach r $rows { if {[lindex $r 1] eq $type} { return $r } }
+      return {}
+    }
+    foreach r $rows { if {[lindex $r 0] eq {schematic} && [lindex $r 1] eq {schematic}} { return $r } }
+    foreach r $rows { if {[lindex $r 1] eq {schematic}} { return $r } }
     return [lindex $rows 0]
   }
   foreach r $rows {
@@ -4517,15 +4527,13 @@ proc hi_descend_pick_view {rows view type} {
   return {}
 }
 
-# Is $abspath the cell's DEFAULT schematic for instance $instname? (If so we use a
-# plain `xschem descend` and avoid the C view override -- keeps generators / web
-# symbols resolving the normal way.)
+# Is $abspath the instance's effective DEFAULT schematic? (If so we use a plain
+# `xschem descend` and avoid the C view override -- keeps generators / web symbols
+# resolving the normal way.) Resolved for THIS instance (the inst form of
+# get_sch_from_sym honors an instance-level schematic= attribute), not the bare symbol.
 proc hi_descend_is_default_sch {instname abspath} {
-  set sym {}
-  foreach {i s t} [xschem instance_list] { if {$i eq $instname} { set sym $s; break } }
-  if {$sym eq {}} { return 0 }
   set defsch {}
-  catch { set defsch [xschem get_sch_from_sym -1 $sym] }
+  catch { set defsch [xschem get_sch_from_sym $instname] }
   return [expr {$defsch ne {} && $defsch eq $abspath}]
 }
 
@@ -4544,9 +4552,13 @@ proc hi_descend_iters {instname} {
 # vtype: schematic|symbol; iter: 1-based bit (leftmost=1), 1 for a plain instance;
 # mode: readonly|edit (read-only browse is the default).
 proc hi_descend_finish {instname vtype vpath iter mode} {
+  set lvl [xschem get currsch]
   if {$vtype eq {symbol}} {
-    xschem descend_symbol          ;# no return value; the descend always happens for a valid symbol
-    set ok 1
+    # descend_symbol has no return value; detect success by the hierarchy level rising,
+    # so a no-op symbol descend does not falsely report success and then mislabel /
+    # clear the modified flag of the CURRENT (un-descended) schematic.
+    xschem descend_symbol
+    set ok [expr {[xschem get currsch] > $lvl}]
   } else {
     if {![hi_descend_is_default_sch $instname $vpath]} {
       set ::hi_descend_view_path $vpath        ;# one-shot, consumed by get_sch_from_sym
@@ -4601,9 +4613,11 @@ proc hi_descend_newwin {instname row dest iter mode} {
   } else {
     set res [xschem schematic_in_new_window force]   ;# a tab in tabbed mode, else a window
   }
+  # Check the open result BEFORE touching last_created_window: on failure it is a stale
+  # prior window, and copy_hierarchy into it would clobber that window's hierarchy path.
+  if {!$res} { ciw_echo "hi_descend: could not open a new window/tab" error; return 0 }
   set new_window_path [xschem get last_created_window]
   xschem copy_hierarchy $current_win_path $new_window_path
-  if {!$res} { ciw_echo "hi_descend: could not open a new window/tab" error; return 0 }
 
   xschem copy_hilights
   xschem new_schematic switch $new_window_path

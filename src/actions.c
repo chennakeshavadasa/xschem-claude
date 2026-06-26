@@ -154,21 +154,24 @@ const char *get_text_floater(int i)
 int set_modify(int mod)
 {
   int i, floaters = 0;
+  int ro_suppress;
 
   dbg(1, "set_modify(): %d, prev_set_modify=%d\n", mod, xctx->prev_set_modify);
 
   /* A read-only buffer cannot hold unsaved edits, so never flag it modified: the '*'
    * title marker and the save-on-close prompt would be bogus (issue 0035 -- e.g. a
    * read-only browse window whose child auto-normalizes on load, or an on-disk mtime
-   * change). Demote a "becoming modified" request to a plain title/floater refresh (-1);
-   * external on-disk changes are surfaced by the reload mechanism, not by faking
-   * modified. Genuine edits can't reach here while read-only (they are blocked upstream).
-   * A pre-existing modified flag from before the buffer was made read-only is left as-is. */
-  if((mod == 1 || mod == 3) && xctx->readonly) mod = -1;
+   * change). Suppress only the modified flag (and the autosave backup), while keeping the
+   * rest of a mod==1 call's side effects (Netlist/Simulate/Waves button refresh, floater
+   * cache flush, title refresh) so a read-only window's UI does not go stale. External
+   * on-disk changes are surfaced by the reload mechanism, not by faking modified. Genuine
+   * edits can't reach here while read-only (blocked upstream); a pre-existing modified
+   * flag from before the buffer was made read-only is left as-is. */
+  ro_suppress = ((mod == 1 || mod == 3) && xctx->readonly);
 
   /* set modify state */
   if(mod == 0 || mod == 1 || mod == 2 || mod == 3) {
-    xctx->modified = (mod & 1);
+    xctx->modified = ro_suppress ? 0 : (mod & 1);
   }
   /* Autosave: a genuine edit (mod 1/3 -> modified) immediately persists the buffer
    * to its cellName~.sch backup, so descend never has to save and edits survive a
@@ -177,7 +180,7 @@ int set_modify(int mod)
    * net-resolution never call set_modify(1), so they correctly do not write.
    * Removal of the ~ is handled by save_schematic on a real save, not here (clearing
    * modified on load must not delete a recovery backup). */
-  if(mod == 1 || mod == 3) write_backup();
+  if((mod == 1 || mod == 3) && !ro_suppress) write_backup();
   if(mod == 1 || (mod == 0  && xctx->prev_set_modify) || mod == -2) {
     /*                Do not configure buttons if displaying in preview window */
     if(has_x && (xctx->top_path[0] == '\0' || strstr(xctx->top_path, ".x") == xctx->top_path)) {

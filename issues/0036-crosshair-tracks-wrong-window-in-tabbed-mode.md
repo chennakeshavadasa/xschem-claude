@@ -17,6 +17,11 @@ Two complementary parts:
    window runs the FULL motion handler — crosshair AND hover-highlight — without needing
    a click. Set `mouse_follows_focus 0` to require a click/FocusIn instead.
 
+The part-(1) guard is itself gated on `mouse_follows_focus`: when the flag is OFF there
+is no compensating EnterNotify switch, so the guard falls back to the pre-0036 behavior
+(no drop in tabbed mode) rather than leaving a background tab with no crosshair — the
+opt-out is a clean revert to the old behavior (code-review follow-up).
+
 Together: the crosshair + hover track the pointer into whatever visible window it is
 over; part (1) prevents stray cross-window draws during the brief gap before the switch.
 Background tabs share `.drw` and still match the active tab's path, preserving the

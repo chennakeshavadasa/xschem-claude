@@ -71,6 +71,23 @@ check "HID3 symbol view" \
   "(ret=$r3 type=[xschem get netlist_type] name=[schname])"
 xschem go_back
 
+# --- SELGATE: a mixed selection (instance + wire) still descends into the instance
+reload
+xschem select instance x1 fast
+xschem select wire 0 fast
+set rsg [hi_descend target=current]
+check "SELGATE mixed selection (instance+wire) descends into the instance" \
+  [expr {$rsg == 1 && [has /schematic/leaf.sch]}] "(ret=$rsg name=[schname])"
+xschem go_back
+
+# --- TYPE: type=symbol with no view name picks the symbol view (not the schematic) --
+reload
+set rty [hi_descend inst=x1 type=symbol target=current]
+check "TYPE symbol (no view name) descends into the symbol view" \
+  [expr {$rty == 1 && [xschem get netlist_type] eq "symbol" && [has /symbol/leaf.sym]}] \
+  "(ret=$rty type=[xschem get netlist_type] name=[schname])"
+xschem go_back
+
 # --- HID5: bad view name -> no descend, no crash --------------------------------
 reload
 set c5 [xschem get currsch]

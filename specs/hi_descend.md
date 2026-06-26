@@ -231,3 +231,16 @@ too) and are filed separately:
 - **issue 0036** — with a detached window active in tabbed mode, the crosshair tracks
   the wrong window because the motion guard (`callback.c:3586`) is gated on
   `!tabbed_interface`.
+
+## 11. Known cleanups / minor caveats (from the high code review)
+
+- The named-alternate-view override travels through a one-shot Tcl global
+  (`hi_descend_view_path`) consumed in C `get_sch_from_sym()`. The set→`xschem descend`
+  is a single Tcl turn (no event loop between), and the var is cleared immediately +
+  consumed once, so the window for an unrelated `inst>=0` resolution to steal it is
+  practically nil — but a cleaner design would thread the view as an explicit descend
+  argument rather than a side channel.
+- `hi_descend_newwin` duplicates `open_sub_schematic`'s new-window/tab + raw-waveform +
+  `copy_hierarchy`/`copy_hilights`/`new_schematic switch` sequence. A future refactor
+  should parameterize `open_sub_schematic` (view/iteration/mode) and have both call it,
+  so the new-window descend logic lives in one place.
