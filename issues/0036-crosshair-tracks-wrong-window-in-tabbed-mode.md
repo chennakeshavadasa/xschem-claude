@@ -1,7 +1,19 @@
 # Issue 0036 — crosshair / mouse tracking follows the wrong window when a detached window is open in tabbed mode
 
 **Opened:** 2026-06-25
-**Status:** OPEN (pre-existing multi-window infra; surfaced via `hi_descend ... target=new_window`)
+**Status:** ✅ FIX APPLIED (2026-06-26) — needs interactive two-window confirmation.
+`handle_motion_notify()` (`src/callback.c:3586`) now drops motion whose `win_path`
+differs from `xctx->current_win_path` whenever a REAL (detached, own canvas) window is
+involved on either side (`win_is_real || cur_is_real`, computed exactly as in
+`handle_window_switching` via `get_tab_or_window_number`/`get_save_xctx`), in addition
+to the old non-tabbed case. Background tabs share `.drw` and still match the active
+tab's path, so the tab-switch-keeps-crosshair-alive case (issue 0010) is preserved.
+Single-window motion is provably unchanged (`win_path` always equals
+`current_win_path`); verified no crash on a two-window cross-motion scenario and the
+regression suites stay green. The crosshair-follows-the-pointer behaviour itself is a
+GUI visual and still wants an eyeball: open a detached window via
+`hi_descend target=new_window` and confirm the crosshair tracks the window under the
+pointer (and a tab switch still keeps it alive).
 **Affects:** `handle_motion_notify()` motion guard (`src/callback.c:3586`),
 `handle_window_switching()` (`src/callback.c` ~5905), the `<FocusIn>`/`<Enter>`/`<Motion>`
 bindings (`set_bindings`, `src/xschem.tcl`). Reachable from any

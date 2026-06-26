@@ -1,7 +1,19 @@
 # Issue 0035 — a freshly descended NEW window is spuriously flagged "modified" (asterisk + save prompt)
 
 **Opened:** 2026-06-25
-**Status:** OPEN (pre-existing multi-window infra; surfaced via `hi_descend ... target=new_window`)
+**Status:** ✅ RESOLVED (2026-06-26) for the read-only / default workflow — `callback()`'s
+disk-mtime check (`src/callback.c` ~5976) now skips `set_modify(1)` when
+`xctx->readonly` is set. A read-only (browse) view can never hold unsaved local edits,
+so flagging it modified was simply wrong; external on-disk changes for a read-only file
+are surfaced by the reload mechanism, not by faking "modified". Since `hi_descend`
+descends **read-only by default**, the descended browse window no longer shows the
+spurious `*` nor prompts to save on close. Verified by forcing the trigger condition
+(`time_last_modify != st_mtime` via `file mtime`): read-only → `modified` stays 0;
+editable (discriminator) → `modified` becomes 1 (the external-change detection is still
+active, not disabled). The `save()` twin at `actions.c:583` was already behind a
+read-only early-return. Edit-mode descends are unaffected: a genuine on-disk mtime
+change there still flags modified (intended) — and a *fresh* descend with no real change
+does not trip it (repro showed matching mtimes → modified 0).
 **Affects:** the disk-mtime modified check in `callback()`
 (`src/callback.c` ~5962), `set_modify()`/title rendering (`src/actions.c` ~218),
 new-context init (`create_new_window`/`create_new_tab`, `src/xinit.c` ~1699/1847),

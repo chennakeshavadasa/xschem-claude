@@ -3583,7 +3583,21 @@ static void handle_motion_notify(int event, KeySym key, int state, int rstate, i
     /* no Tk under true headless (--nogui, has_x==0): skip the `tk scaling` query so it
      * doesn't error; keep the default. */
     if(has_x) tk_scaling = atof(tcleval("tk scaling"));
-    if(!tabbed_interface && strcmp(win_path, xctx->current_win_path)) return;
+    /* Ignore motion that belongs to a DIFFERENT window's canvas, so the crosshair/hover
+     * is drawn in the window under the pointer, not in the focused one. In non-tabbed
+     * mode any path mismatch qualifies; in tabbed mode only when a REAL (detached, own
+     * canvas) window is involved on either side -- background tabs share .drw and
+     * legitimately match the active tab's current_win_path, and must still update so a
+     * tab switch (which regenerates no EnterNotify) keeps the crosshair alive (issue
+     * 0010). Without this, motion over a background window draws the crosshair in the
+     * focused (detached) window's context (issue 0036). */
+    if(strcmp(win_path, xctx->current_win_path)) {
+      int wn = get_tab_or_window_number(win_path);
+      Xschem_ctx **sx = get_save_xctx();
+      int win_is_real = (wn > 0 && sx[wn] && sx[wn]->top_path && sx[wn]->top_path[0]);
+      int cur_is_real = (xctx->top_path && xctx->top_path[0]);
+      if(!tabbed_interface || win_is_real || cur_is_real) return;
+    }
     /* A motion delivered to this canvas means the pointer is inside it. EnterNotify
      * is the only other setter, but with the shared tabbed canvas a tab switch
      * does not regenerate an Enter -- so without this the hover cue and crosshair
@@ -5959,8 +5973,13 @@ int callback(const char *win_path, int event, int mx, int my, KeySym key, int bu
 
 
   /* file exists and modification time on disk has changed since file loaded ... */
-  if(!xctx->modified && !stat( xctx->sch[xctx->currsch], &buf) && xctx->time_last_modify &&
-     xctx->time_last_modify != buf.st_mtime) {
+  /* ... but NOT for a read-only window: set_modify(1) means "has unsaved local edits",
+   * which a read-only (browse) view can never have, so flagging it modified is wrong --
+   * it spuriously shows the '*' marker and prompts to save on close (issue 0035, seen
+   * on a freshly descended read-only window on the first mouse event). External on-disk
+   * changes for a read-only file are surfaced by the reload mechanism, not set_modify. */
+  if(!xctx->readonly && !xctx->modified && !stat( xctx->sch[xctx->currsch], &buf) &&
+     xctx->time_last_modify && xctx->time_last_modify != buf.st_mtime) {
      set_modify(1);
   }
 
