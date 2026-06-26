@@ -227,6 +227,11 @@ proc load_input_bindings_file {path} {
   set n 0
   set header {}
   foreach line [split $data "\n"] {
+    # Tolerate Windows CRLF: the default 'auto' channel translation already maps
+    # \r\n -> \n on read, so this is a no-op for the normal path; it keeps the
+    # parser correct if the channel is ever opened in a non-auto translation mode
+    # where a trailing \r would otherwise corrupt the last field (e.g. 'idle\r').
+    set line [string trimright $line "\r"]
     if {$line eq {}} continue
     if {[string index $line 0] eq "#"} continue
     set fields [action_parse_csv_line $line]
