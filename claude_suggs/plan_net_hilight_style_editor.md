@@ -118,7 +118,7 @@ single instance, edits the one global table.
 - **Done-when:** every column round-trips widget→table→widget; no widget can emit a value `norm`
   would silently clamp (cross-check test).
 
-### Slice 5 — shared live preview canvas
+### Slice 5 — shared live preview canvas — STATUS: DONE (`bcb29fcf`)
 **Goal:** one preview that mirrors the focused row, animated.
 - Add a `canvas` at the top. `<FocusIn>` on any row's widgets sets `nhse_focus_row` and repaints the
   preview from that row's *current widget values* (so it tracks uncommitted edits too).
@@ -132,6 +132,15 @@ single instance, edits the one global table.
   (a few `after`/`update` cycles).
 - **Done-when:** focusing different rows repaints; animation runs and **stops on close** (no orphan
   `after`).
+- **Built:** pure-Tcl timing `nhse_dash_period` + `nhse_preview_state {row now_ms}`→`{visible offset}`
+  mirror hilight.c (blink 50% duty; march `P*frac(rate*now_s)`, rev-mirror, odd-period doubling).
+  `.nhse.preview` canvas pinned above the table; `nhse_focus_set` (bound `<FocusIn>` on every cell)
+  tracks `::nhse_focus_row` and repaints; `nhse_preview_paint` draws color/width/dash/angle (sheared
+  dash bands via `nhse_dash_bands`) from the focused row's UNCOMMITTED widget values; baseline wire
+  shows even on blink-OFF. Single self-rescheduling `nhse_preview_tick` (40ms), `nhse_preview_start`
+  on open, `nhse_preview_stop` cancels on `.nhse` `<Destroy>`. Display-only — never calls
+  `nhse_commit`. Test `tests/headless/test_nh_editor_preview.tcl` (20 headless math + 7 GUI checks;
+  G7 sabotage-verified to catch an orphaned `after`).
 
 ### Slice 6 — free-to-edit row + Add/Overwrite + Update + separator
 **Goal:** compose-and-commit a new/overwritten style.
