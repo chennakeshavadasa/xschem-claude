@@ -371,6 +371,20 @@ proc show_keybindings_help {} {
 # set_bindings; runs entirely in the UI layer (does not go through the C
 # keysym dispatcher).
 
+# Which palette result row should get the first-launch attention color, or -1 for none.
+# Purpose-built for the net highlight style editor (the spec is explicit this is a one-off):
+# returns its row's index in $rows while the user has not opened it yet (seen==0). Pure so it
+# is unit-testable without a listbox.
+proc palette_emphasis_index {rows seen} {
+  if {$seen} { return -1 }
+  set i 0
+  foreach row $rows {
+    if {[dict get $row id] eq {tools.net_hilight_style_editor}} { return $i }
+    incr i
+  }
+  return -1
+}
+
 # Rebuild the result list to match the current query. Guarded so that arrow/
 # Return key releases (which also fire <KeyRelease>) don't rebuild and reset
 # the selection while the user is navigating.
@@ -419,6 +433,15 @@ proc palette_refilter {} {
     $w.l selection clear 0 end
     $w.l selection set 0
     $w.l activate 0
+  }
+  # First-launch emphasis: tint the net-highlight style editor's row until the user has opened
+  # it once (net_hilight_editor_seen). A Tk listbox can't bold a single item, so use a per-item
+  # -foreground (overridable via ::palette_emphasis_color).
+  set seen [expr {[info exists ::net_hilight_editor_seen] ? $::net_hilight_editor_seen : 1}]
+  set ei [palette_emphasis_index $palette_rows $seen]
+  if {$ei >= 0} {
+    set acc [expr {[info exists ::palette_emphasis_color] ? $::palette_emphasis_color : {#1a6fff}}]
+    catch { $w.l itemconfigure $ei -foreground $acc }
   }
 }
 

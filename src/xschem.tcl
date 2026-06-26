@@ -706,6 +706,19 @@ proc load_net_hilight_conf {} {
   }
 }
 
+# Net highlight style editor (Tools > Net highlight styles..., the command palette, or this proc).
+# SLICE 2 STUB: records that the user has opened the editor -- which clears the palette's
+# first-launch emphasis (write_net_hilight_editor_seen persists the harmless breadcrumb) -- and
+# opens an empty, single-instance window. The table-editing UI is built in later slices.
+proc net_hilight_style_editor { {topwin {}} } {
+  write_net_hilight_editor_seen
+  set w .nhse
+  if {[winfo exists $w]} { raise $w ; focus $w ; return $w }
+  toplevel $w
+  wm title $w {Net highlight styles}
+  return $w
+}
+
 proc update_process_status {lb} {
   global execute has_x
   set exists 0
@@ -12452,6 +12465,7 @@ proc build_widgets { {topwin {} } } {
   $topwin.menubar.sym add checkbutton -label "Allow duplicated instance names (refdes)" \
       -selectcolor $selectcolor -variable disable_unique_names
   $topwin.menubar.tools add command -label "Library Manager" -command "xschem library_manager"
+  $topwin.menubar.tools add command -label "Net highlight styles..." -command {net_hilight_style_editor}
   $topwin.menubar.tools add separator
   $topwin.menubar.tools add command -label "Insert text" -command "xschem place_text" -accelerator T
   $topwin.menubar.tools add command -label "Insert wire" -command "xschem wire" -accelerator W
