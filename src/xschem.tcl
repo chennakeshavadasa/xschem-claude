@@ -10247,6 +10247,7 @@ proc build_widgets { {topwin {} } } {
   # menu widget $topwin.menubar.file is created above; submenus (Image export,
   # Open recent) are created by the generator. Other menus remain hand-written.
   build_menu_from_table $topwin file
+bind_menu_hover_help $topwin
   $topwin.menubar.option add checkbutton -label "Color Postscript/SVG" -variable color_ps \
      -selectcolor $selectcolor -command {
         if { $color_ps==1 } {xschem set color_ps 1} else { xschem set color_ps 0}

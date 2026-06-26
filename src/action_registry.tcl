@@ -330,24 +330,31 @@ proc palette_refilter {} {
   if {[info exists palette_last_query] && $palette_last_query eq $palette_query} return
   set palette_last_query $palette_query
   set q $palette_query
-  set scored {}
-  foreach row $action_table {
-    if {[dict get $row type] ne {command}} continue
-    # label-only rows (empty command) describe binding-table-backed actions; they
-    # carry cheat-sheet metadata, not something the palette could run -> skip.
-    if {[dict get $row command] eq {}} continue
-    if {$q eq {}} {
-      lappend scored [list 0 $row]
-      continue
+  if {$q eq {}} {
+    global recent_palette_ids
+    set recents {}
+    set others {}
+    foreach row $action_table {
+      if {[dict get $row type] ne {command}} continue
+      if {[dict get $row command] eq {}} continue
+      set r_idx [lsearch -exact $recent_palette_ids [dict get $row id]]
+      if {$r_idx >= 0} { lappend recents [list $r_idx $row] } else { lappend others [list 0 $row] }
     }
-    set sc [fuzzy_subseq_score $q [dict get $row label]]
-    foreach field {help id} {
-      set s [fuzzy_subseq_score $q [dict get $row $field]]
-      if {$s > $sc} { set sc $s }
+    set recents [lsort -integer -index 0 $recents]
+    set scored [concat $recents $others]
+  } else {
+    foreach row $action_table {
+      if {[dict get $row type] ne {command}} continue
+      if {[dict get $row command] eq {}} continue
+      set sc [fuzzy_subseq_score $q [dict get $row label]]
+      foreach field {help id} {
+        set s [fuzzy_subseq_score $q [dict get $row $field]]
+        if {$s > $sc} { set sc $s }
+      }
+      if {$sc >= 0} { lappend scored [list $sc $row] }
     }
-    if {$sc >= 0} { lappend scored [list $sc $row] }
+    set scored [lsort -decreasing -integer -index 0 $scored]
   }
-  if {$q ne {}} { set scored [lsort -decreasing -integer -index 0 $scored] }
   set palette_rows {}
   $w.l delete 0 end
   set n 0
@@ -400,7 +407,9 @@ proc palette_run {} {
     set idx [$w.l index active]
   }
   if {$idx eq {} || $idx < 0 || $idx >= [llength $palette_rows]} return
-  set cmd [dict get [lindex $palette_rows $idx] command]
+  set row [lindex $palette_rows $idx]
+  set cmd [dict get $row command]
+  record_recent_action [dict get $row id]
   destroy $w
   if {$cmd ne {}} {
     if {[catch {uplevel #0 $cmd} err]} { puts stderr "command palette: $err" }
@@ -445,3 +454,57 @@ proc command_palette { {parent {}} } {
   }
   focus $w.q
 }
+
+# ─── D3: Status bar hover help ──────────────────────────────────────────────
+# Shows the help text from actions.csv in the status bar when hovering a menu.
+
+proc handle_menu_hover {topwin menu_widget} {
+  global action_table
+  set idx [$menu_widget index active]
+  if {$idx eq "none" || $idx eq ""} {
+    catch { .statusbar.1 configure -text "" }
+    return
+  }
+  catch {
+    set lbl [$menu_widget entrycget $idx -label]
+    # Find matching action by label
+    foreach row $action_table {
+      if {[dict get $row label] eq $lbl} {
+        set help [dict get $row help]
+        if {$help ne ""} {
+          catch { .statusbar.1 configure -text $help }
+          return
+        }
+      }
+    }
+    catch { .statusbar.1 configure -text "" }
+  }
+}
+
+proc bind_menu_hover_help {topwin} {
+  # Bind <<MenuSelect>> on every menu in the menubar
+  foreach name [list file edit view option prop tools sym hilight simulation waves help] {
+    set m ${topwin}.menubar.${name}
+    if {[winfo exists $m]} {
+      bind $m <<MenuSelect>> [list handle_menu_hover $topwin $m]
+    }
+  }
+}
+# ─── End D3 ──────────────────────────────────────────────────────────────────
+
+# ─── D2: Recently used commands in palette ───────────────────────────────────
+
+# Initialize globals at file scope
+if {![info exists recent_palette_ids]} { set recent_palette_ids {} }
+
+proc record_recent_action {id} {
+  global recent_palette_ids
+  # Remove if already in list, then prepend
+  set recent_palette_ids [lsearch -all -inline -not $recent_palette_ids $id]
+  set recent_palette_ids [linsert $recent_palette_ids 0 $id]
+  # Cap at 8 most recent
+  if {[llength $recent_palette_ids] > 8} {
+    set recent_palette_ids [lrange $recent_palette_ids 0 7]
+  }
+}
+# ─── End D2 ──────────────────────────────────────────────────────────────────
