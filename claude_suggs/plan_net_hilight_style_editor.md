@@ -57,7 +57,7 @@ single instance, edits the one global table.
 
 ## Worklist (each slice = one RED-first code+tests commit, then `/code-review high`)
 
-### Slice 1 — persistence scaffolding + startup load (pure Tcl, headless-testable)
+### Slice 1 — persistence scaffolding + startup load (pure Tcl, headless-testable) — STATUS: DONE (`93e06c43`)
 **Goal:** the file I/O and globals, with no GUI yet.
 - Add global `net_hilight_editor_seen` (default 0) at the `net_hilight_style` init site (`:~13386`).
 - `proc write_net_hilight_editor_seen {}` → write `$USER_CONF_DIR/net_hilight_editor_seen` containing
@@ -72,7 +72,7 @@ single instance, edits the one global table.
   and `net_hilight_editor_seen==1`; `write_net_hilight_editor_seen` then re-source → flag 1.
 - **Done-when:** round-trip test green; startup sourcing wired (grep the init site).
 
-### Slice 2 — discoverability: palette row + Tools item + color emphasis + stub launcher
+### Slice 2 — discoverability: palette row + Tools item + color emphasis + stub launcher — STATUS: DONE (`51dd6992`)
 **Goal:** the action is discoverable and the first-launch emphasis works, before the dialog has content.
 - `src/actions.csv`: new row `tools.net_hilight_style_editor,command,tools,Net highlight styles…,,net_hilight_style_editor,,,"Edit net highlight colors, dashes, blink and marching-ants without editing rc files",`
   (help has a comma → quote it; verify field count parses — see the gh_issue_1 CSV lessons).
