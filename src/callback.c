@@ -5857,7 +5857,8 @@ static void handle_expose(int mx,int my,int button,int aux)
   XSetClipMask(display, xctx->gc[SELLAYER], None);
 }
 
-static int handle_window_switching(int event, int tabbed_interface, const char *win_path)
+static int handle_window_switching(int event, int tabbed_interface, const char *win_path,
+                                   char *restore_win)
 {
   int redraw_only = 0;
   int n = get_tab_or_window_number(win_path);
@@ -5894,26 +5895,30 @@ static int handle_window_switching(int event, int tabbed_interface, const char *
         dbg(1, "callback(): switching window context for copy : %s --> %s, semaphore=%d\n",
                 xctx->current_win_path, win_path, xctx->semaphore);
         redraw_only = 1;
-        my_strncpy(old_win_path, xctx->current_win_path, S(old_win_path));
+        my_strncpy(restore_win, xctx->current_win_path, PATH_MAX);
         new_schematic("switch_no_tcl_ctx", win_path, "", 1);
       /* This does a "temporary" switch just to redraw obscured window parts */
       } else if(event == Expose || xctx->semaphore >= 1 ) {
         dbg(1, "callback(): switching window context for redraw ONLY: %s --> %s\n",
                 xctx->current_win_path, win_path);
         redraw_only = 1;
-        my_strncpy(old_win_path, xctx->current_win_path, S(old_win_path));
+        my_strncpy(restore_win, xctx->current_win_path, PATH_MAX);
         new_schematic("switch_no_tcl_ctx", win_path, "", 1);
-      /* this is the regular context switch when window gets focused. With
-       * mouse_follows_focus (default on) a plain EnterNotify switches too, so the
-       * crosshair + hover-highlight track the pointer into whatever VISIBLE window it is
-       * over, without a click -- the drawing context follows the mouse across windows.
+      /* The regular context switch. mouse_follows_focus selects the SOURCE OF TRUTH for
+       * which window is active, and only one source drives it so the two can't fight:
+       *  - ON  (default): the POINTER. Switch on EnterNotify (pointer crossing) and sync
+       *    the Tk keyboard focus to it. A FocusIn is IGNORED here -- otherwise the WM
+       *    re-asserting focus on the previously-active window (e.g. during a Ctrl+wheel
+       *    zoom redraw) would bounce the context off the window the pointer is over.
+       *  - OFF: the WM FOCUS. Switch on FocusIn only (click to activate), as before.
        * Idle only (semaphore==0): never steal context mid-gesture. */
-      } else if((event == FocusIn ||
-                 (event == EnterNotify && tclgetboolvar("mouse_follows_focus"))) &&
+      } else if(((event == EnterNotify && tclgetboolvar("mouse_follows_focus")) ||
+                 (event == FocusIn && !tclgetboolvar("mouse_follows_focus"))) &&
                 xctx->semaphore == 0) {
         dbg(1, "callback(): switching window context: %s --> %s, semaphore=%d\n",
                 xctx->current_win_path, win_path, xctx->semaphore);
         new_schematic("switch", win_path, "", 1);
+        if(event == EnterNotify) tclvareval("focus ", win_path, NULL);
         dbg(1, "switching to %s\n", win_path);
       }
 
@@ -5931,6 +5936,11 @@ int callback(const char *win_path, int event, int mx, int my, KeySym key, int bu
 {
   char str[PATH_MAX + 100];
   int redraw_only;
+  /* Window to switch BACK to after a redraw-only (temporary) context borrow. Kept call-
+   * LOCAL (not the shared global old_win_path) so a nested cross-window redraw -- e.g. a
+   * zoom that exposes another window and reenters callback() -- cannot overwrite this
+   * call's restore target and strand the context on the wrong window (Ctrl+wheel bug). */
+  char restore_win[PATH_MAX];
   double c_snap;
   int tabbed_interface = tclgetboolvar("tabbed_interface");
   int enable_stretch = tclgetboolvar("enable_stretch");
@@ -5970,7 +5980,8 @@ int callback(const char *win_path, int event, int mx, int my, KeySym key, int bu
   #endif
 
   /* Schematic window context switch */
-  redraw_only = handle_window_switching(event, tabbed_interface, win_path);
+  restore_win[0] = '\0';
+  redraw_only = handle_window_switching(event, tabbed_interface, win_path, restore_win);
 
   /* artificially set semaphore to allow only redraw operations in switched schematic,
    * so we don't need  to switch tcl context which is costly performance-wise
@@ -6093,9 +6104,8 @@ int callback(const char *win_path, int event, int mx, int my, KeySym key, int bu
   if(xctx->semaphore > 0) xctx->semaphore--;
   if(redraw_only) {
     xctx->semaphore--; /* decrement articially incremented semaphore (see above) */
-    dbg(1, "callback(): semaphore >=2 restoring window context: %s <-- %s\n", old_win_path, win_path);
-    if(old_win_path[0]) new_schematic("switch_no_tcl_ctx", old_win_path, "", 1);
-    my_strncpy(old_win_path, xctx->current_win_path, S(old_win_path));
+    dbg(1, "callback(): semaphore >=2 restoring window context: %s <-- %s\n", restore_win, win_path);
+    if(restore_win[0]) new_schematic("switch_no_tcl_ctx", restore_win, "", 1);
   }
   return 0;
 }

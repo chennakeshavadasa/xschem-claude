@@ -22,6 +22,22 @@ is no compensating EnterNotify switch, so the guard falls back to the pre-0036 b
 (no drop in tabbed mode) rather than leaving a background tab with no crosshair — the
 opt-out is a clean revert to the old behavior (code-review follow-up).
 
+**Follow-up (2026-06-26) — Ctrl+wheel context bounce.** With a detached window open,
+the first Ctrl+wheel zoom landed in the right window but subsequent ones bounced the
+context to the other window (and once bounced, hover/crosshair stayed wrong until a
+click). Two root causes, both fixed:
+- **FocusIn fighting the pointer.** With `mouse_follows_focus` on, BOTH EnterNotify
+  (pointer) and FocusIn (WM focus) switched context. The wheel's zoom redraw makes the
+  WM re-assert FocusIn on the previously-active window, bouncing the context off the
+  window the pointer is over. Fix: the flag now selects a SINGLE source of truth — on =
+  pointer/EnterNotify only (FocusIn ignored) + sync Tk focus to the entered canvas;
+  off = FocusIn/click only. They can no longer fight. (Verified: 15/15 wheel zooms stay
+  in the hovered window, was ~1/5.)
+- **Reentrant `old_win_path` corruption.** The redraw-only restore target was the shared
+  global `old_win_path`; a nested cross-window Expose (from the zoom redraw) overwrote it,
+  so the outer callback restored to the wrong window. Fix: made the restore target a
+  call-LOCAL passed to `handle_window_switching`, so reentrancy can't corrupt it.
+
 Together: the crosshair + hover track the pointer into whatever visible window it is
 over; part (1) prevents stray cross-window draws during the brief gap before the switch.
 Background tabs share `.drw` and still match the active tab's path, preserving the
