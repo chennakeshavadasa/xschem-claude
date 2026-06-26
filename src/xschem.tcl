@@ -915,6 +915,10 @@ proc nhse_build_row {body i row} {
   pack $rf -side top -fill x -anchor w
   nhse_update_swatch $i
   nhse_row_enable_state $i
+  # field focus on any cell makes the shared preview (slice 5) mirror this row, live edits included
+  foreach cell [list $rf.c1.cb $rf.c2 $rf.c3.e $rf.c3.ex $rf.c4 $rf.c5 $rf.c6 $rf.c7] {
+    bind $cell <FocusIn> [list nhse_focus_set $i]
+  }
 }
 
 # (Re)render the table body from the live table as EDITING rows. Destroys prior rows + their bound
@@ -922,6 +926,7 @@ proc nhse_build_row {body i row} {
 proc nhse_rebuild {} {
   set body .nhse.tbl.sf.body
   if {![winfo exists $body]} return
+  set ::nhse_focus_row 0    ;# rows are recreated below -> the preview follows row 0 by default
   set ::nhse_building 1
   foreach c [winfo children $body] { destroy $c }
   array unset ::nhse_v
@@ -934,6 +939,156 @@ proc nhse_rebuild {} {
   set ::nhse_building 0
   update idletasks
   catch { .nhse.tbl.sf configure -scrollregion [.nhse.tbl.sf bbox all] }
+  catch { nhse_preview_paint }
+}
+
+# ---- slice 5: one shared animated preview canvas, mirroring the focused row ----------------
+# Pure-Tcl reimplementations of the C timing (hilight.c) so the preview animates exactly like a
+# real highlighted net, but on the focused row's UNCOMMITTED widget values (a row that may not be
+# in the compiled C table yet). Display-only: NONE of these ever call nhse_commit.
+
+# Dash repeat period in dash-length units: sum of the run lengths, DOUBLED for an odd run count
+# (XSetDashes flips on/off roles each pass, so an odd pattern only truly repeats after two passes).
+# 0 for an empty / all-zero pattern. Mirrors net_hilight_compute_dash_period in hilight.c.
+proc nhse_dash_period {dash} {
+  set sum 0 ; set n 0
+  foreach run $dash { if {[string is integer -strict $run]} { incr sum $run ; incr n } }
+  if {$sum <= 0} { return 0.0 }
+  return [expr {($n & 1) ? 2.0 * $sum : double($sum)}]
+}
+
+# Blink + marching state for a raw 8-col style row {index color width dash angle blink_ms anim
+# rate_persec} (anim = none|march_fwd|march_rev) at wall-clock time now_ms. Returns {visible offset}:
+#   visible -- blink gate: 1 always, unless blink_ms>0 and now is in the second half of the 50% duty
+#              period (mirrors net_hilight_style_on_now).
+#   offset  -- marching dash shift in dash-length (pixel) units, in [0,P); 0 unless the style has a
+#              direction, a dash to scroll, and a positive rate (mirrors net_hilight_march_offset).
+proc nhse_preview_state {fields now_ms} {
+  set dash     [lindex $fields 3]
+  set blink_ms [lindex $fields 5]
+  set anim     [lindex $fields 6]
+  set rate     [lindex $fields 7]
+  set visible 1
+  if {[string is double -strict $blink_ms] && $blink_ms > 0} {
+    set half [expr {$blink_ms / 2.0}]
+    set visible [expr {fmod(floor($now_ms / $half), 2.0) < 0.5 ? 1 : 0}]
+  }
+  set offset 0.0
+  set P [nhse_dash_period $dash]
+  if {($anim eq {march_fwd} || $anim eq {march_rev}) && $P > 0 \
+      && [string is double -strict $rate] && $rate > 0} {
+    set turns [expr {double($rate) * ($now_ms / 1000.0)}]
+    set frac  [expr {$turns - floor($turns)}]
+    if {$anim eq {march_rev} && $frac > 0.0} { set frac [expr {1.0 - $frac}] }
+    set offset [expr {$P * $frac}]
+  }
+  return [list $visible $offset]
+}
+
+# The focused row's CURRENT widget values as a raw 8-col row (friendly march label -> token; the
+# float angle coerced to int -- same boundary conversion as nhse_assemble_table, for one row).
+# Falls back to row 0; {} if the table is empty.
+proc nhse_focus_fields {} {
+  set i 0
+  if {[info exists ::nhse_focus_row]} { set i $::nhse_focus_row }
+  if {![info exists ::nhse_v($i,0)]} { set i 0 }
+  if {![info exists ::nhse_v($i,0)]} { return {} }
+  set angle $::nhse_v($i,4)
+  if {[string is double -strict $angle]} { set angle [expr {int(round($angle))}] }
+  return [list $i $::nhse_v($i,1) $::nhse_v($i,2) $::nhse_v($i,3) $angle \
+               $::nhse_v($i,5) [nhse_march_to_raw $::nhse_v($i,6)] $::nhse_v($i,7)]
+}
+
+# Walk a dash pattern across x in [xs,xe], returning the clipped "on" bands {a b}. The pattern starts
+# "on" and alternates; an odd run count is doubled so on/off roles flip on the second pass (2*sum
+# period, matching nhse_dash_period). A positive march offset scrolls the bands toward +x.
+proc nhse_dash_bands {dash offset xs xe} {
+  set runs {}
+  foreach r $dash { if {[string is integer -strict $r] && $r > 0} { lappend runs $r } }
+  if {![llength $runs]} { return {} }
+  if {[llength $runs] & 1} { set runs [concat $runs $runs] }
+  set P 0 ; foreach r $runs { incr P $r }
+  if {$P <= 0} { return {} }
+  set x [expr {$xs - $P - fmod($offset, $P)}]
+  set bands {} ; set guard 0
+  while {$x < $xe && $guard < 10000} {
+    set on 1
+    foreach r $runs {
+      set a $x ; set b [expr {$x + $r}]
+      if {$on && $b > $xs && $a < $xe} {
+        set ca [expr {$a < $xs ? $xs : $a}] ; set cb [expr {$b > $xe ? $xe : $b}]
+        if {$cb > $ca} { lappend bands [list $ca $cb] }
+      }
+      set x $b ; set on [expr {!$on}] ; incr guard
+    }
+  }
+  return $bands
+}
+
+# Repaint the preview from the focused row's current values. A faint baseline shows "a wire is here"
+# even when the blink gate is OFF; the styled highlight (color/width/dash/angle, marching offset) is
+# overlaid only while visible. Honours angle by shearing the dash bands like the cairo stripe path.
+proc nhse_preview_paint {} {
+  set c .nhse.preview
+  if {![winfo exists $c]} return
+  $c delete all
+  set row [nhse_focus_fields]
+  if {$row eq {}} return
+  set color [nhse_color_to_tk [lindex $row 1]]
+  if {$color eq {}} { set color gray70 }
+  set w [lindex $row 2] ; if {![string is integer -strict $w] || $w < 1} { set w 1 }
+  set dash [lindex $row 3]
+  set angle [lindex $row 4] ; if {![string is integer -strict $angle]} { set angle 0 }
+  lassign [nhse_preview_state $row [clock milliseconds]] visible offset
+
+  set cw [winfo width $c]  ; if {$cw <= 1} { set cw 220 }
+  set ch [winfo height $c] ; if {$ch <= 1} { set ch 40 }
+  set cy [expr {$ch / 2}]
+  set xs 10 ; set xe [expr {$cw - 10}]
+  if {$xe <= $xs} return
+  $c create line $xs $cy $xe $cy -fill gray40 -width 1                 ;# bare-wire baseline
+  if {!$visible} return                                               ;# blink OFF -> baseline only
+  if {![llength $dash]} {
+    $c create line $xs $cy $xe $cy -fill $color -width $w -capstyle round
+    return
+  }
+  set half [expr {$w / 2.0}]
+  set shear [expr {$angle > 0 ? $half * tan($angle * 3.141592653589793 / 180.0) : 0}]
+  foreach band [nhse_dash_bands $dash $offset $xs $xe] {
+    lassign $band a b
+    if {$shear == 0} {
+      $c create line $a $cy $b $cy -fill $color -width $w
+    } else {
+      $c create polygon \
+        [expr {$a + $shear}] [expr {$cy - $half}] [expr {$b + $shear}] [expr {$cy - $half}] \
+        [expr {$b - $shear}] [expr {$cy + $half}] [expr {$a - $shear}] [expr {$cy + $half}] \
+        -fill $color -outline $color
+    }
+  }
+}
+
+# A table cell gained field focus: the preview now mirrors this row (incl. its uncommitted edits).
+proc nhse_focus_set {i} { set ::nhse_focus_row $i ; catch { nhse_preview_paint } }
+
+# One self-rescheduling animation tick. Repaints (which re-samples clock milliseconds, so blink and
+# marching advance) then re-arms. Self-terminates if the canvas is gone (belt-and-suspenders; the
+# <Destroy> bind on .nhse is the primary cancel) so no orphan after loop survives the dialog.
+proc nhse_preview_tick {} {
+  if {![winfo exists .nhse.preview]} { catch { unset ::nhse_preview_after } ; return }
+  catch { nhse_preview_paint }
+  set ::nhse_preview_after [after 40 nhse_preview_tick]
+}
+
+proc nhse_preview_start {} {
+  if {[info exists ::nhse_preview_after]} { after cancel $::nhse_preview_after }
+  if {![winfo exists .nhse.preview]} return
+  set ::nhse_preview_after [after 40 nhse_preview_tick]
+}
+
+# Cancel the tick when the dialog toplevel (not a child widget) is destroyed.
+proc nhse_preview_stop {win} {
+  if {$win ne {.nhse}} return
+  if {[info exists ::nhse_preview_after]} { after cancel $::nhse_preview_after ; unset ::nhse_preview_after }
 }
 
 proc net_hilight_style_editor { {topwin {}} } {
@@ -944,6 +1099,12 @@ proc net_hilight_style_editor { {topwin {}} } {
   if {[winfo exists $w]} { raise $w ; focus $w ; nhse_rebuild ; return $w }
   toplevel $w
   wm title $w {Net highlight styles}
+
+  # one shared animated preview (slice 5), pinned ABOVE the table; mirrors the focused row, live.
+  set ::nhse_focus_row 0
+  canvas $w.preview -height 40 -highlightthickness 1 -background black
+  pack $w.preview -side top -fill x -padx 4 -pady {6 0}
+  bind $w.preview <Configure> { catch { nhse_preview_paint } }
 
   set t $w.tbl
   frame $t
@@ -969,6 +1130,9 @@ proc net_hilight_style_editor { {topwin {}} } {
   bind $t.sf.body <Configure> "$t.sf configure -scrollregion \[$t.sf bbox all\]"
 
   nhse_rebuild
+  # animate the preview; cancel the tick when the dialog is destroyed (no orphan after loop).
+  bind $w <Destroy> [list nhse_preview_stop %W]
+  nhse_preview_start
   # Stop the resizable dialog from being narrowed past the fixed-width columns (which has only a
   # vertical scrollbar): clamp the minimum width to the natural content width. Height stays free.
   update idletasks
