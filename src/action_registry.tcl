@@ -69,6 +69,11 @@ proc load_action_table {} {
   close $fp
   set header {}
   foreach line [split $data "\n"] {
+    # Tolerate Windows CRLF. The default channel translation is 'auto', which
+    # already maps \r\n -> \n on read, so this is a no-op for the normal path;
+    # the trimright keeps the parser correct even if the channel is ever opened
+    # in a non-auto (e.g. binary) translation mode where the \r would survive.
+    set line [string trimright $line "\r"]
     if {$line eq {}} continue
     if {[string index $line 0] eq "#"} continue
     set fields [action_parse_csv_line $line]
