@@ -103,7 +103,8 @@ proc ciw_create {} {
 ## Called from C (the log_action mirror) and from ciw_exec; safe no-op when
 ## the CIW does not exist.
 proc ciw_echo {line {tag {}}} {
-  if {![winfo exists .ciw.l.t]} return
+  # headless-safe: under --nogui there is no Tk, so `winfo` itself is undefined
+  if {![llength [info commands winfo]] || ![winfo exists .ciw.l.t]} return
   .ciw.l.t configure -state normal
   .ciw.l.t insert end $line\n $tag
   .ciw.l.t configure -state disabled

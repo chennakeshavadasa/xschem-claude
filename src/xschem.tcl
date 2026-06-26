@@ -4414,6 +4414,387 @@ proc open_sub_schematic {{inst {}} {inst_number 0}} {
   return 0
 }
 
+# ===========================================================================
+#  hi_descend  --  human-interface descend with view + destination choice
+#  specs/hi_descend.md
+#
+#  hi_descend ?view? ?key=value ...?
+#    - no args            -> open the modal chooser dialog (this is what 'E' runs)
+#    - view (positional)  -> the named view to descend into (schematic, symbol,
+#                            schematic_old, ...); default = the cell's default
+#                            schematic view
+#    - view=<name>        -> explicit form of the positional view
+#    - type=schematic|symbol  -> disambiguate the view kind
+#    - target=current|new_window|new_tab   -> destination (default current)
+#    - inst=<instname>    -> operate on a named instance instead of the selection
+#
+#  The default 'E' binding is installed in set_bindings; remap it from Tcl with
+#  hi_descend_set_key (e.g. `hi_descend_set_key d`) or a raw
+#  `bind <canvas> <Key-X> {hi_descend; break}`.
+# ===========================================================================
+
+# transient one-shot view override consumed by get_sch_from_sym() in C (see
+# specs/hi_descend.md). Keep it defined so tclgetvar() never errors.
+if {![info exists hi_descend_view_path]} { set hi_descend_view_path {} }
+# the key that runs the interactive hi_descend dialog (default E). A user rc may
+# pre-set it before this file is sourced.
+if {![info exists hi_descend_key]} { set hi_descend_key e }
+
+# Resolve which instance hi_descend should act on: an explicit name, else the
+# single selected instance. Returns the instance name, or {} (after a ciw_echo)
+# when there is nothing usable / the selection is ambiguous.
+proc hi_descend_target_inst {inst} {
+  if {$inst ne {}} {
+    set known {}
+    foreach {i s t} [xschem instance_list] { lappend known $i }
+    if {[lsearch -exact $known $inst] < 0} {
+      ciw_echo "hi_descend: no such instance: $inst" error
+      return {}
+    }
+    return $inst
+  }
+  set n [xschem get lastsel]
+  if {$n == 0} { ciw_echo "hi_descend: select one instance to descend into" error; return {} }
+  if {$n > 1}  { ciw_echo "hi_descend: select exactly one instance" error; return {} }
+  set sel [xschem selected_set]
+  if {[llength $sel] != 1} { ciw_echo "hi_descend: select one instance" error; return {} }
+  return [lindex $sel 0]
+}
+
+# Enumerate the views available for the cell behind instance $instname.
+# Returns a list of {viewname type abspath} rows, type in {schematic symbol}.
+# Covers both the OpenAccess lib/cell/view layout (alternates like schematic_old)
+# and the legacy flat layout (default schematic + symbol).
+proc hi_descend_enum_views {instname} {
+  set sym {}
+  foreach {i s t} [xschem instance_list] { if {$i eq $instname} { set sym $s; break } }
+  if {$sym eq {}} { return {} }
+
+  set rows {}                 ;# {name type abspath}
+  set seen {}                 ;# abspath dedup
+
+  # OpenAccess lib/cell/view layout: rel_sym_path yields "lib/cell" only for a
+  # cell physically organized as <lib>/<cell>/<view>/<cell>.<ext>.
+  set symabs [abs_sym_path $sym]
+  set rel [rel_sym_path $symabs]
+  if {[regexp {^([^/]+)/([^/]+)$} $rel -> lib cell]} {
+    foreach v [cell_views $lib $cell] {
+      set p [cellview_resolve $lib $cell $v]
+      if {$p eq {} || [lsearch -exact $seen $p] >= 0} { continue }
+      set ty [expr {[file extension $p] eq {.sch} ? "schematic" : "symbol"}]
+      lappend rows [list $v $ty $p]
+      lappend seen $p
+    }
+  }
+
+  # Always make sure the default schematic view and the symbol view are present
+  # (covers legacy flat cells, and OA cells whose default sits outside cell_views).
+  set defsch {}
+  catch { set defsch [xschem get_sch_from_sym -1 $sym] }
+  if {$defsch ne {} && ![xschem is_generator $defsch] && [lsearch -exact $seen $defsch] < 0} {
+    lappend rows [list schematic schematic $defsch]
+    lappend seen $defsch
+  }
+  if {[lsearch -exact $seen $symabs] < 0} {
+    lappend rows [list symbol symbol $symabs]
+    lappend seen $symabs
+  }
+  return $rows
+}
+
+# Pick the view row to descend into from the enumerated $rows, honoring an
+# explicit $view name and/or $type. Returns the {name type abspath} row, or {}.
+proc hi_descend_pick_view {rows view type} {
+  if {$view eq {}} {
+    # default: the view literally named "schematic", else the first schematic-type
+    foreach r $rows { if {[lindex $r 0] eq {schematic} && ($type eq {} || [lindex $r 1] eq $type)} { return $r } }
+    foreach r $rows { if {[lindex $r 1] eq {schematic} && ($type eq {} || [lindex $r 1] eq $type)} { return $r } }
+    return [lindex $rows 0]
+  }
+  foreach r $rows {
+    if {[lindex $r 0] eq $view && ($type eq {} || [lindex $r 1] eq $type)} { return $r }
+  }
+  return {}
+}
+
+# Is $abspath the cell's DEFAULT schematic for instance $instname? (If so we use a
+# plain `xschem descend` and avoid the C view override -- keeps generators / web
+# symbols resolving the normal way.)
+proc hi_descend_is_default_sch {instname abspath} {
+  set sym {}
+  foreach {i s t} [xschem instance_list] { if {$i eq $instname} { set sym $s; break } }
+  if {$sym eq {}} { return 0 }
+  set defsch {}
+  catch { set defsch [xschem get_sch_from_sym -1 $sym] }
+  return [expr {$defsch ne {} && $defsch eq $abspath}]
+}
+
+# Expanded iteration labels of a (possibly bussed) instance, e.g. x1[3:0] ->
+# {x1[3] x1[2] x1[1] x1[0]}. Returns {} when the instance is not bussed (mult 1).
+# Bus notation is whatever `xschem expandlabel` recognizes (the same expansion
+# descend_schematic uses), so the dialog and the descend always agree.
+proc hi_descend_iters {instname} {
+  set res [xschem expandlabel $instname]
+  set mult [lindex $res end]
+  if {![string is integer -strict $mult] || $mult <= 1} { return {} }
+  return [split [join [lrange $res 0 end-1]] ,]
+}
+
+# Do the actual descend into the chosen view + iteration, then apply the edit mode.
+# vtype: schematic|symbol; iter: 1-based bit (leftmost=1), 1 for a plain instance;
+# mode: readonly|edit (read-only browse is the default).
+proc hi_descend_finish {instname vtype vpath iter mode} {
+  if {$vtype eq {symbol}} {
+    xschem descend_symbol          ;# no return value; the descend always happens for a valid symbol
+    set ok 1
+  } else {
+    if {![hi_descend_is_default_sch $instname $vpath]} {
+      set ::hi_descend_view_path $vpath        ;# one-shot, consumed by get_sch_from_sym
+    }
+    set ok [xschem descend $iter]
+    set ::hi_descend_view_path {}              ;# belt-and-suspenders if descend bailed early
+  }
+  if {$ok} {
+    # browse-friendly default: the descended view opens read-only unless Edit was asked.
+    # Explicit per-descend control, independent of the global descend_readonly flag.
+    if {$mode eq {edit}} { xschem set readonly 0 } else { xschem set readonly 1 }
+  }
+  return $ok
+}
+
+# Descend in the CURRENT window into the chosen view.
+proc hi_descend_current {instname row iter mode} {
+  lassign $row vname vtype vpath
+  xschem unselect_all
+  if {[catch {xschem select instance $instname fast}]} {
+    ciw_echo "hi_descend: cannot select $instname" error; return 0
+  }
+  return [hi_descend_finish $instname $vtype $vpath $iter $mode]
+}
+
+# Descend into the chosen view in a NEW window ($dest==window) or NEW tab
+# ($dest==tab), keeping the hierarchy path and copying highlights -- generalizes
+# open_sub_schematic to honor the view + iteration + window/tab + edit mode.
+proc hi_descend_newwin {instname row dest iter mode} {
+  lassign $row vname vtype vpath
+  set current_win_path [xschem get current_win_path]
+
+  # preserve an annotated raw waveform across the new window (as open_sub_schematic does)
+  set rawfile {}
+  if {[xschem raw loaded] >= 0} {
+    set rawfile [xschem raw_query rawfile]
+    set sim_type [xschem raw_query sim_type]
+    set raw_level [xschem get raw_level]
+  }
+
+  if {$dest eq {window}} {
+    set res [xschem schematic_in_new_window force window]
+  } else {
+    set res [xschem schematic_in_new_window force]   ;# a tab in tabbed mode, else a window
+  }
+  set new_window_path [xschem get last_created_window]
+  xschem copy_hierarchy $current_win_path $new_window_path
+  if {!$res} { ciw_echo "hi_descend: could not open a new window/tab" error; return 0 }
+
+  xschem copy_hilights
+  xschem new_schematic switch $new_window_path
+  if {$rawfile ne {}} {
+    if {$sim_type eq {op}} { xschem annotate_op $rawfile } else { xschem raw_read $rawfile $sim_type }
+    xschem set raw_level $raw_level
+  }
+  xschem select instance $instname fast
+  return [hi_descend_finish $instname $vtype $vpath $iter $mode]
+}
+
+# Headless entry point shared by the dialog and by scripted calls.
+proc hi_descend_do {instname view type target iter mode} {
+  set rows [hi_descend_enum_views $instname]
+  if {![llength $rows]} { ciw_echo "hi_descend: no views found for $instname" error; return 0 }
+  set row [hi_descend_pick_view $rows $view $type]
+  if {$row eq {}} {
+    set names {}
+    foreach r $rows { lappend names [lindex $r 0] }
+    ciw_echo "hi_descend: no view \"$view\" for $instname (have: [join $names {, }])" error
+    return 0
+  }
+  if {$iter eq {} || ![string is integer -strict $iter]} { set iter 1 }
+  switch -- $target {
+    current     { return [hi_descend_current $instname $row $iter $mode] }
+    new_window  { return [hi_descend_newwin  $instname $row window $iter $mode] }
+    new_tab     { return [hi_descend_newwin  $instname $row tab $iter $mode] }
+    default     { ciw_echo "hi_descend: bad target \"$target\" (current|new_window|new_tab)" error; return 0 }
+  }
+}
+
+# Public command. No args -> dialog; else scripted.
+proc hi_descend {args} {
+  if {[xschem get semaphore] >= 2} return
+  if {![llength $args]} { return [hi_descend_dialog] }
+
+  set view {}; set type {}; set target current; set inst {}; set iter 1; set mode readonly
+  foreach a $args {
+    if {[regexp {^([a-zA-Z_]+)=(.*)$} $a -> k v]} {
+      switch -- $k {
+        view   { set view $v }
+        type   { set type $v }
+        target { set target $v }
+        inst   { set inst $v }
+        iter   { set iter $v }
+        mode   { set mode $v }
+        default { ciw_echo "hi_descend: unknown option $k" error; return 0 }
+      }
+    } elseif {$view eq {}} {
+      set view $a
+    } else {
+      ciw_echo "hi_descend: unexpected argument \"$a\"" error; return 0
+    }
+  }
+  if {$mode ni {readonly edit}} { ciw_echo "hi_descend: mode must be readonly|edit" error; return 0 }
+  set instname [hi_descend_target_inst $inst]
+  if {$instname eq {}} { return 0 }
+  return [hi_descend_do $instname $view $type $target $iter $mode]
+}
+
+# Keep the dialog's view-path label in sync with the selected view (a trace on
+# ::hi_descend_dlg_view). Greys a missing file.
+proc hi_descend_dlg_pathupd {args} {
+  if {![winfo exists .hi_descend.view.path]} return
+  foreach r $::hi_descend_dlg_rows {
+    if {[lindex $r 0] eq $::hi_descend_dlg_view} {
+      set p [lindex $r 2]
+      .hi_descend.view.path configure -text [expr {[file exists $p] ? $p : "$p  (missing)"}]
+      return
+    }
+  }
+  .hi_descend.view.path configure -text {}
+}
+
+# The modal chooser dialog (bare `hi_descend`). Drop-downs for the view (and, for a
+# bussed instance, the iteration), plus Mode (read-only browse default / edit) and
+# Destination radios; then runs the shared hi_descend_do path.
+proc hi_descend_dialog {} {
+  set instname [hi_descend_target_inst {}]
+  if {$instname eq {}} { return 0 }
+  set rows [hi_descend_enum_views $instname]
+  if {![llength $rows]} { ciw_echo "hi_descend: no views found for $instname" error; return 0 }
+
+  set w .hi_descend
+  catch {destroy $w}
+  toplevel $w -class Dialog
+  wm title $w "Descend into $instname"
+  wm transient $w [xschem get topwindow]
+
+  label $w.title -text "Instance $instname" -anchor w
+  pack $w.title -side top -fill x -padx 6 -pady {6 2}
+
+  # --- View drop-down ---
+  set ::hi_descend_dlg_rows $rows
+  set viewnames {}; set default_view {}
+  foreach r $rows {
+    lassign $r vname vtype vpath
+    lappend viewnames $vname
+    if {$default_view eq {} && $vname eq {schematic} && $vtype eq {schematic}} { set default_view $vname }
+  }
+  if {$default_view eq {}} { set default_view [lindex $viewnames 0] }
+  set ::hi_descend_dlg_view $default_view
+  frame $w.view
+  pack $w.view -side top -fill x -padx 6 -pady 3
+  label $w.view.l -text "View:" -width 10 -anchor w
+  eval tk_optionMenu $w.view.om ::hi_descend_dlg_view $viewnames
+  label $w.view.path -text {} -anchor w -fg gray40
+  pack $w.view.l $w.view.om -side left
+  pack $w.view.path -side left -padx 8
+  trace add variable ::hi_descend_dlg_view write hi_descend_dlg_pathupd
+  hi_descend_dlg_pathupd
+
+  # --- Iteration drop-down (only for a bussed instance, e.g. x1[3:0]) ---
+  set iters [hi_descend_iters $instname]
+  catch {unset ::hi_descend_dlg_iterlabel}
+  if {[llength $iters] > 1} {
+    set ::hi_descend_dlg_iterlabel [lindex $iters 0]
+    frame $w.iter
+    pack $w.iter -side top -fill x -padx 6 -pady 3
+    label $w.iter.l -text "Iteration:" -width 10 -anchor w
+    eval tk_optionMenu $w.iter.om ::hi_descend_dlg_iterlabel $iters
+    pack $w.iter.l $w.iter.om -side left
+  }
+
+  # --- Mode radios (read-only browse is the default) ---
+  labelframe $w.mode -text "Mode"
+  pack $w.mode -side top -fill x -padx 6 -pady 3
+  set ::hi_descend_dlg_mode readonly
+  radiobutton $w.mode.ro -text "Read only" -variable ::hi_descend_dlg_mode -value readonly
+  radiobutton $w.mode.ed -text "Edit"      -variable ::hi_descend_dlg_mode -value edit
+  pack $w.mode.ro $w.mode.ed -side left -padx 6 -pady 2
+
+  # --- Destination radios ---
+  labelframe $w.dest -text "Destination"
+  pack $w.dest -side top -fill x -padx 6 -pady 3
+  set ::hi_descend_dlg_target current
+  radiobutton $w.dest.cur -text "Current window" -variable ::hi_descend_dlg_target -value current
+  radiobutton $w.dest.win -text "New window"     -variable ::hi_descend_dlg_target -value new_window
+  radiobutton $w.dest.tab -text "New tab"        -variable ::hi_descend_dlg_target -value new_tab
+  pack $w.dest.cur $w.dest.win $w.dest.tab -side left -padx 6 -pady 2
+  if {!([info exists ::tabbed_interface] && $::tabbed_interface)} { $w.dest.tab configure -state disabled }
+
+  # --- buttons --- (wait on window destruction, the idiom of the other modal dialogs)
+  frame $w.b
+  pack $w.b -side top -fill x -padx 6 -pady {3 6}
+  set ::hi_descend_dlg_done 0
+  button $w.b.ok -text OK -width 8 -command "set ::hi_descend_dlg_done 1; destroy $w"
+  button $w.b.cancel -text Cancel -width 8 -command "set ::hi_descend_dlg_done -1; destroy $w"
+  pack $w.b.ok $w.b.cancel -side left -padx 4
+  bind $w <Return> "set ::hi_descend_dlg_done 1; destroy $w"
+  bind $w <Escape> "set ::hi_descend_dlg_done -1; destroy $w"
+
+  catch {grab $w}
+  tkwait window $w
+  catch {trace remove variable ::hi_descend_dlg_view write hi_descend_dlg_pathupd}
+  if {$::hi_descend_dlg_done != 1} { return 0 }
+
+  set iter 1
+  if {[info exists ::hi_descend_dlg_iterlabel] && [llength $iters] > 1} {
+    set idx [lsearch -exact $iters $::hi_descend_dlg_iterlabel]
+    if {$idx >= 0} { set iter [expr {$idx + 1}] }
+  }
+  return [hi_descend_do $instname $::hi_descend_dlg_view {} \
+            $::hi_descend_dlg_target $iter $::hi_descend_dlg_mode]
+}
+
+# The script bound to the hi_descend key. Only a PLAIN press opens the dialog; a press
+# with Ctrl / Alt / Super held is forwarded verbatim to the C input dispatcher exactly
+# as the generic <KeyPress> binding would (so Ctrl-E still pops up one level,
+# Alt/Super-E still does descend-in-new-window, etc.). A bare <Key-x> binding is greedy
+# -- with no more-specific <Control-Key-x> on the tag it swallows the modified presses
+# too -- so we discriminate on the modifier mask here. 0x4c = Control|Mod1(Alt)|Mod4
+# (Super); Lock/NumLock are ignored (a plain key + NumLock must still open the dialog).
+proc hi_descend_keybind_script {} {
+  return {if {[expr {%s & 0x4c}]} {xschem callback %W %T %x %y %N 0 0 %s} else {hi_descend}; break}
+}
+
+# Remap the interactive hi_descend key (default E) to $newkey on every open
+# canvas and for future windows. Pass a bare keysym, e.g. `hi_descend_set_key d`.
+# Restores the previous key to the normal C dispatch.
+proc hi_descend_set_key {newkey} {
+  global hi_descend_key
+  foreach win [hi_descend_canvases] {
+    if {$hi_descend_key ne {} && [winfo exists $win]} { bind $win <Key-$hi_descend_key> {} }
+    if {[winfo exists $win]} { bind $win <Key-$newkey> [hi_descend_keybind_script] }
+  }
+  set hi_descend_key $newkey
+}
+
+# All open drawing canvases (.drw plus detached/tab .x<n>.drw).
+proc hi_descend_canvases {} {
+  set res {}
+  if {[winfo exists .drw]} { lappend res .drw }
+  foreach win [xschem windows] {
+    set c [lindex $win 0]
+    if {$c ne {} && $c ne {.drw} && [winfo exists $c]} { lappend res $c }
+  }
+  return $res
+}
+
 
 proc is_xschem_file {f} {
   # puts "is_xschem_file $f"
@@ -11187,7 +11568,7 @@ proc _size_new_window_apply {win} {
 }
 
 proc set_bindings {topwin} {
-global env has_x OS autofocus_mainwindow
+global env has_x OS autofocus_mainwindow hi_descend_key
   ###
   ### Tk event handling
   ###
@@ -11251,6 +11632,12 @@ global env has_x OS autofocus_mainwindow
     # Command palette (UI layer): more-specific binding pre-empts the generic
     # <KeyPress> above, so this never reaches the C keysym dispatcher.
     bind $topwin <Control-Shift-Key-P> "command_palette $parent; break"
+    # hi_descend on the default key (E): a more-specific binding pre-empts the generic
+    # <KeyPress>, so plain E opens the human-interface descend dialog instead of the C
+    # descend. The body is window-agnostic (acts on the focused context) so it is correct
+    # on every canvas and survives clone_canvas_bindings. Remap via hi_descend_set_key.
+    # specs/hi_descend.md
+    if {$hi_descend_key ne {}} { bind $topwin <Key-$hi_descend_key> [hi_descend_keybind_script] }
     # (Phase-2 per-key Tcl accelerators were retired at 3d.5a/b: every key goes
     # through the generic <KeyPress> -> C input-binding table; remap via
     # `xschem bind` or keybindings.csv.)
@@ -11701,7 +12088,7 @@ proc build_widgets { {topwin {} } } {
      -selectcolor $selectcolor -background grey60 -value 1 -accelerator H -command {xschem set constr_mv 1}
   $topwin.menubar.edit add radiobutton -label "Constrained Vertical move" -variable constr_mv \
      -selectcolor $selectcolor -background grey60 -value 2 -accelerator V -command {xschem set constr_mv 2}
-  $topwin.menubar.edit add command -label "Push schematic" -command "xschem descend" -accelerator E
+  $topwin.menubar.edit add command -label "Push schematic" -command "hi_descend" -accelerator E
   $topwin.menubar.edit add command -label "Push symbol" -command "xschem descend_symbol" -accelerator I
   $topwin.menubar.edit add command -label "Pop" -command "xschem go_back" -accelerator Ctrl+E
   $topwin.menubar.edit add separator

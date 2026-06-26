@@ -1,6 +1,34 @@
 # `hi_descend` — human-interface descend with view + destination choice
 
-Status: **proposed** (branch `fluid-editing`). Not yet implemented.
+Status: **implemented** (branch `fluid-editing`).
+
+Implementation summary:
+- `src/xschem.tcl`: procs `hi_descend` / `hi_descend_dialog` / `hi_descend_do` /
+  `hi_descend_current` / `hi_descend_newwin` / `hi_descend_enum_views` /
+  `hi_descend_pick_view` / `hi_descend_target_inst` / `hi_descend_is_default_sch` /
+  `hi_descend_set_key` / `hi_descend_canvases`, plus globals `hi_descend_view_path`
+  and `hi_descend_key` (default `e`). The default `E` binding is installed in
+  `set_bindings` (`bind $topwin <Key-$hi_descend_key> {hi_descend; break}`, the same
+  more-specific-pre-empts-`<KeyPress>` pattern as the command palette), so it lands on
+  every window/tab and survives `clone_canvas_bindings`. Menu **Edit ▸ Push schematic**
+  now runs `hi_descend` (the toolbar `EditPushSch` button is deliberately left as a
+  quick no-dialog `xschem descend`).
+- **Remap from Tcl**: `hi_descend_set_key <keysym>` (rebinds all open canvases + future
+  windows, restoring the old key to the C dispatch), or a raw
+  `bind <canvas> <Key-X> {hi_descend; break}`.
+- **Named alternate view** is realized by a one-shot transient override consumed in C:
+  `get_sch_from_sym()` (`src/actions.c`) reads the Tcl global `hi_descend_view_path`,
+  uses it for that single resolution, and clears it — so choosing a non-default view
+  does **not** rewrite/dirty the instance (verified). The default schematic view and
+  the symbol view go through plain `xschem descend` / `descend_symbol` (no override),
+  preserving generator/web resolution.
+- Drive-by fix: `ciw_echo` (`src/ciw.tcl`) was made headless-safe (it called `winfo`,
+  which is undefined under `--nogui`); hi_descend's error paths were the first
+  `--nogui` callers to hit it.
+- Tests: `tests/headless/test_hi_descend.tcl` (+ fixture
+  `tests/headless/fixtures/hi_descend/hidlib`, a real lib/cell/view cell with a
+  `schematic_old` alternate). GUI paths (dialog, E binding, remap, new_tab) covered by
+  a scratchpad smoke; see §8.
 Related: `src/callback.c` (canvas key `e`), `src/xschem.tcl`
 (`open_sub_schematic`, menu/accelerator `E` at ~`11704`), `src/scheduler.c`
 (`xschem descend` ~`1039`, `descend_symbol` ~`1061`, `schematic_in_new_window`,
@@ -69,28 +97,30 @@ Arguments (Tcl-proc friendly, `key=value` to match the requested syntax):
 | `view=<name>` | Same as the positional form (explicit). | — |
 | `type=schematic\|symbol` | Disambiguate when a view name is ambiguous or omitted; selects `descend` vs `descend_symbol`. | inferred from the resolved view |
 | `target=current\|new_window\|new_tab` | Destination (§6). | `current` |
-| `inst=<instname>` | Operate on a named instance instead of the current selection (as `open_sub_schematic` already accepts). | current selection |
+| `mode=readonly\|edit` | Open the descended view read-only (browse) or editable. Applied with `xschem set readonly` after the descend, independent of the global `descend_readonly`. | `readonly` |
+| `iter=<N>` | For a **bussed** instance (`x1[3:0]`), which bit to descend into — 1-based, leftmost = 1 (same numbering as `xschem descend N`). Ignored for a plain instance. | `1` |
+| `inst=<instname>` | Operate on a named instance instead of the current selection (as `open_sub_schematic` already accepts). Note: a bus name contains `[` `]`, so brace the token in Tcl — `hi_descend {inst=x1[3:0]} iter=2`. | current selection |
 
-Unknown view names or an empty cell-view set → return a non-fatal error via
-`ciw_echo` (and Tcl error code for scripts), no dialog, no descend.
+Unknown view names, a bad `mode`, or an empty cell-view set → return a non-fatal error
+via `ciw_echo` (and Tcl error code for scripts), no dialog, no descend.
 
 ## 4. The dialog (bare invocation)
 
-A modal Tk dialog (Cadence-style, consistent with the slick property forms),
-titled for the target cell, with three groups:
+A modal Tk dialog (`tkwait window` idiom, like the other modal dialogs here),
+titled for the target instance, with:
 
-1. **View list.** All views discovered for the selected instance's cell (§5),
-   grouped/sectioned by type (Schematic views, Symbol views), the cell's default
-   schematic view pre-selected. Single-select. Double-clicking a view = choose +
-   OK. Each row shows the view name and its resolved file path (greyed if the file
-   is missing, reusing the `cellview` missing/override colour cues at
-   `xschem.tcl:2181`).
-2. **Destination radio group.** `Current window` (default) · `New window` ·
-   `New tab`. (When not in tabbed mode, `New tab` may be disabled or coerced to
-   `New window`; follow the existing `tabbed_interface` rules used by
-   `schematic_in_new_window`/`new_schematic`.)
-3. **OK / Cancel.** OK invokes the same code path as the headless form with the
-   chosen `view`/`type`/`target`; Cancel does nothing.
+1. **View drop-down** (`tk_optionMenu`). All views discovered for the cell (§5), the
+   default schematic view pre-selected; a path label beside it tracks the selection
+   and greys a missing file.
+2. **Iteration drop-down** (`tk_optionMenu`), shown **only for a bussed instance**
+   (`x1[3:0]`): the expanded per-bit labels (`x1[3]`, `x1[2]`, …) from
+   `xschem expandlabel`; the chosen index becomes `iter` (leftmost = 1).
+3. **Mode radio group.** `Read only` (default) · `Edit`.
+4. **Destination radio group.** `Current window` (default) · `New window` ·
+   `New tab` (disabled when not in tabbed mode, read from the mirrored global
+   `::tabbed_interface` — note `xschem get tabbed_interface` returns empty).
+5. **OK / Cancel.** OK runs the same `hi_descend_do` path with the chosen
+   `view`/`iter`/`mode`/`target`; Cancel does nothing.
 
 The dialog must be modeless-friendly w.r.t. the canvas the way the property forms
 are (don't block highlight animation timers); see issue 0009 lineage.
@@ -166,9 +196,17 @@ view (mirror the OA `schematic`/`symbol` layout; add a `schematic_old`):
 - **HID6** sabotage-verify HID2/HID4 (point the view to the default; confirm the
   assertion goes red) so the test actually discriminates view selection.
 
-**Not auto-tested (manual eyeball):** the dialog itself (Tk popup) — view list
-population, default pre-selection, destination radio, missing-file colour cues,
-double-click-to-OK.
+Status of the checks: **HID1, HID2, HID3, HID5, HID6** (and the override no-dirty /
+no-leak / default-view checks) are automated and green in
+`tests/headless/test_hi_descend.tcl`, with HID6 sabotage-verified (disabling the C
+override makes HID2 go red). **HID4** (new_window / new_tab) is covered by the GUI
+smoke (windows count increments + descends into the chosen view).
+
+**Not auto-tested (manual / GUI-smoke eyeball):** the dialog itself (Tk popup) — view
+list population, default pre-selection, destination radio, missing-file colour cues,
+double-click-to-OK — though the GUI smoke drives it programmatically (pick
+`schematic_old` → OK descends into it; Cancel does nothing) and verifies the default
+`E` binding and `hi_descend_set_key` remap.
 
 ## 9. Out of scope
 
@@ -177,3 +215,19 @@ double-click-to-OK.
 - Creating new views / editing the symbol's `schematic=` binding from this dialog
   (that is `cellview`'s job).
 - Per-hierarchy-level read-only memory (unchanged from `descend_readonly`).
+- Alternate **symbol** views: `type=symbol` descends the instance's bound symbol via
+  `descend_symbol` (one symbol view is the norm); a distinct named symbol view is not
+  separately selectable.
+
+## 10. Known multi-window infra bugs surfaced (not introduced) by the new-window path
+
+These pre-date hi_descend (they affect `open_sub_schematic`/Alt+E and manual detach
+too) and are filed separately:
+
+- **issue 0035** — a freshly descended new window is spuriously flagged "modified"
+  (asterisk + save prompt) on first mouse move. The read-only-by-default mode here
+  mitigates the user-visible save prompt for browse windows; the underlying spurious
+  `set_modify(1)` (disk-mtime check, `callback.c`) still needs fixing.
+- **issue 0036** — with a detached window active in tabbed mode, the crosshair tracks
+  the wrong window because the motion guard (`callback.c:3586`) is gated on
+  `!tabbed_interface`.

@@ -2388,10 +2388,22 @@ void get_sch_from_sym(char *filename, xSymbol *sym, int inst, int fallback)
   dbg(1, "get_sch_from_sym(): symbol %s inst=%d web_url=%d\n", sym->name, inst, web_url);
   /* resolve schematic=generator.tcl( @n ) where n=11 is defined in instance attrs */
   if(inst >=0 ) {
-
-    /* instance based symbol selection */
-    /* resolve schematic=generator.tcl( @n ) where n=11 is defined in instance attrs */
-    my_strdup2(_ALLOC_ID_, &str_tmp, get_tok_value(xctx->inst[inst].prop_ptr,"schematic", 6));
+    /* hi_descend: one-shot transient view override (specs/hi_descend.md). When the Tcl
+     * global hi_descend_view_path is non-empty, resolve THIS one descend into that exact
+     * view file instead of the instance/symbol 'schematic' attribute -- so choosing a
+     * non-default named view does not rewrite (and dirty) the instance. Single-use: it is
+     * cleared immediately, and descend_schematic resolves the target instance before any
+     * other get_sch_from_sym call, so netlisting / cellview / go_back callers are
+     * unaffected. */
+    const char *hi_ov = tclgetvar("hi_descend_view_path");
+    if(hi_ov && hi_ov[0]) {
+      my_strdup2(_ALLOC_ID_, &str_tmp, hi_ov);
+      Tcl_SetVar(interp, "hi_descend_view_path", "", TCL_GLOBAL_ONLY);
+    } else {
+      /* instance based symbol selection */
+      /* resolve schematic=generator.tcl( @n ) where n=11 is defined in instance attrs */
+      my_strdup2(_ALLOC_ID_, &str_tmp, get_tok_value(xctx->inst[inst].prop_ptr,"schematic", 6));
+    }
     if(str_tmp[0])
       my_strdup2(_ALLOC_ID_, &str_tmp, translate3(str_tmp, 1, xctx->inst[inst].prop_ptr, NULL, NULL, NULL));
     /*
