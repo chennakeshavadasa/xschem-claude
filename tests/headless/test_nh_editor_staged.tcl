@@ -51,7 +51,7 @@ set ::nhse_v(0,2) 3 ; nhse_ok
 check "ST6 OK updates the live session" [expr {$::upd > $before}] "(updates=$::upd)"
 check "ST7 OK closed the dialog" [expr {![winfo exists .nhse]}] {}
 
-rename xschem {} ; rename xschem_real xschem
+catch {rename xschem {}} ; rename xschem_real xschem
 
 catch {destroy .nhse}
 file delete -force $::USER_CONF_DIR
