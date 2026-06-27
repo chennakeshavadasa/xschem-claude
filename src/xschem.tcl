@@ -967,6 +967,7 @@ proc nhse_rebuild {} {
   }
   set ::nhse_building 0
   catch { nhse_refresh_over_range }
+  catch { nhse_ops_enable_state }
   update idletasks
   catch { .nhse.tbl.sf configure -scrollregion [.nhse.tbl.sf bbox all] }
   catch { nhse_preview_paint }
@@ -1097,8 +1098,9 @@ proc nhse_preview_paint {} {
   }
 }
 
-# A table cell gained field focus: the preview now mirrors this row (incl. its uncommitted edits).
-proc nhse_focus_set {i} { set ::nhse_focus_row $i ; catch { nhse_preview_paint } }
+# A table cell gained field focus: the preview now mirrors this row (incl. its uncommitted edits),
+# and the per-row ops (slice 7) enable/disable for this row.
+proc nhse_focus_set {i} { set ::nhse_focus_row $i ; catch { nhse_preview_paint } ; catch { nhse_ops_enable_state } }
 
 # One self-rescheduling animation tick. Repaints (which re-samples clock milliseconds, so blink and
 # marching advance) then re-arms. Self-terminates if the canvas is gone (belt-and-suspenders; the
@@ -1210,6 +1212,77 @@ THE 'NEW' ROW (top, above the separator)
   return $h
 }
 
+# ---- slice 7: per-row ops (Move Up/Down, Delete, Duplicate), gated on table-row focus ----------
+
+# The focused TABLE row index, or {} when focus is on the free row ("new") / nothing / out of range.
+proc nhse_op_target {} {
+  if {![info exists ::nhse_focus_row]} { return {} }
+  set i $::nhse_focus_row
+  if {![string is integer -strict $i]} { return {} }
+  if {$i < 0 || $i >= [llength [net_hilight_style_current]]} { return {} }
+  return $i
+}
+
+# Grey the ops unless a table row has field focus; also grey Move Up on the first row and Move Down
+# on the last (a boundary move is a no-op).
+proc nhse_ops_enable_state {} {
+  if {![winfo exists .nhse.ops]} return
+  set t [nhse_op_target]
+  set n [llength [net_hilight_style_current]]
+  set base [expr {$t ne {} ? {normal} : {disabled}}]
+  catch { .nhse.ops.up   configure -state [expr {$t ne {} && $t > 0       ? {normal} : {disabled}}] }
+  catch { .nhse.ops.down configure -state [expr {$t ne {} && $t < $n - 1  ? {normal} : {disabled}}] }
+  catch { .nhse.ops.del  configure -state $base }
+  catch { .nhse.ops.dup  configure -state $base }
+}
+
+# After an op, the table is rebuilt: move field focus to row $i (clamped) so the preview follows the
+# moved/duplicated row and repeated ops chain; refresh the ops enable-state.
+proc nhse_focus_after_op {i} {
+  set n [llength [net_hilight_style_current]]
+  if {$n <= 0} { set ::nhse_focus_row 0 ; catch { nhse_ops_enable_state } ; return }
+  if {$i < 0} { set i 0 } elseif {$i >= $n} { set i [expr {$n - 1}] }
+  set ::nhse_focus_row $i
+  set cell [nhse_row_frame $i].c1.cb
+  if {[winfo exists $cell]} { catch { focus $cell } }
+  catch { nhse_preview_paint }
+  catch { nhse_ops_enable_state }
+}
+
+# Swap the focused row with its neighbour ($dir = -1 up / +1 down); a boundary move is a no-op.
+proc nhse_op_move {dir} {
+  set i [nhse_op_target]
+  if {$i eq {}} return
+  set rows [net_hilight_style_current]
+  set j [expr {$i + $dir}]
+  if {$j < 0 || $j >= [llength $rows]} return
+  set ri [lindex $rows $i] ; set rj [lindex $rows $j]
+  set rows [lreplace $rows $i $i $rj]
+  set rows [lreplace $rows $j $j $ri]
+  net_hilight_style_replace $rows
+  nhse_rebuild
+  nhse_focus_after_op $j
+}
+
+proc nhse_op_delete {} {
+  set i [nhse_op_target]
+  if {$i eq {}} return
+  net_hilight_style_remove [list $i]
+  nhse_rebuild
+  nhse_focus_after_op $i   ;# clamps to the new last row if we removed it
+}
+
+# Insert a copy of the focused row immediately below it; replace renumbers everything after.
+proc nhse_op_duplicate {} {
+  set i [nhse_op_target]
+  if {$i eq {}} return
+  set rows [net_hilight_style_current]
+  set rows [linsert $rows [expr {$i + 1}] [lindex $rows $i]]
+  net_hilight_style_replace $rows
+  nhse_rebuild
+  nhse_focus_after_op [expr {$i + 1}]
+}
+
 proc net_hilight_style_editor { {topwin {}} } {
   global net_hilight_editor_seen
   # record "seen" once, on the first open only (no redundant rewrite every open)
@@ -1230,6 +1303,17 @@ proc net_hilight_style_editor { {topwin {}} } {
   canvas $w.preview -height 40 -highlightthickness 1 -background black
   pack $w.preview -side top -fill x -padx 4 -pady {6 0}
   bind $w.preview <Configure> { catch { nhse_preview_paint } }
+
+  # per-row ops bar (slice 7), pinned at the bottom; enabled only when a TABLE row has field focus.
+  # (slice 8's OK/Apply/Save/Cancel bar packs below this, via -before.)
+  frame $w.ops
+  pack $w.ops -side bottom -fill x -padx 4 -pady {2 4}
+  label  $w.ops.lbl  -text {Row ops:}
+  button $w.ops.up   -text {Move Up}   -command {nhse_op_move -1}
+  button $w.ops.down -text {Move Down} -command {nhse_op_move 1}
+  button $w.ops.del  -text {Delete}    -command nhse_op_delete
+  button $w.ops.dup  -text {Duplicate} -command nhse_op_duplicate
+  pack $w.ops.lbl $w.ops.up $w.ops.down $w.ops.del $w.ops.dup -side left -padx 2
 
   set t $w.tbl
   frame $t
