@@ -1,0 +1,41 @@
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+ok:   P1 all 12 libraries migrated with view dirs 
+ok:   P1b flat tree untouched 
+ok:   P2 library.defs registers all 12 (=> 12/12)
+ok:   P3 refs lib-qualified 
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+defining calc_rc procedure...
+############
+
+     if {[catch {expr 1200*$L/$W} res]} {set res -1}
+     if {[catch {expr 1e-3*$W*$L} cap]} {set cap -1}
+     return "Res=$res Cap=$cap"
+    
+############
+tier node=VDD
+tier node=VSS
+res value=|100|
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+tier node=VDD
+tier node=VSS
+res value=|100|
+tcleval(): evaluation of script: store_geom [xschem get topwindow] [xschem get current_name] failed
+         : unmatched open brace in list
+tcleval(): evaluation of script: store_geom [xschem get topwindow] [xschem get current_name] failed
+         : list element in braces followed by "}" instead of space
+tcleval(): evaluation of script: store_geom [xschem get topwindow] [xschem get current_name] failed
+         : unmatched open brace in list
+tcleval(): evaluation of script: store_geom [xschem get topwindow] [xschem get current_name] failed
+         : unmatched open brace in list
+tcleval(): evaluation of script: store_geom [xschem get topwindow] [xschem get current_name] failed
+         : list element in braces followed by "0x800+0+201}" instead of space
+FAIL: P4 netlist equivalence over all migrated schematics (compared=155, diffs=4)
+    DIFF xTAG/xTAG-consio (flat=3 mig=3)
+    DIFF xTAG/xTAG-psu (flat=11 mig=11)
+    DIFF xTAG/xTAG-ucont (flat=32 mig=32)
+    DIFF xTAG/xTAG (flat=67 mig=67)
+RESULT: 1 FAILED
+

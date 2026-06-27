@@ -160,4 +160,9 @@ check "SELNW selected-instance new window does a REAL descend" \
   "(ret=$rnw wins=$w0->[llength [xschem windows]] currsch=[xschem get currsch] path=[xschem get sch_path] name=[schname])"
 catch {xschem new_schematic destroy_all force}
 
-puts "hi_descend headless: [expr {$fails ? "$fails FAILURE(S)" : {all checks passed}}]"
+if {$fails == 0} {
+  puts "RESULT: ALL PASS"
+} else {
+  puts "RESULT: $fails FAILED"
+}
+exit [expr {$fails == 0 ? 0 : 1}]

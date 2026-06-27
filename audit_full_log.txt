@@ -1,0 +1,256 @@
+PASS | test_accelerators
+PASS | test_action_log_dispatch
+PASS | test_action_log_libmgr
+PASS | test_autosave_hook
+PASS | test_backup_file
+PASS | test_backup_hidden
+PASS | test_backup_recovery
+PASS | test_binding_precedence
+PASS | test_bindings_file
+PASS | test_cadence_drag
+PASS | test_cellview_resolve
+PASS | test_ciw_autocomplete
+PASS | test_ciw_puts_capture
+PASS | test_ciw
+PASS | test_clone_canvas_bindings
+PASS | test_close_window_restores_prev_tab
+PASS | test_context_menu_descend_edit
+PASS | test_context_menu_log
+PASS | test_create_instance
+PASS | test_descend_efficiency
+PASS | test_descend_fidelity
+PASS | test_descend_preserve
+PASS | test_descend_readonly
+PASS | test_descend_symbol
+PASS | test_descend_views
+PASS | test_geometry_sanity
+PASS | test_gesture_bindings
+PASS | test_gesture_end_log
+PASS | test_graph_context
+FAIL | test_hi_descend
+PASS | test_hier_close_prompt
+PASS | test_hier_walkup
+PASS | test_hover_highlight
+PASS | test_hover_selection_repair
+PASS | test_keybindings_help
+PASS | test_keybind_snap_grid
+PASS | test_key_graph_context
+PASS | test_launch_context
+PASS | test_lib_browse
+PASS | test_lib_manager_bold
+PASS | test_lib_manager_checkin
+PASS | test_lib_manager_ctx
+FAIL | test_lib_manager_gui
+PASS | test_lib_manager_history
+PASS | test_lib_manager_launch
+PASS | test_lib_manager_locate
+PASS | test_lib_manager_maintain
+PASS | test_libmgr_refresh_reentrancy
+PASS | test_lib_new_discovered_defs
+PASS | test_library_defs
+PASS | test_library_git_history
+PASS | test_library_git_report
+PASS | test_library_git
+PASS | test_library_ops
+PASS | test_lib_roundtrip
+FAIL | test_lib_sweep
+PASS | test_make_symbol_dialog
+PASS | test_make_symbol_view
+PASS | test_migrate_engine
+PASS | test_modify_symbol_pins
+PASS | test_mouse_bindings
+FAIL | test_multi_window
+PASS | test_nh_anim_rearm
+PASS | test_nh_editor_align
+PASS | test_nh_editor_buttons
+PASS | test_nh_editor_cells
+PASS | test_nh_editor_discover
+PASS | test_nh_editor_flush_scroll
+PASS | test_nh_editor_free
+PASS | test_nh_editor_load
+PASS | test_nh_editor_persist
+PASS | test_nh_editor_preview
+PASS | test_nh_editor_rowops
+FAIL | test_nh_editor_staged
+PASS | test_nh_editor_table
+FAIL | test_nogui
+PASS | test_nolog
+PASS | test_palette
+FAIL | test_phase3_mints
+PASS | test_pristine_untitled_basename
+PASS | test_readonly
+PASS | test_remap
+PASS | test_symbol_view_resolve
+PASS | test_undo_selection
+PASS | test_untitled_reuse
+PASS | test_window_switch_bogus_enter
+PASS | test_wire_complete_with_selection
+PASS | test_wire_vertex_grab
+
+========================================
+SUMMARY: 81 PASS  7 FAIL  0 CRASH
+Total: 88
+========================================
+
+=== FAIL/CRASH/TIMEOUT FULL OUTPUTS ===
+
+############## FAIL: test_hi_descend ##############
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+ok:   ENUM lists default+alternate+symbol views (views=schematic schematic_old symbol)
+ok:   HID1 default schematic, current window (ret=1 name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/schematic/leaf.sch)
+ok:   HID2 named alternate view (schematic_old) (ret=1 name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/schematic_old/leaf.sch)
+ok:   HID2 alternate is NOT the default view (name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/schematic_old/leaf.sch)
+ok:   HID2 parent not dirtied by view override (modified=0 name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/top/schematic/top.sch)
+ok:   HID3 symbol view (ret=1 type=symbol name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/symbol/leaf.sym)
+ok:   SELGATE mixed selection (instance+wire) descends into the instance (ret=1 name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/schematic/leaf.sch)
+ok:   TYPE symbol (no view name) descends into the symbol view (ret=1 type=symbol name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/symbol/leaf.sym)
+ok:   HID5 bad view name rejected, no descend (ret=0 currsch=0)
+ok:   DEFAULT omitted view -> default schematic (name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/schematic/leaf.sch)
+ok:   MODE default is read-only (ro=1)
+ok:   MODE edit makes the descended view editable (ro=0)
+ok:   MODE read-only view cannot be flagged modified (0035) (modified=0)
+ok:   ITER bus expands to per-bit list (iters={xb[1]} {xb[0]})
+ok:   ITER plain instance is not bussed (x1)
+ok:   ITER iter=1 descends leftmost bit (xb[1]) (path=.xb[1].)
+ok:   ITER iter=2 descends next bit (xb[0]) (path=.xb[0].)
+ok:   NOLEAK plain descend after override uses default (name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/schematic/leaf.sch)
+ok:   SELNW selected-instance new window does a REAL descend (ret=1 wins=1->2 currsch=1 path=.x1. name=/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/tests/headless/fixtures/hi_descend/hidlib/leaf/schematic/leaf.sch)
+hi_descend headless: all checks passed
+
+############## FAIL: test_lib_manager_gui ##############
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+ok:   GUI1 three panes exist 
+ok:   GUI2 library pane populated (=> 15 libs)
+ok:   GUI3 cell+view panes start empty 
+ok:   GUI4 selecting a library fills cells (=> 125 cells)
+ok:   GUI5 switching library replaces cells (=> 69 cells)
+ok:   GUI6 selecting a cell fills views (=> schematic symbol)
+ok:   GUI7 current_cell resolves selection (=> examples cmos_inv)
+FAIL: GUI8 new-window mode adds a tab per open (=> 0 0 1)
+ok:   GUI9 current-window mode reuses the tab (=> 1 -> 1)
+ok:   GUI10 symbol view opens for editing (=> /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/xschem_libraries_oa/devices/res/symbol/res.sym)
+RESULT: 1 FAILED
+
+############## FAIL: test_lib_sweep ##############
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+ok:   P1 all 12 libraries migrated with view dirs 
+ok:   P1b flat tree untouched 
+ok:   P2 library.defs registers all 12 (=> 12/12)
+ok:   P3 refs lib-qualified 
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+defining calc_rc procedure...
+############
+
+     if {[catch {expr 1200*$L/$W} res]} {set res -1}
+     if {[catch {expr 1e-3*$W*$L} cap]} {set cap -1}
+     return "Res=$res Cap=$cap"
+    
+############
+tier node=VDD
+tier node=VSS
+res value=|100|
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+get_surface_from_b64data(): failure creating image surface from "image_data" attribute
+tier node=VDD
+tier node=VSS
+res value=|100|
+FAIL: P4 netlist equivalence over all migrated schematics (compared=155, diffs=4)
+    DIFF xTAG/xTAG-consio (flat=3 mig=3)
+    DIFF xTAG/xTAG-psu (flat=11 mig=11)
+    DIFF xTAG/xTAG-ucont (flat=32 mig=32)
+    DIFF xTAG/xTAG (flat=67 mig=67)
+RESULT: 1 FAILED
+
+############## FAIL: test_multi_window ##############
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+ok:   MW1 xschem windows lists base context in group . (=> {{.drw . . 23068945 /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/xschem_library/examples/nand2.sch}})
+ok:   MW2 create_window yields a real toplevel (not a tab) in tabbed mode (=> exists=1 top=.x1)
+ok:   MW3 forced window has a distinct X window id (main=0x1600111 new=0x160028f)
+ok:   MW4a load_new_window -window opens in its own window (group != .) (=> {.x2.drw .x2 .x2 23069692 /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/xschem_library/examples/flop.sch})
+ok:   MW4b libmgr New-window checkbox routes through 'load_new_window -window' 
+tclvareval(): error executing toplevel .x1 -bg {} -width 400 -height 400 -takefocus 0: window name "x1" already exists in parent
+tclvareval(): error executing build_widgets .x1: window name "menubar" already exists in parent
+ok:   MW1b grouping: forced window is its own group, tabs are group . (groups=. .x1 .)
+tclvareval(): error executing toplevel .x1 -bg {} -width 400 -height 400 -takefocus 0: window name "x1" already exists in parent
+tclvareval(): error executing build_widgets .x1: window name "menubar" already exists in parent
+ok:   MW5 detach moves the tab to its own group (.xN) with a new X id (before=.x1.drw . . 23068945 /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/xschem_library/examples/dlatch.sch after=.x1.drw .x1 .x1 23069327 /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/xschem_library/examples/dlatch.sch btn=.tabs.x1 exists=0)
+ok:   MW6 both windows draw after detach (GCs recreated, no BadDrawable) ()
+ok:   MW5b tab context menu routes through 'new_schematic detach' 
+tclvareval(): error executing toplevel .x1 -bg {} -width 400 -height 400 -takefocus 0: window name "x1" already exists in parent
+tclvareval(): error executing build_widgets .x1: window name "menubar" already exists in parent
+ok:   MWc closing a window destroys its toplevel (no zombie) (had=1 after .x1=0 .x1.drw=0)
+new_schematic("switch_tab"...): no tab to switch to found: .x2.drw
+ok:   MWk user .drw bindings clone onto new windows (=> set ::marker DESCEND; break)
+tclvareval(): error executing toplevel .x1 -bg {} -width 400 -height 400 -takefocus 0: window name "x1" already exists in parent
+tclvareval(): error executing build_widgets .x1: window name "menubar" already exists in parent
+ok:   MWf new window focuses its canvas (keys reach it) (focus=.x1.drw)
+ok:   MWw CTRL-W on the canvas reaches the handler and closes the window (.x1 exists=0)
+new_schematic("switch_tab"...): no tab to switch to found: .x2.drw
+tclvareval(): error executing toplevel .x2 -bg {} -width 400 -height 400 -takefocus 0: window name "x2" already exists in parent
+tclvareval(): error executing build_widgets .x2: window name "menubar" already exists in parent
+FAIL: MWs focus follows the window the event came from (no cross-window input) (.x1->.x2.drw .drw->.x2.drw .x2->.x2.drw)
+tclvareval(): error executing toplevel .x1 -bg {} -width 400 -height 400 -takefocus 0: window name "x1" already exists in parent
+tclvareval(): error executing build_widgets .x1: window name "menubar" already exists in parent
+ok:   MWn schematic_in_new_window 'window' opens a real window, plain opens a tab (plain group=.  window entry={.x1.drw .x1 .x1 23071415 /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/xschem_library/examples/nand2.sch})
+pend: MW7 attach moves a detached context back into a target group (not yet implemented)
+pend: MW8 mode lock relaxed: Tabbed-interface menu not disabled with >=2 contexts (not yet implemented)
+RESULT: 1 FAILED (14 passed)
+
+############## FAIL: test_nh_editor_staged ##############
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+ok:   ST1 field edit does NOT update the live session (updates=0)
+ok:   ST2 field edit IS staged in the table (=> red)
+ok:   ST3 row op does NOT update the live session (updates=0)
+ok:   ST4 free-row Add does NOT update the live session (updates=0)
+FAIL: ST5 Apply updates the live session (updates=0)
+FAIL: ST6 OK updates the live session (updates=0)
+ok:   ST7 OK closed the dialog 
+RESULT: 2 FAILED
+write_data: couldn't open "/home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/_nhestg_93069/geometry": no such file or directory
+
+############## FAIL: test_nogui ##############
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+info - DISPLAY=:0 (set: --nogui must still open no window)
+FAIL - Tk not loaded (winfo absent) -> no window possible
+FAIL - Tk not loaded (wm absent)
+FAIL - Tk not loaded (tk absent)
+FAIL - has_x Tcl var unset (C took headless path)
+info - no test schematic provided; skipping load/netlist
+NOGUI_TEST_FAIL
+
+############## FAIL: test_phase3_mints ##############
+Using run time directory XSCHEM_SHAREDIR = /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src
+Sourcing /home/nithin/AI_Projects/Open_EDA_Tools/xschem-fluid/src/xschemrc init file
+ok:   action log open
+ok:   scroll up/down/left/right cancel out
+ok:   scroll up moves the origin
+ok:   pan dirs cancel out
+ok:   pan dx dy shifts origin exactly
+ok:   pan -dx -dy restores origin
+ok:   scroll rejects a bad direction
+ok:   pan rejects a bad direction
+ok:   snap half halves cadsnap
+ok:   snap double restores cadsnap
+ok:   snap rejects a bad arg
+ok:   toggle_stretch flips enable_stretch
+ok:   toggle_show_netlist flips netlist_show
+ok:   toggle_orthogonal_wiring flips the var
+ok:   toggle_draw_pixmap runs
+ok:   Up arrow logs 'xschem scroll up'
+ok:   Shift+wheel logs 'xschem pan left'
+FAIL: key g logs 'xschem snap half'
+FAIL: key G logs 'xschem snap double'
+ok:   key y logs 'xschem toggle_stretch'
+ok:   key A logs 'xschem toggle_show_netlist'
+ok:   key L logs 'xschem toggle_orthogonal_wiring'
+ok:   key $ logs 'xschem toggle_draw_pixmap'
+ok:   replayed scroll line applies the same delta
+ok:   log file is source-able
+RESULT: 2 FAILED

@@ -13,7 +13,7 @@ proc check {name ok detail} {
 }
 proc slurp {f} { set fp [open $f r]; set d [read $fp]; close $fp; return $d }
 
-set repo [file normalize [file join [pwd] ..]]
+set repo [pwd]
 set tool [file join $repo tools/migrate/xschem_libmigrate.py]
 
 # --- flat source fixture: real resistor symbol + a schematic referencing it ---

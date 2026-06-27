@@ -93,6 +93,10 @@ check "toggle_draw_pixmap runs" 1
 proc fire_key {keysym state} { xschem callback .drw 2 200 200 $keysym 0 0 $state; update idletasks }
 proc fire_wheel {button state} { xschem callback .drw 4 200 200 0 $button 0 $state; update idletasks }
 
+# Bind g and G for this test, as they are explicitly shipped unbound now
+xschem bind key 103 0 canvas view.snap_half
+xschem bind key 71 0 canvas view.snap_double
+
 foreach {desc cmd fire} {
   "Up arrow"    {xschem scroll up}              {fire_key 65362 0}
   "Shift+wheel" {xschem pan left}               {fire_wheel 4 1}

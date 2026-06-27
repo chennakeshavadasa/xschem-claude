@@ -12071,16 +12071,18 @@ proc store_geom {win filename} {
     if { [file exists $geom_file]} {
       set fd [ open $geom_file]
       while {[gets $fd line] >= 0} {
-        if { [llength $line] == 2} {
-          lassign $line f g
-          set d {0}
-        } elseif {[llength $line] == 3} {
-          lassign $line f g d
-        } else {
-          continue
-        }
-        set f [rel_sym_path $f]
-        set geom_array($f) [list $g $d]
+        if {[catch {
+          if { [llength $line] == 2} {
+            lassign $line f g
+            set d {0}
+          } elseif {[llength $line] == 3} {
+            lassign $line f g d
+          } else {
+            continue
+          }
+          set f [rel_sym_path $f]
+          set geom_array($f) [list $g $d]
+        }]} continue
       }
       close $fd
     }
@@ -12088,32 +12090,19 @@ proc store_geom {win filename} {
 
     set geom_data {}
     foreach i [array names geom_array] {
-      append geom_data "{" $i  "}" { } $geom_array($i) \n
+      append geom_data [list $i {*}$geom_array($i)] \n
     }
-    # puts $geom_data
-    # puts [llength $geom_data]
-    # puts ---
+    
     set geom_data2 [lsort -stride 3 -decreasing -index 2 -integer $geom_data]
-    # puts $geom_data2
-    # puts [llength $geom_data2]
-    # puts ---
+    
     set geom_data3 {}
     set j 0
-    foreach i $geom_data2 {
-      if {$geom_data3 ne {}} {
-        if {$j % 3 == 0} {
-          append geom_data3 \n
-        } else {
-          append geom_data3 { }
-        }
-      }
-      append geom_data3 "{" $i  "}"
+    foreach {f g d} $geom_data2 {
+      if {$j >= 100} break
+      append geom_data3 [list $f $g $d] \n
       incr j
     }
-
-    # puts $geom_data3
-    # puts [llength $geom_data3]
-    # puts ===
+    
     set geom_data $geom_data3
     write_data $geom_data\n $geom_file
   }
@@ -13642,7 +13631,7 @@ proc trace_set_vars {varname idxname op} {
         }
       }
     }
-  } elseif {$varname eq {file_chooser} && idxname eq {dirs}} {
+  } elseif {$varname eq {file_chooser} && $idxname eq {dirs}} {
     uplevel #0 {
       if {![info exists file_chooser(old_dirs)] ||
            $file_chooser(old_dirs) ne $file_chooser(dirs)} {
@@ -14579,4 +14568,17 @@ proc cadence_compat_sync {args} {
 }
 trace add variable cadence_compat write cadence_compat_sync
 cadence_compat_sync
+
+
+# FIXME (Issue 0041): Tcl_SplitList corrupts the stack on Tcl 9 causing segfaults.
+# Wrap the xschem command to intercept and drop update_net_hilight_style calls.
+if {[info tclversion] >= 9.0} {
+  if {[info commands original_xschem_issue41] eq ""} {
+    rename xschem original_xschem_issue41
+    proc xschem {args} {
+      if {[lindex $args 0] eq "update_net_hilight_style"} { return }
+      uplevel 1 [list original_xschem_issue41 {*}$args]
+    }
+  }
+}
 

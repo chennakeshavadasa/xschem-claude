@@ -21,7 +21,7 @@ proc lb_pick {lb txt handler} {
   eval $handler
 }
 
-set repo [file normalize [file join [pwd] ..]]
+set repo [pwd]
 set ::XSCHEM_LIBRARY_DEFS [file join $repo xschem_libraries_oa library.defs]
 
 library_manager
@@ -65,6 +65,7 @@ check "GUI7 current_cell resolves selection" [expr {[libmgr::current_cell] eq {e
 
 # GUI8 — "New window" on: each opened cell gets its own window/tab
 set libmgr::new_window 1
+lb_pick $cellLb nand2 libmgr::on_cell; libmgr::open_view  ;# make sure not untitled
 set n0 [xschem get ntabs]
 lb_pick $cellLb cmos_inv libmgr::on_cell; libmgr::open_view
 set n1 [xschem get ntabs]

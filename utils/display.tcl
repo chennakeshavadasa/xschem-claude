@@ -12,5 +12,7 @@ set new_styles {
 
 net_hilight_style_merge $new_styles
 
-xschem update_net_hilight_style       ;# REQUIRED — the variable alone has no effect
+# xschem update_net_hilight_style       ;# REQUIRED — the variable alone has no effect
+# FIXME: (Issue 0041) Tcl_SplitList corrupts stack in Tcl 9 causing segfaults.
+# Disabled until hilight.c is updated for Tcl 9 compatibility.
 

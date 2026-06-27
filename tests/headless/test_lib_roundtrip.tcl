@@ -23,7 +23,7 @@ proc slurp {f} { set fp [open $f r]; set d [read $fp]; close $fp; return $d }
 set tmp [file join [pwd] _rt_test_[pid]]
 file delete -force $tmp
 file mkdir $tmp/tlib/myres/symbol
-file copy [file join [pwd] ../xschem_library/devices/res.sym] $tmp/tlib/myres/symbol/myres.sym
+file copy [file join [pwd] xschem_library/devices/res.sym] $tmp/tlib/myres/symbol/myres.sym
 set defs [file join $tmp library.defs]
 set fp [open $defs w]; puts $fp "DEFINE tlib $tmp/tlib"; close $fp
 set ::XSCHEM_LIBRARY_DEFS $defs

@@ -32,7 +32,7 @@ proc body {text} {
   return [lsort $out]
 }
 
-set repo [file normalize [file join [pwd] ..]]
+set repo [pwd]
 set OA   [file join $repo xschem_libraries_oa]
 set FLAT [file join $repo xschem_library]
 set MIGRATED {devices examples ngspice ngspice_verilog_cosim logic xschem_simulator
@@ -64,7 +64,14 @@ check "P3 refs lib-qualified" [expr {[file isfile $cm] && [regexp {C \{devices/n
 
 # --- P4 — netlist-equivalence sweep over every migrated schematic ------------
 set oadirs {};   foreach d [glob -nocomplain -type d $OA/*]   { lappend oadirs $d }
-set flatdirs {}; foreach d [glob -nocomplain -type d $FLAT/*] { lappend flatdirs $d }
+set flatdirs {}
+foreach d [glob -nocomplain -type d $FLAT/*] { 
+  if {[string match *import* $d]} continue
+  lappend flatdirs $d 
+}
+foreach d [glob -nocomplain -type d $FLAT/*import*] {
+  lappend flatdirs $d
+}
 # the intended deployment: the migrated registry (library.defs) resolves the
 # migrated libs (lib-qualified refs -> oa), while the flat search path still
 # covers the libraries deliberately left flat (generators, inst_sch_select, ...).
@@ -73,6 +80,7 @@ proc netlist_body {sch defs dirs outdir} {
   file delete -force $outdir; file mkdir $outdir
   set ::XSCHEM_LIBRARY_DEFS $defs
   set ::pathlist $dirs
+  set ::XSCHEM_LIBRARY_PATH [join $dirs :]
   set ::netlist_dir $outdir
   xschem set netlist_type spice
   if {[catch {xschem load $sch}]} { return "<loadfail>" }

@@ -54,6 +54,8 @@ is_pass() {
     test_lib_new_discovered_defs)
       # This test prints "RESULT: all passed" (lowercase) instead of "RESULT: ALL PASS"
       [[ "$output" == *"RESULT: all passed"* ]] && return 0 ;;
+    test_nogui)
+      [[ "$output" == *"NOGUI_TEST_PASS"* ]] && return 0 ;;
     *)
       [[ "$output" == *"RESULT: ALL PASS"* ]] && return 0 ;;
   esac
@@ -74,6 +76,8 @@ for testfile in "$TESTDIR"/test_*.tcl; do
     fi
   elif needs_nolog "$name"; then
     CMD=(timeout $TIMEOUT "$XSCHEM" --pipe -q --nolog --script "$testfile")
+  elif [[ "$name" == "test_nogui" ]]; then
+    CMD=(timeout $TIMEOUT "$XSCHEM" --pipe -q --nolog --nogui --script "$testfile")
   else
     CMD=(timeout $TIMEOUT "$XSCHEM" --pipe -q --nolog --script "$testfile")
   fi
