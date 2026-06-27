@@ -165,7 +165,7 @@ single instance, edits the one global table.
   + sabotage-verified — a "table unchanged" check alone is hollow since `nhse_assemble_table` already
   skips the free row).
 
-### Slice 7 — per-row ops (Move ↑/↓, Delete, Duplicate) + enable/disable
+### Slice 7 — per-row ops (Move ↑/↓, Delete, Duplicate) + enable/disable — STATUS: DONE (`96732d1f`)
 **Goal:** reorder/remove/clone a table row, buttons gated on table-row focus.
 - Track `nhse_focus_row` via `<FocusIn>` (table rows only; the free row clears it / disables ops).
 - Move↑/↓: swap with neighbour → `net_hilight_style_replace`. Delete: `net_hilight_style_remove`.
@@ -174,6 +174,14 @@ single instance, edits the one global table.
 - **RED-first tests (GUI):** each op yields the expected renumbered table; Duplicate puts the clone at
   focus+1 and shifts the rest; buttons disabled while the free row holds focus.
 - **Done-when:** ops chain (focus follows the moved/duplicated row) and respect the enable rule.
+- **Built:** `.nhse.ops` bar (Move Up/Down, Delete, Duplicate) pinned bottom. `nhse_op_target` =
+  focused integer table row (free row "new" → {} → ops disabled). `nhse_ops_enable_state` greys all
+  unless a table row has focus + greys Move Up on row 0 / Move Down on last (boundary moves no-op);
+  wired into `nhse_focus_set` + `nhse_rebuild`. Ops route through replace/remove (renumber); Duplicate
+  = `linsert` copy below. `nhse_focus_after_op` moves focus to the moved/clone/clamped row so the
+  preview follows + ops chain. Test `tests/headless/test_nh_editor_rowops.tcl` (GUI, 16 checks;
+  focus-follow sabotage-verified). NOTE for slice 8: pack the OK/Apply bar `-side bottom -before
+  .nhse.ops` so it sits below the ops bar.
 
 ### Slice 8 — OK / Apply / Save… / Cancel, snapshot-revert, located save + warning + CIW echo
 **Goal:** the commit/persist surface and the no-silent-write guarantee.
