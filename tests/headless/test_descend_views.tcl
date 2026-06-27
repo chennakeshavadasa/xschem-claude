@@ -20,8 +20,10 @@ proc norm {p} { return [file normalize $p] }
 # cmos_inv.{sym,sch} is a real type=subcircuit cell, reused as the cell bodies.
 set tmp [file join [pwd] _desc_test_[pid]]
 file delete -force $tmp
-set SYMSRC [file join [pwd] ../xschem_library/examples/cmos_inv.sym]
-set SCHSRC [file join [pwd] ../xschem_library/examples/cmos_inv.sch]
+set testdir [file dirname [file normalize [info script]]]
+set rootdir [file dirname [file dirname $testdir]]
+set SYMSRC [file join $rootdir xschem_library/examples/cmos_inv.sym]
+set SCHSRC [file join $rootdir xschem_library/examples/cmos_inv.sch]
 file mkdir $tmp/tlib/sub/symbol   $tmp/tlib/sub/schematic
 file mkdir $tmp/tlib/other/symbol $tmp/tlib/other/schematic
 file mkdir $tmp/flatlib
