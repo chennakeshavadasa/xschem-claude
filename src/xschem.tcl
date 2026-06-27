@@ -895,8 +895,10 @@ proc nhse_build_row {body i row {idxlabel {}}} {
   set ::nhse_v($i,6) [nhse_march_to_disp [lindex $row 6]]
   if {$idxlabel eq {}} { set idxlabel $i }
 
+  # cells are GRIDDED into columns 0..7 (sticky w); nhse_align_columns then sizes each column to the
+  # widest cell across the header + all rows, so the header labels sit exactly over their columns.
   label $rf.c0 -width 4 -anchor w -relief flat -text $idxlabel
-  pack $rf.c0 -side left -padx 1
+  grid $rf.c0 -row 0 -column 0 -sticky w -padx 1
 
   frame $rf.c1                                              ;# color: swatch + editable combobox
   label $rf.c1.sw -width 2 -relief solid -borderwidth 1
@@ -904,11 +906,11 @@ proc nhse_build_row {body i row {idxlabel {}}} {
   pack $rf.c1.sw $rf.c1.cb -side left -padx 1
   bind $rf.c1.cb <<ComboboxSelected>> [list nhse_color_selected $i]
   bind $rf.c1.cb <Return> [list nhse_cell_commit $i] ; bind $rf.c1.cb <FocusOut> [list nhse_cell_commit $i]
-  pack $rf.c1 -side left -padx 1
+  grid $rf.c1 -row 0 -column 1 -sticky w -padx 1
 
   spinbox $rf.c2 -width 5 -from 1 -to 100 -textvariable ::nhse_v($i,2) -command [list nhse_cell_commit $i]
   bind $rf.c2 <Return> [list nhse_cell_commit $i] ; bind $rf.c2 <FocusOut> [list nhse_cell_commit $i]
-  pack $rf.c2 -side left -padx 1
+  grid $rf.c2 -row 0 -column 2 -sticky w -padx 1
 
   frame $rf.c3                                              ;# dash: entry + examples dropdown
   entry $rf.c3.e -width 7 -textvariable ::nhse_v($i,3)
@@ -916,23 +918,23 @@ proc nhse_build_row {body i row {idxlabel {}}} {
   pack $rf.c3.e $rf.c3.ex -side left -padx 1
   bind $rf.c3.e <Return> [list nhse_dash_changed $i] ; bind $rf.c3.e <FocusOut> [list nhse_dash_changed $i]
   bind $rf.c3.ex <<ComboboxSelected>> [list nhse_dash_apply_example $i]
-  pack $rf.c3 -side left -padx 1
+  grid $rf.c3 -row 0 -column 3 -sticky w -padx 1
 
   scale $rf.c4 -from 0 -to 45 -orient horizontal -length 70 -showvalue 1 -resolution 1 -variable ::nhse_v($i,4)
   bind $rf.c4 <ButtonRelease-1> [list nhse_cell_commit $i]
-  pack $rf.c4 -side left -padx 1
+  grid $rf.c4 -row 0 -column 4 -sticky w -padx 1
 
   entry $rf.c5 -width 8 -textvariable ::nhse_v($i,5)
   bind $rf.c5 <Return> [list nhse_cell_commit $i] ; bind $rf.c5 <FocusOut> [list nhse_cell_commit $i]
-  pack $rf.c5 -side left -padx 1
+  grid $rf.c5 -row 0 -column 5 -sticky w -padx 1
 
   ttk::combobox $rf.c6 -width 8 -state readonly -textvariable ::nhse_v($i,6) -values {Off Forward Reverse}
   bind $rf.c6 <<ComboboxSelected>> [list nhse_cell_commit $i]
-  pack $rf.c6 -side left -padx 1
+  grid $rf.c6 -row 0 -column 6 -sticky w -padx 1
 
   entry $rf.c7 -width 6 -textvariable ::nhse_v($i,7)
   bind $rf.c7 <Return> [list nhse_cell_commit $i] ; bind $rf.c7 <FocusOut> [list nhse_cell_commit $i]
-  pack $rf.c7 -side left -padx 1
+  grid $rf.c7 -row 0 -column 7 -sticky w -padx 1
 
   pack $rf -side top -fill x -anchor w
   nhse_update_swatch $i
@@ -940,6 +942,33 @@ proc nhse_build_row {body i row {idxlabel {}}} {
   # field focus on any cell makes the shared preview (slice 5) mirror this row, live edits included
   foreach cell [list $rf.c1.cb $rf.c2 $rf.c3.e $rf.c3.ex $rf.c4 $rf.c5 $rf.c6 $rf.c7] {
     bind $cell <FocusIn> [list nhse_focus_set $i]
+  }
+}
+
+# Align the header, the pinned free row and every table row into one set of columns: size each grid
+# column to the widest cell across all of them (its reqwidth) and apply that as a fixed minsize on
+# every row's grid, so a header label always sits exactly over its column whatever heterogeneous
+# widget the body cell holds. Re-run after each rebuild (the table rows are recreated).
+proc nhse_align_columns {} {
+  set masters {}
+  foreach m {.nhse.tbl.head .nhse.tbl.free.rnew} { if {[winfo exists $m]} { lappend masters $m } }
+  if {[winfo exists .nhse.tbl.sf.body]} {
+    foreach r [winfo children .nhse.tbl.sf.body] { lappend masters $r }
+  }
+  if {![llength $masters]} return
+  # +2 for the cells' -padx 1 (each side): a column with the widest cell ends up reqwidth+2*padx wide,
+  # so the minsize must include that padx or the header column (whose label is narrower) falls short
+  # and the columns drift right by 2px each.
+  for {set c 0} {$c < 8} {incr c} {
+    set mx 1
+    foreach m $masters {
+      if {[winfo exists $m.c$c]} {
+        set rw [winfo reqwidth $m.c$c]
+        if {$rw > $mx} { set mx $rw }
+      }
+    }
+    incr mx 2
+    foreach m $masters { catch { grid columnconfigure $m $c -minsize $mx } }
   }
 }
 
@@ -971,6 +1000,8 @@ proc nhse_rebuild {} {
   catch { nhse_refresh_over_range }
   catch { nhse_ops_enable_state }
   catch { nhse_bind_wheel_tree .nhse.tbl.sf }   ;# (re)bind wheel scroll on the recreated row widgets
+  update idletasks
+  catch { nhse_align_columns }                  ;# header labels over their columns (needs reqwidths)
   update idletasks
   catch { .nhse.tbl.sf configure -scrollregion [.nhse.tbl.sf bbox all] }
   catch { nhse_preview_paint }
@@ -1442,13 +1473,14 @@ proc net_hilight_style_editor { {topwin {}} } {
   frame $t
   pack $t -side top -fill both -expand 1 -padx 4 -pady 4
 
-  # fixed header row (same per-column widths as the body rows => columns align)
+  # fixed header row, gridded into the same columns as the body rows; nhse_align_columns sizes each
+  # column to its widest cell so every header label sits directly over its column.
   frame $t.head
   pack $t.head -side top -fill x -anchor w
   foreach col [nhse_columns] {
     lassign $col hdr wdt fld
-    label $t.head.c$fld -width $wdt -anchor w -relief flat -text $hdr
-    pack $t.head.c$fld -side left -padx 1
+    label $t.head.c$fld -anchor w -relief flat -text $hdr
+    grid $t.head.c$fld -row 0 -column $fld -sticky w -padx 1
   }
 
   # free-to-edit row (NEW): compose a style with the same widgets, then Add/Overwrite it via Update.
