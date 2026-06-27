@@ -1405,6 +1405,79 @@ proc nhse_cancel {} {
 # Reset to defaults -- discard customization, re-derive the layer default (itself a savable state).
 proc nhse_reset {} { net_hilight_style_reset ; nhse_rebuild }
 
+# ---- slice 9: Load... -- read a saved/similar styles file INTO the editor (Replace / Add) ----------
+# Companion to Save... Save... writes a stand-alone, *sourceable* file; Load... brings such a file (the
+# same one, or a similar saved/shared/hand-edited one) back into the editor for review. It must NOT
+# source the file: sourcing would run the file's `catch {xschem update_net_hilight_style}` (a LIVE
+# apply, bypassing the staged review) and any other -- possibly dangerous -- lines. So Load PARSES the
+# file for just the style table value and STAGES it (apply=0); nothing reaches the schematic until
+# Apply/OK (and Cancel/x discards it, since Load is a staged edit like any other). See spec §8.5.
+
+# Master no-op aliased to `xschem` inside the safe child interp, so the Save file's
+# `catch {xschem update_net_hilight_style}` (or a bare `xschem ...`) does nothing.
+proc nhse_load_noop {args} {}
+
+# Extract ONLY the net_hilight_style table value from $path, with ZERO side effects on the live tool.
+# Mechanism: evaluate the file in a safe child interp (interp create -safe) -- which has no
+# open/exec/source/socket/file/glob/cd/load/exit (those commands are hidden, so any dangerous line is
+# INERT: it errors instead of acting) while the harmless builtins a Save file needs (set/catch/list/
+# lappend/lset/expr) remain -- with `xschem` aliased to a no-op. Then read back the child's
+# net_hilight_style and delete the child. Returns the RAW list of rows (the staged mutators normalize
+# on stage), or {} if the file had no net_hilight_style assignment / could not be read.
+proc nhse_parse_style_file {path} {
+  if {[catch {open $path r} fd]} { return {} }
+  set contents [read $fd]
+  close $fd
+  set ip [interp create -safe]
+  $ip alias xschem nhse_load_noop          ;# the file's `xschem ...` calls become no-ops in the child
+  catch { $ip eval $contents }             ;# dangerous lines error harmlessly; the table `set` survives
+  set rows {}
+  catch { set rows [$ip eval {set net_hilight_style}] }
+  interp delete $ip
+  return $rows
+}
+
+# Stage the loaded rows into the editor, factored out so a test can pass the mode directly (rather than
+# driving a modal). mode = replace (the table BECOMES the rows) | add (rows appended at the end,
+# renumbered). Both go through the SAME staged (apply=0) mutators every other edit uses; nothing reaches
+# the schematic until Apply/OK. Reports the loaded count on the CIW.
+proc nhse_load_apply {rows mode} {
+  if {$mode eq {replace}} {
+    net_hilight_style_replace $rows 0
+  } else {
+    net_hilight_style_append $rows 0
+  }
+  nhse_rebuild
+  catch { ciw_echo "# net highlight styles loaded ([string totitle $mode]): [llength $rows] row(s)" }
+}
+
+# Ask Replace vs Add (a small 3-button chooser). Returns replace | add | {} (Cancel). Factored out so
+# tests can stub it and pass the mode deterministically (nhse_load drives only the file pick + chooser).
+proc nhse_load_chooser {} {
+  set r [tk_dialog .nhse_loadmode {Load net highlight styles} \
+           "Replace the current table with the loaded styles, or add them to the end of it?" \
+           question 0 Replace Add Cancel]
+  switch -- $r { 0 { return replace } 1 { return add } default { return {} } }
+}
+
+# Load... button: pick a file, parse the table out (never source it), choose Replace/Add, stage it.
+proc nhse_load {} {
+  global USER_CONF_DIR
+  set path [tk_getOpenFile -parent .nhse -initialdir $USER_CONF_DIR -title {Load net highlight styles}]
+  if {$path eq {}} return
+  set rows [nhse_parse_style_file $path]
+  if {[llength $rows] == 0} {
+    catch { ciw_echo "# no net highlight styles found in {$path}" }
+    catch { tk_messageBox -parent .nhse -type ok -icon warning -title {No styles} \
+              -message "No net highlight styles found in:\n$path\n\n(The file was parsed, not sourced,\
+ so nothing was applied.)" }
+    return
+  }
+  set mode [nhse_load_chooser]
+  if {$mode eq {}} return       ;# Cancel
+  nhse_load_apply $rows $mode
+}
+
 # ---- mouse-wheel scrolling: the table scrolls on a wheel ANYWHERE over it, not only on the scrollbar
 # (user feedback), except over a combobox so an open dropdown keeps its own wheel scroll.
 proc nhse_wheel {n} { if {[winfo exists .nhse.tbl.sf]} { .nhse.tbl.sf yview scroll $n units } }
@@ -1464,10 +1537,12 @@ proc net_hilight_style_editor { {topwin {}} } {
   button $w.btns.reset  -text {Reset to defaults} -command nhse_reset
   button $w.btns.ok     -text {OK}       -command nhse_ok
   button $w.btns.apply  -text {Apply}    -command nhse_apply
+  button $w.btns.load   -text {Load...}  -command nhse_load
   button $w.btns.save   -text {Save...}  -command nhse_save
   button $w.btns.cancel -text {Cancel}   -command nhse_cancel
   pack $w.btns.reset -side left -padx 4
-  pack $w.btns.cancel $w.btns.save $w.btns.apply $w.btns.ok -side right -padx 4
+  # right side packs in reverse, so the visible L->R order is: OK Apply Load... Save... Cancel
+  pack $w.btns.cancel $w.btns.save $w.btns.load $w.btns.apply $w.btns.ok -side right -padx 4
 
   set t $w.tbl
   frame $t
