@@ -2818,12 +2818,23 @@ int net_hilight_ctx_gesturing(void)
 
 /* True iff the current window should be running the animation tick: animation globally
  * enabled, on-screen, not mid-gesture, and >=1 highlighted net/instance uses an animating
- * style. Drives `xschem get net_hilight_animated` and the Tcl start/stop logic. */
+ * style. Drives `xschem get net_hilight_animated` and the Tcl start/stop logic.
+ *
+ * Gating uses net_hilight_ctx_gesturing() (a real rubber-band gesture), NOT the semaphore-inclusive
+ * net_hilight_ctx_busy(): this is a "should the tick RUN?" question, not "is it safe to DRAW a frame
+ * right now?". net_hilight_anim_update() — the C re-arm called after every highlight/style change —
+ * almost always runs from INSIDE a GUI callback(), which holds xctx->semaphore for the whole event
+ * (callback.c). If this predicate counted that held semaphore as busy it would answer 0, so the Tcl
+ * net_hilight_anim_update would CANCEL the tick instead of arming it, and interactively highlighting a
+ * blinking/marching net (key 'k', or the verb-noun '9' click) would freeze the animation until a later
+ * semaphore-free re-arm on a schematic-level switch. The frame-draw safety (don't paint mid-callback)
+ * stays in draw_hilight_region, which keeps the semaphore-inclusive net_hilight_ctx_busy() and merely
+ * skips that frame (returns 2 = keep ticking) rather than stopping. */
 int net_hilight_has_animation(void)
 {
   if(!has_x || !xctx->hilight_nets) return 0;
   if(!tclgetboolvar("net_hilight_animate")) return 0;
-  if(net_hilight_ctx_busy()) return 0;
+  if(net_hilight_ctx_gesturing()) return 0;
   return scan_animating_hilights(0.0, NULL, NULL, NULL, NULL, NULL, NULL, NULL) > 0;
 }
 
