@@ -52,3 +52,17 @@ config.h
 # autosave backup files (cellName~.sch / ~.sym) -- never tracked
 *~.sch
 *~.sym
+
+# test temp directories (created by headless test runs in repo root)
+_mkinst_*/
+_nhepersist_*/
+_nhefs_*/
+_nhetable_*/
+_nhealign_*/
+_nheflush_*/
+_nherowops_*/
+_nhefree_*/
+_nhealn_*/
+_desc_test_*/
+test_sweep_diff/
+full_audit.sh
