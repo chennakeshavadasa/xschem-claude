@@ -47,11 +47,16 @@ color dropdown sourced from **rgb.txt**, multi-word names stored single-token Ca
 · **blink & march speed = entry fields** with unit labels (only **angle** is a slider) · **dash =
 text entry + examples dropdown that fills it** · **one shared** animated-canvas preview following the
 focused row · free-row action = **Add / Overwrite(row # spinbox)** · per-row **Move↑/↓ Delete
-Duplicate** enabled only when a table row has focus · buttons **OK/Apply/Save…/Cancel**, **WM ✕ =
-Cancel** (revert to open-time snapshot) · **live-apply always**; harmless **seen flag auto-persists**
+Duplicate** enabled only when a table row has focus · buttons **OK/Apply/Load…/Save…/Cancel**, **WM ✕ =
+Cancel** (revert to open-time snapshot) · harmless **seen flag auto-persists**
 to `~/.xschem/net_hilight_editor_seen`; the **style table writes only via explicit located Save…**
 (warn + `ciw_echo` the `xschem --script {path}` line when path ≠ the auto-load file) · non-modal,
 single instance, edits the one global table.
+
+**Superseded post-implementation (2026-06-26, requester feedback — spec §8.1/§8.5):** **STAGED apply**
+(NOT live-apply — edits restage with `apply=0`; Apply/OK push live via `nhse_apply_live`; Reset is the
+lone live exception) · **Load…** companion to Save… = **parse, never source** (safe child interp,
+`xschem` no-op'd), **Replace or Add**, staged (slice 9).
 
 ---
 
@@ -207,12 +212,58 @@ single instance, edits the one global table.
   sabotage-verified). Also folded in a user-feedback fix commit `a36f656e` (Help button, readable
   literal-pattern dash dropdown, always-visible Overwrite Row #).
 
-### Slice 9 — acceptance + polish + docs
+### Post-slice-8 (already done, not original slices) — staged model + feedback fixes
+Folded in after slice 8 from requester feedback (commits on `fluid-editing`): **staged commit model**
+(`b0c75ca3` — edits restage with `apply=0`, Apply/OK push live via `nhse_apply_live`, supersedes spec
+§8.1 live-apply); **Help button + readable literal-pattern dash dropdown + always-visible Overwrite
+Row #** (`a36f656e`); **flush typed-but-not-committed edits on Apply/OK/Save/ops + mouse-wheel scroll**
+(`b9bbbc40`); **grid header/column alignment** (`f19a40b5`). Slice 9 (Load) builds directly on the
+staged `apply=0` mutators.
+
+### Slice 9 — Load… (parse a styles file INTO the editor; Replace / Add) — RED-first, one commit
+**Goal:** a Load… companion to Save… that brings a saved/similar file *into* the editor without
+sourcing it, staged like every edit (spec §8.5). **Builds on the staged `apply=0` mutators.**
+- **`proc nhse_parse_style_file {path}` → list-of-rows | `{}`** (pure, headless-testable — no Tk):
+  read the file; `set ip [interp create -safe]`; `$ip alias xschem nhse_load_noop` (a master no-op so
+  `catch {xschem …}` / a bare `xschem …` does nothing); `catch {$ip eval $contents}`; then
+  `catch {set rows [$ip eval {set net_hilight_style}]}`; `interp delete $ip`. Return `{}` if no
+  `net_hilight_style` was set. (Safe interp hides `open`/`exec`/`source`/`file`/`glob`/`cd`/`load`/
+  `exit`, so any dangerous line is inert; `set`/`catch`/`list`/`lappend`/`lset`/`expr` remain.)
+  Do **not** normalize here — return raw rows; the staged mutators normalize on stage.
+- **`proc nhse_load {}`** (the button): `tk_getOpenFile -parent .nhse -initialdir $USER_CONF_DIR`;
+  if cancelled, return. `set rows [nhse_parse_style_file $path]`. If `{}` → `tk_messageBox` + `ciw_echo`
+  "no net highlight styles found in {$path}", no change. Else ask **Replace / Add** (a small chooser —
+  start with a `tk_messageBox`-style 3-button dialog **[Replace] [Add] [Cancel]**, or a mode dropdown
+  beside the button; pick one and note it): Replace → `net_hilight_style_replace $rows 0`; Add →
+  `net_hilight_style_append $rows 0`. Then `nhse_rebuild`; `ciw_echo` the loaded count. **Stays
+  staged** — Apply/OK push live, Cancel/✕ revert to the open-time snapshot.
+- **Button:** add `.nhse.btns.load` to the bottom bar between Apply and Save… (pack order
+  L→R: OK Apply Load… Save… Cancel; pack right side: cancel, save, load, apply, ok).
+- **RED-first tests** `tests/headless/test_nh_editor_load.tcl`:
+  - (headless) `write_net_hilight_style_conf $tmp` then `nhse_parse_style_file $tmp` returns rows
+    equal to the saved table; a file with no `net_hilight_style` → `{}`.
+  - (headless, SAFETY) a styles file that also writes a sentinel via a dangerous path — e.g. a line
+    `set ::nhse_pwned 1` is harmless but a `file mkdir`/`exec touch <sentinel>` must NOT create the
+    sentinel, and a bare `xschem update_net_hilight_style` must NOT fire (wrap `xschem` to count — 0);
+    `nhse_parse_style_file` still returns the table. Assert the sentinel side effect did NOT happen.
+  - (GUI) Load Replace → editor table becomes the file's rows (staged, `apply=0` ⇒ no live update —
+    count via the `xschem` wrapper as in `test_nh_editor_staged.tcl`); Load Add → appended +
+    renumbered; the Load… button exists; "no styles" path leaves the table unchanged.
+  - Drive the Replace/Add choice deterministically (factor the chooser so the test can pass the mode,
+    not click a modal) — e.g. `nhse_load_apply {rows mode}` does the stage, `nhse_load` only does the
+    file pick + chooser + calls it.
+- **Done-when:** Save→Load round-trips the table; Replace/Add behave; a dangerous line in the file is
+  inert and Load never touches the live session (only Apply/OK do); sabotage-verify the safety test
+  (e.g. temporarily source-instead-of-parse ⇒ sentinel appears / live update fires ⇒ test FAILS).
+
+### Slice 10 — acceptance + polish + docs
 - End-to-end acceptance (2-process where possible): open editor, add a marching style, Save to a temp
   dir, restart with `--script <that file>`, confirm the table is present and a net renders with it
   (sample via `net_hilight_dump_pixmap`/`net_hilight_test_now`). Confirm a fresh `$USER_CONF_DIR`
-  marker makes the palette un-emphasize permanently.
-- Update `specs/net_hilight_styles.md` cross-ref + FAQ; mark this plan DONE per slice.
+  marker makes the palette un-emphasize permanently. Round-trip **Save→Load** end-to-end (Save a
+  table, edit it, Load the saved file with Replace → table restored).
+- Update `specs/net_hilight_styles.md` cross-ref + FAQ (incl. the staged model + Load); mark this plan
+  DONE per slice.
 
 ---
 
@@ -222,8 +273,14 @@ single instance, edits the one global table.
   -foreground`. Don't reintroduce a font/bold path.
 - **Multi-word rgb.txt names corrupt the row** (a Tcl list): always store single-token CamelCase or
   hex; the parser must prefer the no-space variant rgb.txt provides on the same RGB line.
-- **Live-apply via `replace` renumbers** — never persist a user-typed `index`; the spec's `index ==
-  position` invariant is owned by the procs. Read index as display-only.
+- **Staging via `replace` (apply=0) renumbers** — never persist a user-typed `index`; the spec's
+  `index == position` invariant is owned by the procs. Read index as display-only. (The editor passes
+  `apply=0`; the live push happens only via `nhse_apply_live` on Apply/OK.)
+- **Load must PARSE, not `source`** (slice 9): never `source` the chosen file in the main interp —
+  use a `interp create -safe` child with `xschem` aliased to a no-op, read back its `net_hilight_style`,
+  delete the child. Sourcing would run the file's `catch {xschem update_net_hilight_style}` (live apply,
+  bypassing staging) and any dangerous lines. Sabotage-verify the safety test catches a source-instead-
+  of-parse regression (a sentinel side effect appears / a live update fires).
 - **Animation `after` leak:** the preview tick must self-cancel when `.nhse` is destroyed (bind
   `<Destroy>`), or it spins forever / errors on a dead canvas.
 - **Don't double-source / double-apply:** the startup load sets the var then calls
