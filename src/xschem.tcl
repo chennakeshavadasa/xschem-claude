@@ -12002,7 +12002,11 @@ proc set_tab_names {{mod {}}} {
       balloon .tabs$tabname $currsch
     }
     for { set i 0} { $i < $tctx::max_new_windows} { incr i} {
-      if { [winfo exists .tabs.x$i] && ($tabname ne ".x$i")} {
+      # tctx::tab_bg is set by C when the first extra tab button is created
+      # (scheduler.c).  If only real windows (no tab buttons) have been opened
+      # yet, the variable is unset.  Guard so set_tab_names never throws a
+      # "can't read tctx::tab_bg" error in that scenario. (issue 0043)
+      if { [info exists tctx::tab_bg] && [winfo exists .tabs.x$i] && ($tabname ne ".x$i")} {
          .tabs.x$i configure -background $tctx::tab_bg
       }
     }
