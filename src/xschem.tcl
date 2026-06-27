@@ -968,6 +968,7 @@ proc nhse_rebuild {} {
   set ::nhse_building 0
   catch { nhse_refresh_over_range }
   catch { nhse_ops_enable_state }
+  catch { nhse_bind_wheel_tree .nhse.tbl.sf }   ;# (re)bind wheel scroll on the recreated row widgets
   update idletasks
   catch { .nhse.tbl.sf configure -scrollregion [.nhse.tbl.sf bbox all] }
   catch { nhse_preview_paint }
@@ -1253,6 +1254,7 @@ proc nhse_focus_after_op {i} {
 proc nhse_op_move {dir} {
   set i [nhse_op_target]
   if {$i eq {}} return
+  nhse_flush
   set rows [net_hilight_style_current]
   set j [expr {$i + $dir}]
   if {$j < 0 || $j >= [llength $rows]} return
@@ -1267,6 +1269,7 @@ proc nhse_op_move {dir} {
 proc nhse_op_delete {} {
   set i [nhse_op_target]
   if {$i eq {}} return
+  nhse_flush
   net_hilight_style_remove [list $i]
   nhse_rebuild
   nhse_focus_after_op $i   ;# clamps to the new last row if we removed it
@@ -1276,6 +1279,7 @@ proc nhse_op_delete {} {
 proc nhse_op_duplicate {} {
   set i [nhse_op_target]
   if {$i eq {}} return
+  nhse_flush
   set rows [net_hilight_style_current]
   set rows [linsert $rows [expr {$i + 1}] [lindex $rows $i]]
   net_hilight_style_replace $rows
@@ -1305,9 +1309,16 @@ proc nhse_save_announce {path} {
   return 1
 }
 
+# Flush a field edit that is typed-but-not-yet-committed (no <FocusOut>/<Return> has fired) into the
+# live table, so Apply/OK/Save and the row ops act on what the user currently sees -- not the value as
+# of the last focus change. Each entry's -textvariable keeps ::nhse_v live, so nhse_commit captures
+# the in-progress edit. (A clicked button does not reliably fire the entry's <FocusOut> first.)
+proc nhse_flush {} { catch { nhse_commit } }
+
 # Save... -- the ONLY path that writes the style table to disk (everything else is live-only).
 proc nhse_save {} {
   global USER_CONF_DIR
+  nhse_flush
   set path [tk_getSaveFile -parent .nhse -initialdir $USER_CONF_DIR -initialfile net_hilight_style \
               -title {Save net highlight styles}]
   if {$path eq {}} return
@@ -1324,12 +1335,13 @@ proc nhse_save {} {
   }
 }
 
-# Apply -- force-(re)apply the current table to the running session and redraw; stay open. Live-apply
-# already runs on each commit, so this just recompiles the global table (the explicit, reassuring path).
-proc nhse_apply {} { catch { xschem update_net_hilight_style } }
+# Apply -- flush any in-progress field edit into the table and (re)apply it to the running session;
+# stay open. nhse_flush -> nhse_commit re-applies the whole table, so this is the explicit commit point
+# even when the user typed a value without tabbing out of the field first.
+proc nhse_apply {} { nhse_flush }
 
-# OK -- the state is already live; just close (no disk write, no revert).
-proc nhse_ok {} { catch { destroy .nhse } }
+# OK -- flush any in-progress edit, then close (the state is already live; no disk write, no revert).
+proc nhse_ok {} { nhse_flush ; catch { destroy .nhse } }
 
 # Cancel / WM-close -- revert the running session to the open-time snapshot, then close. Discards the
 # experiments made since the dialog opened (a Save... already written to disk is untouched).
@@ -1344,6 +1356,24 @@ proc nhse_cancel {} {
 
 # Reset to defaults -- discard customization, re-derive the layer default (itself a savable state).
 proc nhse_reset {} { net_hilight_style_reset ; nhse_rebuild }
+
+# ---- mouse-wheel scrolling: the table scrolls on a wheel ANYWHERE over it, not only on the scrollbar
+# (user feedback), except over a combobox so an open dropdown keeps its own wheel scroll.
+proc nhse_wheel {n} { if {[winfo exists .nhse.tbl.sf]} { .nhse.tbl.sf yview scroll $n units } }
+
+proc nhse_bind_wheel {w} {
+  bind $w <MouseWheel> { nhse_wheel [expr {%D > 0 ? -1 : 1}] ; break }   ;# Windows / macOS
+  bind $w <Button-4>   { nhse_wheel -1 ; break }                          ;# X11 wheel up
+  bind $w <Button-5>   { nhse_wheel  1 ; break }                          ;# X11 wheel down
+}
+
+# Bind the wheel on $w and all its descendants, skipping comboboxes (TCombobox) so their dropdown
+# scroll is preserved. Re-run after each rebuild since the row widgets are recreated.
+proc nhse_bind_wheel_tree {w} {
+  if {![winfo exists $w]} return
+  if {[winfo class $w] ne {TCombobox}} { nhse_bind_wheel $w }
+  foreach c [winfo children $w] { nhse_bind_wheel_tree $c }
+}
 
 proc net_hilight_style_editor { {topwin {}} } {
   global net_hilight_editor_seen net_hilight_style
@@ -1427,8 +1457,9 @@ proc net_hilight_style_editor { {topwin {}} } {
   ttk::separator $t.sep -orient horizontal
   pack $t.sep -side top -fill x -pady 3
 
-  # scrollable body: a canvas hosting an inner frame, plus a vertical scrollbar.
-  canvas $t.sf -highlightthickness 0 -height 240
+  # scrollable body: a canvas hosting an inner frame, plus a vertical scrollbar. A fixed
+  # -yscrollincrement makes each mouse-wheel notch scroll a consistent ~one-row step.
+  canvas $t.sf -highlightthickness 0 -height 240 -yscrollincrement 24
   scrollbar $t.vsb -orient vertical -command "$t.sf yview"
   $t.sf configure -yscrollcommand "$t.vsb set"
   pack $t.vsb -side right -fill y
