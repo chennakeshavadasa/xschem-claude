@@ -183,7 +183,7 @@ single instance, edits the one global table.
   focus-follow sabotage-verified). NOTE for slice 8: pack the OK/Apply bar `-side bottom -before
   .nhse.ops` so it sits below the ops bar.
 
-### Slice 8 — OK / Apply / Save… / Cancel, snapshot-revert, located save + warning + CIW echo
+### Slice 8 — OK / Apply / Save… / Cancel, snapshot-revert, located save + warning + CIW echo — STATUS: DONE (`a4b9bc7a`)
 **Goal:** the commit/persist surface and the no-silent-write guarantee.
 - On open: snapshot `net_hilight_style`. **Apply** = re-`replace` current + redraw (stay open).
   **OK** = close (state already live). **Cancel** and **WM ✕** = restore snapshot +
@@ -196,6 +196,16 @@ single instance, edits the one global table.
   (factor the path-compare into a pure proc and assert it + that `ciw_echo` got the exact line).
 - **Done-when:** no code path writes the style file except Save…; Cancel/✕ revert; located-save warns
   + echoes.
+- **Built:** `.nhse.btns` bar (Reset left; OK/Apply/Save…/Cancel right) packed `-side bottom -before
+  .nhse.ops`. Open snapshots the `net_hilight_style` global (`::nhse_snapshot`) + `wm protocol
+  WM_DELETE_WINDOW nhse_cancel`. `nhse_apply` = `update_net_hilight_style`; `nhse_ok` = close;
+  `nhse_cancel` (= ✕) = restore snapshot + update + close; `nhse_reset` = `net_hilight_style_reset` +
+  rebuild. `nhse_save` = `tk_getSaveFile` → `write_net_hilight_style_conf`; the path-compare
+  (`nhse_is_autoload_path`) and warn/echo decision (`nhse_save_announce`, returns 1 + echoes the exact
+  `xschem --script {path}` line when path ≠ auto-load) are pure procs for headless testing. Test
+  `tests/headless/test_nh_editor_buttons.tcl` (6 headless logic + 10 GUI; Cancel-revert
+  sabotage-verified). Also folded in a user-feedback fix commit `a36f656e` (Help button, readable
+  literal-pattern dash dropdown, always-visible Overwrite Row #).
 
 ### Slice 9 — acceptance + polish + docs
 - End-to-end acceptance (2-process where possible): open editor, add a marching style, Save to a temp
