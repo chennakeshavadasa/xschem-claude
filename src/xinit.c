@@ -1293,12 +1293,11 @@ static int source_tcl_file(char *s)
        {Tcl_AppInit() err 1: can not execute %s, please fix:\n%s\n}",
        s, tclresult());
     #endif
-    if(has_x) {
+    if(has_x && !cli_opt_quit) {
       tcleval( "wm withdraw .");
       tcleval( tmp);
-      Tcl_Exit(EXIT_FAILURE);
     }
-    return TCL_ERROR;
+    Tcl_Exit(EXIT_FAILURE);
   }
   return TCL_OK;
 }
@@ -3030,7 +3029,7 @@ int Tcl_AppInit(Tcl_Interp *inter)
  /*                               */
  if(!tclgetvar("XSCHEM_SHAREDIR")) {
    fprintf(errfp, "Tcl_AppInit() err 3: cannot find xschem.tcl\n");
-   if(has_x) {
+   if(has_x && !cli_opt_quit) {
      tcleval( "wm withdraw .");
      tcleval(
        "tk_messageBox -icon error -type ok -message \"Tcl_AppInit() err 3: xschem.tcl not found, "
@@ -3078,7 +3077,7 @@ int Tcl_AppInit(Tcl_Interp *inter)
  my_snprintf(name, S(name), "%s/%s", tclgetvar("XSCHEM_SHAREDIR"), "xschem.tcl");
  if(stat(name, &buf) ) {
    fprintf(errfp, "Tcl_AppInit() err 4: cannot find %s\n", name);
-   if(has_x) {
+   if(has_x && !cli_opt_quit) {
      tcleval( "wm withdraw .");
      tcleval(
        "tk_messageBox -icon error -type ok -message \"Tcl_AppInit() err 4: xschem.tcl not found, "
