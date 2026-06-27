@@ -11651,7 +11651,11 @@ proc toolbar_show { { topwin {} } } {
     }
     if {[winfo ismapped $topwin.toolbar]} {return}
     if { $toolbar_horiz } {
-        if {$tabbed_interface} {
+        # Secondary windows (.x1, .x2 …) never have their own $topwin.tabs widget;
+        # that only exists on the main window as the global .tabs frame.  Falling back
+        # to $topwin.drw as the "before" anchor keeps the toolbar visible and avoids
+        # "bad window path name .x1.tabs" every time a secondary window opens. (issue 0042)
+        if {$tabbed_interface && [winfo exists $topwin.tabs]} {
           pack $topwin.toolbar -fill x -before $topwin.tabs
         } else {
           pack $topwin.toolbar -fill x -before $topwin.drw
@@ -11989,9 +11993,14 @@ proc set_tab_names {{mod {}}} {
     set currsch [xschem get schname]
     regsub {\.drw} $currwin {} tabname
     if {$tabname eq {}} { set tabname .x0}
-    .tabs$tabname configure -text [file tail $currsch]$mod -background $tab_color
-    # puts ".tabs$tabname --> name=[file tail $currsch]$mod"
-    balloon .tabs$tabname $currsch
+    # A detached window (.x1, .x2 …) removes its tab button from .tabs on detach;
+    # set_tab_names is still called (e.g. via set_modify) while that window is current,
+    # so guard to avoid "invalid command name .tabs.x1". (issue 0042)
+    if {[winfo exists .tabs$tabname]} {
+      .tabs$tabname configure -text [file tail $currsch]$mod -background $tab_color
+      # puts ".tabs$tabname --> name=[file tail $currsch]$mod"
+      balloon .tabs$tabname $currsch
+    }
     for { set i 0} { $i < $tctx::max_new_windows} { incr i} {
       if { [winfo exists .tabs.x$i] && ($tabname ne ".x$i")} {
          .tabs.x$i configure -background $tctx::tab_bg
