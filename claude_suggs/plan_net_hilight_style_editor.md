@@ -142,7 +142,7 @@ single instance, edits the one global table.
   `nhse_commit`. Test `tests/headless/test_nh_editor_preview.tcl` (20 headless math + 7 GUI checks;
   G7 sabotage-verified to catch an orphaned `after`).
 
-### Slice 6 — free-to-edit row + Add/Overwrite + Update + separator
+### Slice 6 — free-to-edit row + Add/Overwrite + Update + separator — STATUS: DONE (`c1e8e725`)
 **Goal:** compose-and-commit a new/overwritten style.
 - Pinned top row (`NEW` label), same widget set, seeded from `net_hilight_style_default_row`.
 - Action `ttk::combobox` {Add, Overwrite}; when Overwrite, show a `row #` `spinbox` (0..N-1).
@@ -152,6 +152,18 @@ single instance, edits the one global table.
 - **RED-first tests (GUI):** Add appends a row equal to the composed style; Overwrite row#=1 changes
   only row 1; free-row values persist after Update.
 - **Done-when:** both actions behave per the §6 example; separator present.
+- **Built:** pinned `NEW` row (key "new", `.nhse.tbl.free.rnew`) built with the same `nhse_build_row`;
+  the per-row helpers now resolve the row's frame via `::nhse_rowpath` (set by the builder) so one
+  builder serves both the scrollable rows and the pinned free row. Free row is COMPOSE-ONLY:
+  `nhse_cell_commit` commits to the live table only for integer (table) keys; the free row's edits
+  never touch the table until Update. Action combobox {Add, Overwrite} + `Row #` spinbox
+  (`nhse_refresh_over_range`, shown only for Overwrite) + `Update` (`nhse_free_update`: Add→`append`,
+  Overwrite→`merge` with the composed row's index set to the #). `ttk::separator` `.nhse.tbl.sep`
+  divides the free row from the table. `nhse_rebuild` clears only integer-keyed vars
+  (`nhse_clear_table_rows`) so the free row survives + Update keeps its values. Test
+  `tests/headless/test_nh_editor_free.tcl` (GUI, 16 checks; the commit-guard check is commit-counter
+  + sabotage-verified — a "table unchanged" check alone is hollow since `nhse_assemble_table` already
+  skips the free row).
 
 ### Slice 7 — per-row ops (Move ↑/↓, Delete, Duplicate) + enable/disable
 **Goal:** reorder/remove/clone a table row, buttons gated on table-row focus.
