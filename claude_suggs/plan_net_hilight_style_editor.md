@@ -220,7 +220,7 @@ Row #** (`a36f656e`); **flush typed-but-not-committed edits on Apply/OK/Save/ops
 (`b9bbbc40`); **grid header/column alignment** (`f19a40b5`). Slice 9 (Load) builds directly on the
 staged `apply=0` mutators.
 
-### Slice 9 — Load… (parse a styles file INTO the editor; Replace / Add) — RED-first, one commit
+### Slice 9 — Load… (parse a styles file INTO the editor; Replace / Add) — STATUS: DONE (`04773bba`)
 **Goal:** a Load… companion to Save… that brings a saved/similar file *into* the editor without
 sourcing it, staged like every edit (spec §8.5). **Builds on the staged `apply=0` mutators.**
 - **`proc nhse_parse_style_file {path}` → list-of-rows | `{}`** (pure, headless-testable — no Tk):
@@ -255,6 +255,20 @@ sourcing it, staged like every edit (spec §8.5). **Builds on the staged `apply=
 - **Done-when:** Save→Load round-trips the table; Replace/Add behave; a dangerous line in the file is
   inert and Load never touches the live session (only Apply/OK do); sabotage-verify the safety test
   (e.g. temporarily source-instead-of-parse ⇒ sentinel appears / live update fires ⇒ test FAILS).
+- **Built (`04773bba`):** `nhse_parse_style_file` evaluates the file in a child `interp create -safe`
+  (open/exec/source/file/glob/cd/load/exit hidden → dangerous lines inert by capability) with `xschem`
+  aliased to the master no-op `nhse_load_noop`, reads back the child's `net_hilight_style`, deletes the
+  child; returns RAW rows (the staged mutators normalize on stage) or `{}` (no assignment / unreadable).
+  `nhse_load_apply {rows mode}` stages Replace→`net_hilight_style_replace $rows 0` / Add→`…_append
+  $rows 0` + `nhse_rebuild` + `ciw_echo` the count — factored so the test passes the mode (not a modal).
+  `nhse_load_chooser` = a `tk_dialog` [Replace] [Add] [Cancel]; `nhse_load` = `tk_getOpenFile` (init
+  `$USER_CONF_DIR`) → parse → (if `{}` → `tk_messageBox` + CIW "no … found", no change) → chooser →
+  apply. Button `.nhse.btns.load` packed between Apply and Save… (right side reverse-packs cancel save
+  load apply ok ⇒ visible L→R OK Apply Load… Save… Cancel). Test `tests/headless/test_nh_editor_load.tcl`
+  (8 headless A/B + 12 GUI). SAFETY (B2/B3/B4) **sabotage-verified**: replacing the safe-interp body
+  with `source $path` flips all three to FAIL (sentinel reaches main, evil dir+exec created, live update
+  fires). GREEN-BUT-HOLLOW guard reused: the staged "no live update" checks wrap the `xschem` COMMAND
+  (count `update_net_hilight_style`), not `nhse_apply_live`. Slices 1–8 + staged/feedback tests still green.
 
 ### Slice 10 — acceptance + polish + docs
 - End-to-end acceptance (2-process where possible): open editor, add a marching style, Save to a temp
