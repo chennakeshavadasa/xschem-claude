@@ -49,6 +49,11 @@ proc cadence::open_inst_sch_readonly {} {
   if {[xschem schematic_in_new_window force window] == 0} {
     ciw_echo "selected instance has no schematic view" error ; return
   }
+  # Arm the full-zoom backstop so the new window is not blank on WSLg / slow WMs.
+  # open_sub_schematic and hi_descend_newwin do the same (issue 0037 §5); omitting
+  # it here leaves Ctrl-Shift-N (new read-only window) blank until a manual F press.
+  set new_win [xschem get last_created_window]
+  catch { newwin_defer_fullzoom $new_win }
   xschem set readonly 1   ;# new window is now the current context
   ciw_echo "opened [xschem get schname] (read-only) in [xschem get current_win_path]"
 }
